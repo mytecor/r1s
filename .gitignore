@@ -1,0 +1,7 @@
+.cocoindex_code/
+.lycheecache
+bin/
+coverage.out
+
+# CocoIndex Code (ccc)
+/.cocoindex_code/
