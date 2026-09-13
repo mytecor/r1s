@@ -48,8 +48,9 @@ internal/transport/     transport boundary and RNS adapter
 internal/runtime/       runtime boundary and containerd adapter
 ```
 
-The protocol, allocator, transport contract and in-memory adapter, and runtime contract are present.
-The RNS and containerd production adapters are introduced by later milestones.
+The protocol, allocator, transport contract and in-memory adapter, runtime contract, and initial RNS
+adapter are present. Python-reference RNS interoperability and the containerd production adapter are
+introduced or completed by later milestone work.
 
 ## Commands
 
@@ -59,7 +60,7 @@ transport, runtime, and owner behavior remains in reusable packages.
 
 | Binary | Source | Purpose | Introduced by |
 | --- | --- | --- | --- |
-| `r1sd` | `cmd/r1sd/` | Long-running allocator service connected to RNS and the local OCI runtime | F2, completed by F3 |
+| `r1sd` | `cmd/r1sd/` | Long-running allocator service connected to RNS; uses an unavailable-runtime boundary until F3 | F2, completed by F3 |
 | `r1s` | `cmd/r1s/` | Owner CLI for request, list, inspect, cancel, and result operations | F4 |
 
 Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system

@@ -8,10 +8,10 @@ The name follows the same contraction pattern as Kubernetes → k8s: Reticulum N
 
 ## Status
 
-r1s has completed its transport-independent protocol foundation: the versioned wire schema,
-message validation, allocator state machine, runtime contract, replay protection, and deterministic
-in-memory transport are implemented and tested. The production RNS and containerd adapters remain
-planned work.
+r1s has completed its transport-independent protocol foundation. RNS transport work is in progress:
+the embedded Reticulum-Go adapter, authenticated sender replacement, allocator announces, and the
+initial `r1sd` entry point are implemented and covered by a two-node loopback test. Python-reference
+interoperability and the production containerd adapter remain planned work.
 
 ## Design principles
 
@@ -51,9 +51,23 @@ offer, avoiding speculative image pulls on every allocator that sees a request.
 
 ## Development
 
-The planned system binaries follow the standard Go command layout: `cmd/r1sd/` contains the
-allocator daemon and `cmd/r1s/` contains the owner CLI. They will be added by the milestones that
-introduce their runnable dependencies.
+System binaries follow the standard Go command layout. [`cmd/r1sd/`](./cmd/r1sd/) contains the
+initial allocator daemon; `cmd/r1s/` will contain the owner CLI when F4 introduces it.
+
+The initial allocator daemon can be run with an explicit Reticulum-Go configuration and persistent
+identity:
+
+```sh
+go run ./cmd/r1sd \
+  -rns-config ./reticulum.conf \
+  -identity ./r1sd.identity \
+  -capacity default=2,gpu=1
+```
+
+The daemon embeds Reticulum-Go; it does not require a separate Reticulum daemon. A UDP test pair can
+use `listen_ip`, `listen_port`, `target_host`, and `target_port` in two Reticulum configuration files
+with the listen and target ports swapped. `r1sd` runs as an endpoint, not an RNS routing transport,
+and keeps Reticulum transport state beside the configured service identity.
 
 Regenerate Go bindings after changing the Protobuf schema:
 

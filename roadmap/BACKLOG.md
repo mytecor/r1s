@@ -4,9 +4,11 @@ This file records unresolved choices so they do not remain implicit in implement
 
 ## Open decisions
 
-1. **Reticulum-Go pin and integration mode** — select a reviewed release or commit and decide whether
-   r1s embeds `pkg/node` or talks to a local daemon. The intended first choice is in-process Go, but
-   dependency provenance and upgrade policy must be fixed before adoption.
+1. **Reticulum-Go Channel upgrade** — F2 embeds the canonical Go module
+   `git.quad4.io/Networks/Reticulum-Go` at `v0.9.5`. The newer GitHub mirror release contains Channel
+   and node lifecycle fixes but is not published with consumable module metadata. Upgrade through the
+   canonical module path before declaring reliable retransmission and reconnect acceptance complete;
+   do not copy its internal dependencies into this repository.
 2. **Allocator persistence** — choose the durable store for offers, executions, replay IDs, and
    recovery metadata. SQLite is the leading local-only option.
 3. **Result contract** — define inline result limits, RNS Resource transfer, checksums, retention,
@@ -23,4 +25,3 @@ This file records unresolved choices so they do not remain implicit in implement
 - VM and microVM runtime adapters.
 - Multi-owner fairness and allocator-local admission policy.
 - Application-level event buses, agent hierarchy, and task decomposition.
-
