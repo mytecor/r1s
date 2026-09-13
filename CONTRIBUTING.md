@@ -5,7 +5,7 @@
 1. Read [ARCHITECTURE.md](./ARCHITECTURE.md) and the relevant feature task.
 2. Keep changes within the existing protocol, transport, allocator, and runtime boundaries.
 3. Add contract-focused tests when implementation begins.
-4. Run `make check` before submitting documentation changes.
+4. Run `make check` before submitting changes.
 5. Update the affected documentation and roadmap task status in the same change.
 
 ## Protocol changes
@@ -22,6 +22,13 @@ require a new package version such as `r1s.v2`.
 - Make handlers safe under duplicate delivery and concurrent callbacks.
 - Prefer explicit errors that callers can classify with `errors.Is`.
 - Run `gofmt`; generated files must not be edited manually once code generation is introduced.
+
+## Commands
+
+- Put every shipped executable in `cmd/<binary>/` using the standard Go project layout.
+- Keep `main` packages limited to configuration, dependency wiring, process lifecycle, and output.
+- Put reusable behavior in the appropriate non-command package and test it there.
+- The planned system binaries are `cmd/r1sd/` for the allocator service and `cmd/r1s/` for the owner CLI.
 
 ## Tests
 

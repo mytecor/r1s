@@ -1,6 +1,6 @@
 # F1-03 — Add deterministic transport
 
-**Status:** Planned
+**Status:** Complete
 
 ## Outcome
 

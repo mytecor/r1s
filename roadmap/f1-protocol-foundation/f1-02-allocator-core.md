@@ -1,6 +1,6 @@
 # F1-02 — Implement allocator transitions
 
-**Status:** Planned
+**Status:** Complete
 
 ## Outcome
 

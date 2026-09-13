@@ -38,7 +38,7 @@ flowchart LR
     Runtime --> Containerd
 ```
 
-The planned source boundaries are:
+The source boundaries are:
 
 ```text
 api/proto/r1s/v1/       versioned wire schema
@@ -48,7 +48,22 @@ internal/transport/     transport boundary and RNS adapter
 internal/runtime/       runtime boundary and containerd adapter
 ```
 
-These directories are architectural targets, not current implementation claims.
+The protocol, allocator, transport contract and in-memory adapter, and runtime contract are present.
+The RNS and containerd production adapters are introduced by later milestones.
+
+## Commands
+
+All executable entry points use the standard Go `cmd/<binary>/` layout. Command packages perform
+configuration, dependency wiring, process lifecycle, and presentation only; protocol, allocator,
+transport, runtime, and owner behavior remains in reusable packages.
+
+| Binary | Source | Purpose | Introduced by |
+| --- | --- | --- | --- |
+| `r1sd` | `cmd/r1sd/` | Long-running allocator service connected to RNS and the local OCI runtime | F2, completed by F3 |
+| `r1s` | `cmd/r1s/` | Owner CLI for request, list, inspect, cancel, and result operations | F4 |
+
+Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system
+binaries.
 
 ## Distributed authority
 

@@ -1,5 +1,7 @@
 # F1 — Protocol foundation
 
+**Status:** Complete
+
 ## Outcome
 
 A transport-independent Go core can validate control messages, reserve allocator capacity, assign
@@ -20,3 +22,10 @@ and cancel executions, and exercise message delivery without a live RNS network.
 - [F1-03 — Add deterministic transport](./f1-03-memory-transport.md)
 - [F1-04 — Complete protocol foundations](./f1-04-foundation-hardening.md)
 
+## Implementation
+
+- [`control.proto`](../../api/proto/r1s/v1/control.proto) is the versioned wire source of truth.
+- [`internal/protocol`](../../internal/protocol/) validates envelopes before domain mutation.
+- [`internal/allocator`](../../internal/allocator/) owns offers, capacity, replay state, and execution transitions.
+- [`internal/transport`](../../internal/transport/) provides the transport contract and deterministic memory adapter.
+- [`internal/runtime`](../../internal/runtime/) defines idempotent start, stop, and terminal callback behavior.

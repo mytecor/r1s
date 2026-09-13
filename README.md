@@ -8,9 +8,10 @@ The name follows the same contraction pattern as Kubernetes → k8s: Reticulum N
 
 ## Status
 
-r1s is currently a documentation and repository-infrastructure baseline. The architecture,
-protocol direction, milestones, and implementation tasks are defined, but production code and the
-wire schema have not been started yet.
+r1s has completed its transport-independent protocol foundation: the versioned wire schema,
+message validation, allocator state machine, runtime contract, replay protection, and deterministic
+in-memory transport are implemented and tested. The production RNS and containerd adapters remain
+planned work.
 
 ## Design principles
 
@@ -48,16 +49,28 @@ sequenceDiagram
 An offer reserves a bounded local slot. Workload start happens only after the owner selects that
 offer, avoiding speculative image pulls on every allocator that sees a request.
 
-## Repository checks
+## Development
 
-The current check verifies internal documentation links:
+The planned system binaries follow the standard Go command layout: `cmd/r1sd/` contains the
+allocator daemon and `cmd/r1s/` contains the owner CLI. They will be added by the milestones that
+introduce their runnable dependencies.
+
+Regenerate Go bindings after changing the Protobuf schema:
+
+```sh
+make generate
+```
+
+Generation requires `protoc` 36.0; the matching `protoc-gen-go` version is pinned in
+[go.mod](./go.mod) and built automatically.
+
+Run generated-code verification, race-enabled Go tests, and documentation link checks:
 
 ```sh
 make check
 ```
 
-Go 1.26.5 is recorded in [go.mod](./go.mod) as the initial language baseline. Build, generation,
-test, and release tooling will be added with the feature that first needs each tool.
+Go 1.26.5 is recorded in [go.mod](./go.mod) as the language baseline.
 
 ## Documentation
 
