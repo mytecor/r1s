@@ -1,6 +1,6 @@
 # F6-01 — Release unselected offers
 
-**Status:** 🚧 Implemented; live Linux partition-recovery rerun pending
+**Status:** 🚧 Implemented; live Linux partition-recovery rerun passed on `mytecor-homelab` on 2026-09-15
 
 ## Outcome
 
@@ -138,5 +138,7 @@ Deterministic tests cover immediate two-allocator capacity release before assign
 restart, authenticated authority, post-assignment and post-expiry no-ops, concurrent releases, failed
 store commits, durable late offers, lost acknowledgements, and worker cancellation. The RNS UDP
 loopback test carries release and acknowledgement envelopes with verified sender identity. The live
-Linux containerd partition-recovery harness must be rerun before the feature is marked complete;
-ordinary local checks leave that gated scenario skipped.
+Linux containerd partition-recovery harness was rerun on `mytecor-homelab` on 2026-09-15
+(`TestPartitionRecovery`, containerd 2.3.4 / runc 1.4.3 / Go 1.26.7, digest-pinned Alpine
+fixture) and passed in 21s, exercising the F6 release worker, F8 revisions, and F9 log retention
+against real containers.

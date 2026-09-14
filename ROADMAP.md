@@ -62,7 +62,7 @@ connectivity without duplicate execution or premature termination.
 The client explicitly releases every known unselected hard offer while offer expiry remains the
 partition-safe fallback.
 
-- **Status:** 🚧 implemented; live Linux acceptance rerun pending
+- **Status:** 🚧 implemented; live Linux partition-recovery rerun passed on `mytecor-homelab` (2026-09-15)
 - **Done when:** losing allocators release reserved capacity promptly without weakening assignment
   durability, authenticated authority, or duplicate-delivery safety.
 - **Depends on:** [F1](#f1-protocol-foundation), [F2](#f2-rns-transport),
@@ -91,7 +91,7 @@ partition-safe fallback.
 - The allocator retains bounded stdout/stderr locally, including after a task fails or the daemon restarts.
 - An execution owner can separately request a bounded range of locally retained logs.
 
-- **Status:** 🚧 implemented; unit acceptance tests pass; live Linux restart pending
+- **Status:** 🚧 implemented; unit acceptance tests pass; live Linux restart verified on `mytecor-homelab` (2026-09-15)
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** F3, F4, F8, and the F11 retention contract.
 
@@ -115,10 +115,13 @@ partition-safe fallback.
 
 ## Current implementation order
 
-Re-run live acceptance for [F6](./roadmap/f6-offer-release/README.md) and dispatch the CI verification
-in [F7](./roadmap/f7-verification/README.md), then add the acceptance tests that F8–F11 still need:
-explicit command-error and revision checks in [F8](./roadmap/f8-protocol-feedback/README.md), the
-zero-bytes transport spy and cross-restart retrieval in [F9](./roadmap/f9-local-logs/README.md),
-identity-quota and live resource enforcement in [F10](./roadmap/f10-local-admission/README.md), and the
-storage benchmarks in [F11](./roadmap/f11-state-retention/README.md). Until those finish, F8–F11 stay
-in progress rather than done.
+The F6 live partition-recovery rerun passed on `mytecor-homelab` (2026-09-15), and the F9 live
+log-retention-across-restart acceptance (`TestLiveRetainedLogsSurviveRestart`) is now part of the
+partition harness. Dispatch the CI verification in
+[F7](./roadmap/f7-verification/README.md), then finish the remaining live Linux legs F8–F11 still
+need: live duplicate-execution-under-loss confirmation in
+[F8](./roadmap/f8-protocol-feedback/README.md), the live transport-spy zero-log-bytes leg in
+[F9](./roadmap/f9-local-logs/README.md), identity-quota and live resource enforcement in
+[F10](./roadmap/f10-local-admission/README.md), and the storage benchmarks in
+[F11](./roadmap/f11-state-retention/README.md). Until those finish, F8–F11 stay in progress
+rather than done.

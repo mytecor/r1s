@@ -325,7 +325,7 @@ type allocatorProcess struct {
 	stopped     bool
 }
 
-func startAllocator(t *testing.T, ctx context.Context, binary, config, identity, state, address, namespace string) *allocatorProcess {
+func startAllocator(t *testing.T, ctx context.Context, binary, config, identity, state, address, namespace string, extra ...string) *allocatorProcess {
 	t.Helper()
 	arguments := []string{
 		"--rns-config", config,
@@ -339,6 +339,7 @@ func startAllocator(t *testing.T, ctx context.Context, binary, config, identity,
 	if snapshotter := os.Getenv("CONTAINERD_SNAPSHOTTER"); snapshotter != "" {
 		arguments = append(arguments, "--containerd-snapshotter", snapshotter)
 	}
+	arguments = append(arguments, extra...)
 	command := exec.CommandContext(ctx, binary, arguments...)
 	stdout, err := command.StdoutPipe()
 	if err != nil {

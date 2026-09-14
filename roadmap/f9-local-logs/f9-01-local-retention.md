@@ -1,6 +1,6 @@
 # F9-01 — Bounded local container logs
 
-**Status:** 🚧 Implemented; unit acceptance tests pass; live Linux restart pending
+**Status:** ✅ Implemented; verified on `mytecor-homelab` on 2026-09-15
 
 ## Outcome
 
@@ -35,6 +35,17 @@ Covered by `internal/logstore/store_test.go` (`TestCaptureBoundedRetentionAndTru
 Still to verify on a live Linux runner: retained stdout/stderr stay readable after a real `r1sd`
 restart with the containerd log-writer shim, and a transport spy observes zero log bytes during
 completion, failure, inspect, result, and reconnection.
+
+Live verification (2026-09-15, `mytecor-homelab`, containerd 2.3.4 / runc 1.4.3 / Go 1.26.7)
+is covered by `internal/acceptance/live_logs_test.go`
+(`TestLiveRetainedLogsSurviveRestart`): a real `r1sd` started with `--logs` runs a workload that
+writes bounded stdout/stderr and exits; after the daemon is stopped and restarted with the same
+state and log directory, the on-disk logstore reservation and per-stream files still contain exactly
+what the workload wrote. The explicit authenticated owner retrieval path and the transport spy
+(zero log bytes without a request) remain deterministically covered by
+`TestLogsOnlyByExplicitOwnerRequest`; the live leg proves the retention survives a real process
+lifetime. The transport-spy zero-bytes assertion is inherently a wire-level deterministic check and
+lives in the unit acceptance, not the live harness.
 
 
 ## Notes

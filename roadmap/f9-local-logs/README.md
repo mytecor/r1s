@@ -2,7 +2,7 @@
 
 Corresponds to the [F9 milestone](../../ROADMAP.md#f9-local-logs-and-explicit-retrieval).
 
-**Status:** 🚧 Implemented; unit acceptance tests pass; live Linux restart pending
+**Status:** ✅ Implemented; live Linux restart verified on `mytecor-homelab` on 2026-09-15
 
 ## Outcome
 

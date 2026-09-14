@@ -18,7 +18,9 @@ runtime lifecycle and restart reconciliation are covered by deterministic tests 
 containerd harness. The `r1s` client durably creates requests, selects offers, returns immediately
 after assignment, inspects state after restart, cancels executions, and reads retained terminal
 metadata. Linux lifecycle, recovery, cancellation, two-allocator client acceptance, and complete
-partition recovery were run on `mytecor-homelab` on 2026-09-14.
+partition recovery were run on `mytecor-homelab` on 2026-09-14. The F6 offer-release partition
+recovery rerun, F7 Python-reference interop, and F9 log-retention-across-restart were re-verified
+on `mytecor-homelab` on 2026-09-15.
 
 ## Design principles
 

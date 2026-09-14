@@ -2,7 +2,7 @@
 
 Corresponds to the [F6 milestone](../../ROADMAP.md#f6-efficient-offer-release).
 
-**Status:** 🚧 Implemented; live Linux partition-recovery rerun pending
+**Status:** 🚧 Implemented; live Linux partition-recovery rerun passed on `mytecor-homelab` on 2026-09-15
 
 ## Outcome
 
