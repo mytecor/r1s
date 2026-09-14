@@ -29,17 +29,19 @@ type persistedState struct {
 }
 
 type persistedOffer struct {
-	Offer     []byte      `json:"offer"`
-	Request   []byte      `json:"request"`
-	Owner     []byte      `json:"owner"`
-	Status    offerStatus `json:"status"`
-	Execution string      `json:"execution,omitempty"`
+	Offer        []byte      `json:"offer"`
+	Request      []byte      `json:"request"`
+	Client       []byte      `json:"client,omitempty"`
+	LegacySender []byte      `json:"owner,omitempty"`
+	Status       offerStatus `json:"status"`
+	Execution    string      `json:"execution,omitempty"`
 }
 
 type persistedExecution struct {
 	ID            string               `json:"id"`
 	OfferID       string               `json:"offer_id"`
-	Owner         []byte               `json:"owner"`
+	Client        []byte               `json:"client,omitempty"`
+	LegacySender  []byte               `json:"owner,omitempty"`
 	ResourceClass string               `json:"resource_class"`
 	Request       []byte               `json:"request"`
 	Phase         r1sv1.ExecutionPhase `json:"phase"`
@@ -97,11 +99,11 @@ func (a *Allocator) loadLocked(ctx context.Context) error {
 		if _, exists := a.offers[offer.GetOfferId()]; exists {
 			return fmt.Errorf("%w: duplicate durable offer %q", ErrStore, offer.GetOfferId())
 		}
-		record := &offerRecord{offer: offer, request: request, owner: cloneBytes(saved.Owner), status: saved.Status, execution: saved.Execution}
+		record := &offerRecord{offer: offer, request: request, client: cloneBytes(firstBytes(saved.Client, saved.LegacySender)), status: saved.Status, execution: saved.Execution}
 		if record.status < offerOutstanding || record.status > offerExpired {
 			return fmt.Errorf("%w: invalid durable offer status", ErrStore)
 		}
-		requestKey := authorityKey(record.owner, request.GetRequestId())
+		requestKey := authorityKey(record.client, request.GetRequestId())
 		if _, exists := a.requests[requestKey]; exists {
 			return fmt.Errorf("%w: duplicate durable request %q", ErrStore, request.GetRequestId())
 		}
@@ -127,7 +129,7 @@ func (a *Allocator) loadLocked(ctx context.Context) error {
 			return fmt.Errorf("%w: inconsistent durable execution %q", ErrStore, saved.ID)
 		}
 		a.executions[saved.ID] = &executionRecord{
-			id: saved.ID, offerID: saved.OfferID, owner: cloneBytes(saved.Owner), resourceClass: saved.ResourceClass,
+			id: saved.ID, offerID: saved.OfferID, client: cloneBytes(firstBytes(saved.Client, saved.LegacySender)), resourceClass: saved.ResourceClass,
 			request: request, phase: saved.Phase, detail: saved.Detail, exitCode: cloneInt32(saved.ExitCode),
 			occurredAt: saved.OccurredAt, startedAt: saved.StartedAt, released: saved.Released,
 		}
@@ -190,7 +192,7 @@ func (a *Allocator) persistLocked(ctx context.Context) error {
 		if err != nil {
 			return errors.Join(ErrStore, err)
 		}
-		state.Offers = append(state.Offers, persistedOffer{Offer: offer, Request: request, Owner: cloneBytes(record.owner), Status: record.status, Execution: record.execution})
+		state.Offers = append(state.Offers, persistedOffer{Offer: offer, Request: request, Client: cloneBytes(record.client), Status: record.status, Execution: record.execution})
 	}
 	for _, record := range a.executions {
 		request, err := proto.Marshal(record.request)
@@ -198,7 +200,7 @@ func (a *Allocator) persistLocked(ctx context.Context) error {
 			return errors.Join(ErrStore, err)
 		}
 		state.Executions = append(state.Executions, persistedExecution{
-			ID: record.id, OfferID: record.offerID, Owner: cloneBytes(record.owner), ResourceClass: record.resourceClass,
+			ID: record.id, OfferID: record.offerID, Client: cloneBytes(record.client), ResourceClass: record.resourceClass,
 			Request: request, Phase: record.phase, Detail: record.detail, ExitCode: cloneInt32(record.exitCode),
 			OccurredAt: record.occurredAt, StartedAt: record.startedAt, Released: record.released,
 		})
@@ -280,6 +282,13 @@ func bytesEqual(left, right []byte) bool {
 		}
 	}
 	return true
+}
+
+func firstBytes(primary, fallback []byte) []byte {
+	if len(primary) != 0 {
+		return primary
+	}
+	return fallback
 }
 
 func cloneBytes(value []byte) []byte {

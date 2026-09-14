@@ -99,6 +99,7 @@ type Envelope struct {
 	//	*Envelope_ExecutionAssign
 	//	*Envelope_ExecutionCancel
 	//	*Envelope_ExecutionState
+	//	*Envelope_ExecutionInspect
 	Payload       isEnvelope_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -214,6 +215,15 @@ func (x *Envelope) GetExecutionState() *ExecutionState {
 	return nil
 }
 
+func (x *Envelope) GetExecutionInspect() *ExecutionInspect {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_ExecutionInspect); ok {
+			return x.ExecutionInspect
+		}
+	}
+	return nil
+}
+
 type isEnvelope_Payload interface {
 	isEnvelope_Payload()
 }
@@ -238,6 +248,10 @@ type Envelope_ExecutionState struct {
 	ExecutionState *ExecutionState `protobuf:"bytes,14,opt,name=execution_state,json=executionState,proto3,oneof"`
 }
 
+type Envelope_ExecutionInspect struct {
+	ExecutionInspect *ExecutionInspect `protobuf:"bytes,15,opt,name=execution_inspect,json=executionInspect,proto3,oneof"`
+}
+
 func (*Envelope_ExecutionRequest) isEnvelope_Payload() {}
 
 func (*Envelope_ExecutionOffer) isEnvelope_Payload() {}
@@ -247,6 +261,8 @@ func (*Envelope_ExecutionAssign) isEnvelope_Payload() {}
 func (*Envelope_ExecutionCancel) isEnvelope_Payload() {}
 
 func (*Envelope_ExecutionState) isEnvelope_Payload() {}
+
+func (*Envelope_ExecutionInspect) isEnvelope_Payload() {}
 
 // Workload describes an OCI workload without exposing a concrete runtime API.
 type Workload struct {
@@ -635,6 +651,52 @@ func (x *ExecutionCancel) GetReason() string {
 	return ""
 }
 
+// ExecutionInspect asks the selected allocator for its latest durable state.
+// It is safe to repeat after either participant restarts.
+type ExecutionInspect struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecutionInspect) Reset() {
+	*x = ExecutionInspect{}
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionInspect) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionInspect) ProtoMessage() {}
+
+func (x *ExecutionInspect) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutionInspect.ProtoReflect.Descriptor instead.
+func (*ExecutionInspect) Descriptor() ([]byte, []int) {
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ExecutionInspect) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
 type ExecutionState struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
@@ -648,7 +710,7 @@ type ExecutionState struct {
 
 func (x *ExecutionState) Reset() {
 	*x = ExecutionState{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[7]
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -660,7 +722,7 @@ func (x *ExecutionState) String() string {
 func (*ExecutionState) ProtoMessage() {}
 
 func (x *ExecutionState) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[7]
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -673,7 +735,7 @@ func (x *ExecutionState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionState.ProtoReflect.Descriptor instead.
 func (*ExecutionState) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{7}
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ExecutionState) GetExecutionId() string {
@@ -715,7 +777,7 @@ var File_api_proto_r1s_v1_control_proto protoreflect.FileDescriptor
 
 const file_api_proto_r1s_v1_control_proto_rawDesc = "" +
 	"\n" +
-	"\x1eapi/proto/r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x89\x04\n" +
+	"\x1eapi/proto/r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd2\x04\n" +
 	"\bEnvelope\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x16\n" +
@@ -727,7 +789,8 @@ const file_api_proto_r1s_v1_control_proto_rawDesc = "" +
 	"\x0fexecution_offer\x18\v \x01(\v2\x16.r1s.v1.ExecutionOfferH\x00R\x0eexecutionOffer\x12D\n" +
 	"\x10execution_assign\x18\f \x01(\v2\x17.r1s.v1.ExecutionAssignH\x00R\x0fexecutionAssign\x12D\n" +
 	"\x10execution_cancel\x18\r \x01(\v2\x17.r1s.v1.ExecutionCancelH\x00R\x0fexecutionCancel\x12A\n" +
-	"\x0fexecution_state\x18\x0e \x01(\v2\x16.r1s.v1.ExecutionStateH\x00R\x0eexecutionStateB\t\n" +
+	"\x0fexecution_state\x18\x0e \x01(\v2\x16.r1s.v1.ExecutionStateH\x00R\x0eexecutionState\x12G\n" +
+	"\x11execution_inspect\x18\x0f \x01(\v2\x18.r1s.v1.ExecutionInspectH\x00R\x10executionInspectB\t\n" +
 	"\apayloadJ\x04\b\x05\x10\n" +
 	"\"\x80\x02\n" +
 	"\bWorkload\x12\x14\n" +
@@ -764,7 +827,9 @@ const file_api_proto_r1s_v1_control_proto_rawDesc = "" +
 	"\fexecution_id\x18\x03 \x01(\tR\vexecutionId\"L\n" +
 	"\x0fExecutionCancel\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xe6\x01\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"5\n" +
+	"\x10ExecutionInspect\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\"\xe6\x01\n" +
 	"\x0eExecutionState\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12,\n" +
 	"\x05phase\x18\x02 \x01(\x0e2\x16.r1s.v1.ExecutionPhaseR\x05phase\x12;\n" +
@@ -796,7 +861,7 @@ func file_api_proto_r1s_v1_control_proto_rawDescGZIP() []byte {
 }
 
 var file_api_proto_r1s_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_api_proto_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_api_proto_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_api_proto_r1s_v1_control_proto_goTypes = []any{
 	(ExecutionPhase)(0),           // 0: r1s.v1.ExecutionPhase
 	(*Envelope)(nil),              // 1: r1s.v1.Envelope
@@ -806,32 +871,34 @@ var file_api_proto_r1s_v1_control_proto_goTypes = []any{
 	(*ExecutionOffer)(nil),        // 5: r1s.v1.ExecutionOffer
 	(*ExecutionAssign)(nil),       // 6: r1s.v1.ExecutionAssign
 	(*ExecutionCancel)(nil),       // 7: r1s.v1.ExecutionCancel
-	(*ExecutionState)(nil),        // 8: r1s.v1.ExecutionState
-	nil,                           // 9: r1s.v1.Workload.EnvironmentEntry
-	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),   // 11: google.protobuf.Duration
+	(*ExecutionInspect)(nil),      // 8: r1s.v1.ExecutionInspect
+	(*ExecutionState)(nil),        // 9: r1s.v1.ExecutionState
+	nil,                           // 10: r1s.v1.Workload.EnvironmentEntry
+	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),   // 12: google.protobuf.Duration
 }
 var file_api_proto_r1s_v1_control_proto_depIdxs = []int32{
-	10, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
+	11, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
 	4,  // 1: r1s.v1.Envelope.execution_request:type_name -> r1s.v1.ExecutionRequest
 	5,  // 2: r1s.v1.Envelope.execution_offer:type_name -> r1s.v1.ExecutionOffer
 	6,  // 3: r1s.v1.Envelope.execution_assign:type_name -> r1s.v1.ExecutionAssign
 	7,  // 4: r1s.v1.Envelope.execution_cancel:type_name -> r1s.v1.ExecutionCancel
-	8,  // 5: r1s.v1.Envelope.execution_state:type_name -> r1s.v1.ExecutionState
-	9,  // 6: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
-	10, // 7: r1s.v1.ExecutionPolicy.deadline:type_name -> google.protobuf.Timestamp
-	11, // 8: r1s.v1.ExecutionPolicy.max_runtime:type_name -> google.protobuf.Duration
-	11, // 9: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
-	2,  // 10: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
-	3,  // 11: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
-	10, // 12: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
-	0,  // 13: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
-	10, // 14: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	9,  // 5: r1s.v1.Envelope.execution_state:type_name -> r1s.v1.ExecutionState
+	8,  // 6: r1s.v1.Envelope.execution_inspect:type_name -> r1s.v1.ExecutionInspect
+	10, // 7: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
+	11, // 8: r1s.v1.ExecutionPolicy.deadline:type_name -> google.protobuf.Timestamp
+	12, // 9: r1s.v1.ExecutionPolicy.max_runtime:type_name -> google.protobuf.Duration
+	12, // 10: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
+	2,  // 11: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
+	3,  // 12: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
+	11, // 13: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
+	0,  // 14: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
+	11, // 15: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_r1s_v1_control_proto_init() }
@@ -845,15 +912,16 @@ func file_api_proto_r1s_v1_control_proto_init() {
 		(*Envelope_ExecutionAssign)(nil),
 		(*Envelope_ExecutionCancel)(nil),
 		(*Envelope_ExecutionState)(nil),
+		(*Envelope_ExecutionInspect)(nil),
 	}
-	file_api_proto_r1s_v1_control_proto_msgTypes[7].OneofWrappers = []any{}
+	file_api_proto_r1s_v1_control_proto_msgTypes[8].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_r1s_v1_control_proto_rawDesc), len(file_api_proto_r1s_v1_control_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   9,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

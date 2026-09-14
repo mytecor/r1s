@@ -1,6 +1,6 @@
 # F3 — OCI runtime
 
-**Status:** In progress
+**Status:** Complete
 
 ## Outcome
 
@@ -32,9 +32,8 @@ Selected executions run through containerd with durable metadata and restart rec
 - `r1sd` restores offers, executions, capacity, and replay records before accepting messages, then
   reconciles non-terminal executions without restarting missing workloads.
 
-## Remaining
+## Live verification
 
-- Run the gated lifecycle harness against a Linux containerd installation and record the result in
-  [F3-01](./f3-01-containerd-adapter.md).
-- Run the gated recovery harness against the same Linux containerd installation and record the
-  result in [F3-02](./f3-02-reconciliation.md).
+- On 2026-09-14, `TestContainerdFixtureLifecycle` and `TestContainerdFixtureRecovery` passed on
+  `mytecor-homelab` (NixOS Linux x86_64) using Go 1.26.7, containerd 2.3.4, runc 1.4.3, and a
+  digest-pinned Alpine fixture.

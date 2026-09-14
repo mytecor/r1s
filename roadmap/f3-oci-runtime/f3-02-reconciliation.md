@@ -1,6 +1,6 @@
 # F3-02 — Persist and reconcile allocator state
 
-**Status:** In progress
+**Status:** Complete
 
 ## Outcome
 
@@ -25,9 +25,9 @@ state with r1s-labelled containers and tasks already present in containerd.
 ## Implemented
 
 - A `StateStore` boundary keeps allocator persistence independent of the database implementation;
-  the shipped adapter uses a transactional, owner-only bbolt file.
+  the shipped adapter uses a transactional bbolt file with mode `0600`.
 - Versioned snapshots persist offers, requests, assignments, terminal state, replay responses and
-  errors, authenticated owner identities, and durable execution start times.
+  errors, authenticated client identities, and durable execution start times.
 - Startup rebuilds capacity accounting, rejects state belonging to another allocator identity, and
   restores classifiable replay errors.
 - Runtime recovery is distinct from `Start`: containerd reattaches only to the deterministic
@@ -46,7 +46,7 @@ state with r1s-labelled containers and tasks already present in containerd.
 
 - `go test -race ./...`
 
-## Remaining
+## Live verification
 
-- Gated live verification still needs a Linux host with containerd and a digest-pinned fixture
-  image; use the command documented in the project [README](../../README.md).
+- On 2026-09-14, `TestContainerdFixtureRecovery` passed on `mytecor-homelab` using containerd 2.3.4
+  and the digest-pinned Alpine fixture recorded in [F3-01](./f3-01-containerd-adapter.md).

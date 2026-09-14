@@ -1,29 +1,33 @@
 # r1s
 
-r1s is a decentralized OCI workload execution fabric over the Reticulum Network Stack (RNS).
-Owners publish workload demand, independent allocators offer local capacity, and an owner selects
-an execution directly. There is no cluster-wide API server, scheduler, registry, or global state.
+r1s is a decentralized OCI workload execution fabric over the Reticulum Network Stack (RNS). The
+`r1s` process is a client of independent `r1sd` allocators: it publishes workload demand, collects
+their offers, and selects one execution directly. There is no cluster-wide API server, scheduler,
+registry, or global state.
 
 The name follows the same contraction pattern as Kubernetes → k8s: Reticulum Network Stack → r1s.
 
 ## Status
 
-r1s has completed its transport-independent protocol foundation and RNS transport. The embedded
+r1s has completed its transport-independent protocol foundation, RNS transport, OCI runtime, and
+initial client workflow. The embedded
 Reticulum-Go adapter, authenticated sender replacement, allocator announces, and `r1sd` entry point
 are covered by a two-node loopback test. Python-reference discovery and reliable Channel envelope
 delivery (including recovery from injected packet loss) are proven by a gated live harness. OCI
-runtime work is in progress: durable allocator state and restart reconciliation are implemented
-with deterministic tests and a gated live containerd recovery harness. Live lifecycle and recovery
-acceptance remain to be run on a Linux host.
+runtime lifecycle and restart reconciliation are covered by deterministic tests and a live
+containerd harness. The `r1s` client durably creates requests, selects offers, returns immediately
+after assignment, inspects state after restart, cancels executions, and reads retained terminal
+metadata. Linux lifecycle, recovery, cancellation, and two-allocator client acceptance were run on
+`mytecor-homelab` on 2026-09-14.
 
 ## Design principles
 
 - **RNS-native:** discovery uses announces and control messages use authenticated RNS links.
-- **No global control plane:** each owner controls its tasks; each allocator controls local capacity.
+- **No global control plane:** each client controls its tasks; each allocator controls local capacity.
 - **Asynchronous protocol:** Protobuf messages are carried over RNS without imposing HTTP/2 or RPC
   semantics on the network.
 - **OCI workloads:** the core describes generic images, commands, environment, and execution policy.
-- **Partition tolerant:** an owner disconnect is not a lifecycle event. Assigned work continues until
+- **Partition tolerant:** a client disconnect is not a lifecycle event. Assigned work continues until
   completion, explicit cancellation, deadline, or maximum runtime.
 - **Replaceable adapters:** network and runtime implementations sit behind small Go interfaces.
 
@@ -31,48 +35,48 @@ acceptance remain to be run on a Linux host.
 
 ```mermaid
 sequenceDiagram
-    participant Owner
+    participant Client
     participant RNS as RNS fabric
     participant Allocator
     participant Runtime as OCI runtime
 
-    Owner->>RNS: ExecutionRequest
+    Client->>RNS: ExecutionRequest
     RNS->>Allocator: ExecutionRequest
     Allocator->>Allocator: Reserve capacity
     Allocator->>RNS: ExecutionOffer
-    RNS->>Owner: ExecutionOffer
-    Owner->>RNS: ExecutionAssign
+    RNS->>Client: ExecutionOffer
+    Client->>RNS: ExecutionAssign
     RNS->>Allocator: ExecutionAssign
     Allocator->>Runtime: Start workload
     Runtime-->>Allocator: Started
     Allocator->>RNS: ExecutionState
-    RNS->>Owner: ExecutionState
+    RNS->>Client: ExecutionState
 ```
 
-An offer reserves a bounded local slot. Workload start happens only after the owner selects that
+An offer reserves a bounded local slot. Workload start happens only after the client selects that
 offer, avoiding speculative image pulls on every allocator that sees a request.
 
 ## Development
 
 System binaries follow the standard Go command layout. [`cmd/r1sd/`](./cmd/r1sd/) contains the
-initial allocator daemon; `cmd/r1s/` will contain the owner CLI when F4 introduces it.
+allocator daemon and [`cmd/r1s/`](./cmd/r1s/) contains the client CLI.
 
 The initial allocator daemon can be run with an explicit Reticulum-Go configuration and persistent
 identity:
 
 ```sh
 go run ./cmd/r1sd \
-  -rns-config ./reticulum.conf \
-  -identity ./r1sd.identity \
-  -capacity default=2,gpu=1 \
-  -state ./r1sd.state.db \
-  -containerd-address /run/containerd/containerd.sock \
-  -containerd-namespace r1s
+  --rns-config ./reticulum.conf \
+  --identity ./r1sd.identity \
+  --capacity default=2,gpu=1 \
+  --state ./r1sd.state.db \
+  --containerd-address /run/containerd/containerd.sock \
+  --containerd-namespace r1s
 ```
 
 The daemon embeds Reticulum-Go; it does not require a separate Reticulum daemon. It does require a
 reachable containerd daemon, and accepted OCI image references must be pinned by digest. The
-`-containerd-snapshotter` flag selects a non-default snapshotter when needed. A UDP test pair can
+`--containerd-snapshotter` flag selects a non-default snapshotter when needed. A UDP test pair can
 use `listen_ip`, `listen_port`, `target_host`, and `target_port` in two Reticulum configuration files
 with the listen and target ports swapped. `r1sd` runs as an endpoint, not an RNS routing transport,
 and keeps Reticulum transport state beside the configured service identity.
@@ -117,9 +121,62 @@ go test ./internal/runtime/containerd/ -run 'TestContainerdFixture(Lifecycle|Rec
 Set `CONTAINERD_ADDRESS` when the daemon does not use `/run/containerd/containerd.sock`. Without the
 gate, this test skips and remains compatible with ordinary `make check` runs.
 
-Allocator state is stored in a transactional bbolt database. `-state` selects its path and defaults
+Allocator state is stored in a transactional bbolt database. `--state` selects its path and defaults
 to `<identity>.state.db`. The database is bound to the authenticated allocator identity; `r1sd`
 refuses to load it under another identity.
+
+The `r1s` client uses its own persistent identity and state database. Global flags precede the
+subcommand, and `--...` is the canonical flag spelling. `request` accepts a Protobuf JSON
+`ExecutionRequest` directly as its only positional argument; `requestId` must be omitted because
+the client generates and persists it.
+
+The JSON shape is:
+
+```json
+{
+  "workload": {
+    "image": "registry.example/image@sha256:...",
+    "command": ["/bin/sh", "-c"],
+    "args": ["echo hello"],
+    "environment": {"MODE": "production"},
+    "workingDirectory": "/work"
+  },
+  "policy": {
+    "maxRuntime": "600s",
+    "resultRetention": "86400s"
+  },
+  "resourceClass": "default"
+}
+```
+
+Durations use the standard Protobuf JSON format. A request may target allocator destination hashes
+printed by `r1sd`, or omit `--allocator` and collect allocator announces during `--offer-wait`:
+
+```sh
+go run ./cmd/r1s \
+  --rns-config ./client-reticulum.conf \
+  --identity ./client.identity \
+  request \
+  --allocator '<allocator-destination-hash>' \
+  '{"workload":{"image":"registry.example/image@sha256:..."},"policy":{"maxRuntime":"600s","resultRetention":"86400s"},"resourceClass":"default"}'
+```
+
+Quote the JSON as one shell argument. Request-specific flags must precede that JSON argument.
+After the assignment is queued to the selected allocator, `request` returns immediately with the
+durable request and execution IDs. Use `inspect` or `result` when execution state is actually needed.
+
+Subsequent commands use the durable execution ID:
+
+```sh
+go run ./cmd/r1s --rns-config ./client-reticulum.conf --identity ./client.identity list
+go run ./cmd/r1s --rns-config ./client-reticulum.conf --identity ./client.identity inspect <execution-id>
+go run ./cmd/r1s --rns-config ./client-reticulum.conf --identity ./client.identity cancel <execution-id>
+go run ./cmd/r1s --rns-config ./client-reticulum.conf --identity ./client.identity result <execution-id>
+```
+
+`result` currently returns retained terminal phase, detail, and exit code. Stdout/stderr and large
+artifact transfer remain part of the open result-contract decision in
+[BACKLOG.md](./roadmap/BACKLOG.md).
 
 ## Documentation
 

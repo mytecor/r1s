@@ -39,8 +39,10 @@ var (
 
 // Config defines one embedded Reticulum endpoint.
 type Config struct {
-	Reticulum        *common.ReticulumConfig
-	IdentityPath     string
+	Reticulum    *common.ReticulumConfig
+	IdentityPath string
+	// Capacity advertises this endpoint as an allocator. An empty map creates a
+	// passive client endpoint that discovers allocators but does not announce one.
 	Capacity         map[string]uint32
 	AppName          string
 	Aspect           string
@@ -70,6 +72,7 @@ type Endpoint struct {
 	interval    time.Duration
 	networkWait time.Duration
 	name        string
+	advertises  bool
 
 	started      bool
 	closed       bool
@@ -102,13 +105,16 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	if config.Reticulum == nil || strings.TrimSpace(config.IdentityPath) == "" || handler == nil {
 		return nil, fmt.Errorf("%w: Reticulum config, identity path, and handler are required", ErrInvalidConfig)
 	}
-	descriptor, err := newDescriptor(config.Capacity)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
-	}
-	descriptorData, err := descriptor.marshal()
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+	var descriptorData []byte
+	if len(config.Capacity) > 0 {
+		descriptor, err := newDescriptor(config.Capacity)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+		}
+		descriptorData, err = descriptor.marshal()
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+		}
 	}
 	if config.AppName == "" {
 		config.AppName = defaultAppName
@@ -147,8 +153,9 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	endpoint := &Endpoint{
 		stack: rnsStack, identity: localIdentity, destination: localDestination,
 		handler: handler, interval: config.AnnounceInterval, networkWait: config.NetworkWait,
-		name:     hex.EncodeToString(localIdentity.Hash()),
-		sessions: make(map[string]*session), dials: make(map[string]*dialAttempt),
+		name:       hex.EncodeToString(localIdentity.Hash()),
+		advertises: len(descriptorData) > 0,
+		sessions:   make(map[string]*session), dials: make(map[string]*dialAttempt),
 		destinations: make(map[string][]byte), waiters: make(map[string][]chan struct{}), discovered: make(chan Service, 32),
 	}
 	localDestination.SetLinkEstablishedCallback(endpoint.acceptLink)
@@ -175,29 +182,46 @@ func (e *Endpoint) Start(ctx context.Context) error {
 		e.mu.Unlock()
 		return fmt.Errorf("start Reticulum stack: %w", err)
 	}
-	if err := e.destination.Announce(false, nil, nil); err != nil {
-		_ = e.stack.Close()
-		e.mu.Lock()
-		e.started = false
-		e.mu.Unlock()
-		return fmt.Errorf("announce r1s service: %w", err)
+	if e.advertises {
+		if err := e.destination.Announce(false, nil, nil); err != nil {
+			_ = e.stack.Close()
+			e.mu.Lock()
+			e.started = false
+			e.mu.Unlock()
+			return fmt.Errorf("announce r1s service: %w", err)
+		}
 	}
 	announceContext, cancel := context.WithCancel(ctx)
 	e.mu.Lock()
 	e.stopAnnounce = cancel
 	e.mu.Unlock()
-	go e.announceLoop(announceContext)
+	if e.advertises {
+		go e.announceLoop(announceContext)
+	}
 	return nil
 }
 
 // Name is the hex-encoded hash of the persistent RNS identity.
 func (e *Endpoint) Name() string { return e.name }
 
-// Destination is the hex-encoded destination hash owners use for their first connection.
+// Destination is the hex-encoded destination hash clients use for their first connection.
 func (e *Endpoint) Destination() string { return hex.EncodeToString(e.destination.GetHash()) }
 
 // Discoveries reports validated allocator announces. Delivery is best-effort and bounded.
 func (e *Endpoint) Discoveries() <-chan Service { return e.discovered }
+
+// DestinationForIdentity returns the last authenticated allocator destination
+// learned through an announce or an outbound session.
+func (e *Endpoint) DestinationForIdentity(identityHash string) (string, bool) {
+	key := strings.ToLower(strings.TrimSpace(identityHash))
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	destinationHash := e.destinations[key]
+	if len(destinationHash) != 16 {
+		return "", false
+	}
+	return hex.EncodeToString(destinationHash), true
+}
 
 // Send serializes an envelope onto an RNS Channel.
 func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Envelope) error {
@@ -404,6 +428,11 @@ func (e *Endpoint) newSession(rnsLink *link.Link, sender, destinationHash []byte
 		return true
 	})
 	e.cacheSession(active, sender, destinationHash)
+	if len(sender) == 16 && len(destinationHash) == 16 {
+		e.mu.Lock()
+		e.destinations[hex.EncodeToString(sender)] = bytes.Clone(destinationHash)
+		e.mu.Unlock()
+	}
 	return active, nil
 }
 

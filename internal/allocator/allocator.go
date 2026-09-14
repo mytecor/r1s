@@ -49,7 +49,7 @@ const (
 type offerRecord struct {
 	offer     *r1sv1.ExecutionOffer
 	request   *r1sv1.ExecutionRequest
-	owner     []byte
+	client    []byte
 	status    offerStatus
 	execution string
 }
@@ -57,7 +57,7 @@ type offerRecord struct {
 type executionRecord struct {
 	id            string
 	offerID       string
-	owner         []byte
+	client        []byte
 	resourceClass string
 	request       *r1sv1.ExecutionRequest
 	phase         r1sv1.ExecutionPhase
@@ -79,7 +79,7 @@ type replayEntry struct {
 // OfferSnapshot is a read-only view of allocator offer state.
 type OfferSnapshot struct {
 	Offer       *r1sv1.ExecutionOffer
-	Owner       []byte
+	Client      []byte
 	Outstanding bool
 	Assigned    bool
 	Expired     bool
@@ -90,7 +90,7 @@ type OfferSnapshot struct {
 type ExecutionSnapshot struct {
 	ExecutionID   string
 	OfferID       string
-	Owner         []byte
+	Client        []byte
 	ResourceClass string
 	Request       *r1sv1.ExecutionRequest
 	State         *r1sv1.ExecutionState
@@ -186,7 +186,7 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		return nil, err
 	}
 	switch envelope.GetPayload().(type) {
-	case *r1sv1.Envelope_ExecutionRequest, *r1sv1.Envelope_ExecutionAssign, *r1sv1.Envelope_ExecutionCancel:
+	case *r1sv1.Envelope_ExecutionRequest, *r1sv1.Envelope_ExecutionAssign, *r1sv1.Envelope_ExecutionCancel, *r1sv1.Envelope_ExecutionInspect:
 	default:
 		return nil, ErrUnsupportedMessage
 	}
@@ -214,6 +214,8 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		responses, err = a.handleAssign(ctx, envelope, payload.ExecutionAssign)
 	case *r1sv1.Envelope_ExecutionCancel:
 		responses, err = a.handleCancel(ctx, envelope, payload.ExecutionCancel)
+	case *r1sv1.Envelope_ExecutionInspect:
+		responses, err = a.handleInspect(envelope, payload.ExecutionInspect)
 	default:
 		panic("payload type checked above")
 	}
@@ -221,6 +223,23 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		err = errors.Join(err, persistErr)
 	}
 	return responses, err
+}
+
+func (a *Allocator) handleInspect(envelope *r1sv1.Envelope, inspect *r1sv1.ExecutionInspect) ([]*r1sv1.Envelope, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	record, ok := a.executions[inspect.GetExecutionId()]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrExecutionNotFound, inspect.GetExecutionId())
+	}
+	if !bytes.Equal(record.client, envelope.GetSender()) {
+		return nil, ErrUnauthorized
+	}
+	response, err := a.stateEnvelopeLocked(record, envelope.GetMessageId(), a.now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	return []*r1sv1.Envelope{response}, nil
 }
 
 func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.ExecutionRequest) ([]*r1sv1.Envelope, error) {
@@ -269,7 +288,7 @@ func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.Execu
 	a.offers[offerID] = &offerRecord{
 		offer:   proto.Clone(offer).(*r1sv1.ExecutionOffer),
 		request: proto.Clone(request).(*r1sv1.ExecutionRequest),
-		owner:   bytes.Clone(envelope.GetSender()),
+		client:  bytes.Clone(envelope.GetSender()),
 		status:  offerOutstanding,
 	}
 	a.requests[requestKey] = offerID
@@ -292,7 +311,7 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 		a.mu.Unlock()
 		return nil, fmt.Errorf("%w: %q", ErrOfferNotFound, assign.GetOfferId())
 	}
-	if !bytes.Equal(offer.owner, envelope.GetSender()) {
+	if !bytes.Equal(offer.client, envelope.GetSender()) {
 		a.mu.Unlock()
 		return nil, ErrUnauthorized
 	}
@@ -318,7 +337,7 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 	}
 	if existing, exists := a.executions[assign.GetExecutionId()]; exists {
 		a.mu.Unlock()
-		if existing.offerID == offer.offer.GetOfferId() && bytes.Equal(existing.owner, envelope.GetSender()) {
+		if existing.offerID == offer.offer.GetOfferId() && bytes.Equal(existing.client, envelope.GetSender()) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("%w: %q", ErrExecutionConflict, assign.GetExecutionId())
@@ -327,7 +346,7 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 	record := &executionRecord{
 		id:            assign.GetExecutionId(),
 		offerID:       offer.offer.GetOfferId(),
-		owner:         bytes.Clone(offer.owner),
+		client:        bytes.Clone(offer.client),
 		resourceClass: offer.offer.GetResourceClass(),
 		request:       proto.Clone(offer.request).(*r1sv1.ExecutionRequest),
 		phase:         r1sv1.ExecutionPhase_EXECUTION_PHASE_STARTING,
@@ -346,7 +365,7 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 	}
 	startRequest := r1sruntime.StartRequest{
 		ExecutionID: record.id,
-		Owner:       bytes.Clone(record.owner),
+		Client:      bytes.Clone(record.client),
 		Workload:    proto.Clone(record.request.GetWorkload()).(*r1sv1.Workload),
 		Policy:      proto.Clone(record.request.GetPolicy()).(*r1sv1.ExecutionPolicy),
 		StartedAt:   record.startedAt,
@@ -395,7 +414,7 @@ func (a *Allocator) handleCancel(ctx context.Context, envelope *r1sv1.Envelope, 
 		a.mu.Unlock()
 		return nil, fmt.Errorf("%w: %q", ErrExecutionNotFound, cancel.GetExecutionId())
 	}
-	if !bytes.Equal(record.owner, envelope.GetSender()) {
+	if !bytes.Equal(record.client, envelope.GetSender()) {
 		a.mu.Unlock()
 		return nil, ErrUnauthorized
 	}
@@ -539,7 +558,7 @@ func (a *Allocator) Recover(ctx context.Context) error {
 
 		request := r1sruntime.StartRequest{
 			ExecutionID: record.id,
-			Owner:       bytes.Clone(record.owner),
+			Client:      bytes.Clone(record.client),
 			Workload:    proto.Clone(record.request.GetWorkload()).(*r1sv1.Workload),
 			Policy:      proto.Clone(record.request.GetPolicy()).(*r1sv1.ExecutionPolicy),
 			StartedAt:   record.startedAt,
@@ -614,7 +633,7 @@ func (a *Allocator) Offer(id string) (OfferSnapshot, bool) {
 	}
 	return OfferSnapshot{
 		Offer:       proto.Clone(record.offer).(*r1sv1.ExecutionOffer),
-		Owner:       bytes.Clone(record.owner),
+		Client:      bytes.Clone(record.client),
 		Outstanding: record.status == offerOutstanding,
 		Assigned:    record.status == offerAssigned,
 		Expired:     record.status == offerExpired,
@@ -633,7 +652,7 @@ func (a *Allocator) Execution(id string) (ExecutionSnapshot, bool) {
 	return ExecutionSnapshot{
 		ExecutionID:   record.id,
 		OfferID:       record.offerID,
-		Owner:         bytes.Clone(record.owner),
+		Client:        bytes.Clone(record.client),
 		ResourceClass: record.resourceClass,
 		Request:       proto.Clone(record.request).(*r1sv1.ExecutionRequest),
 		State:         stateFromRecord(record),

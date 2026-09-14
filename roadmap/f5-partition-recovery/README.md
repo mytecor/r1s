@@ -2,15 +2,15 @@
 
 ## Outcome
 
-The complete system tolerates duplicate messages, process restarts, and temporary loss of owner
+The complete system tolerates duplicate messages, process restarts, and temporary loss of client
 connectivity without duplicate execution or premature termination.
 
 ## Completion criteria
 
-- An assigned workload completes while its owner is offline.
-- The owner later discovers final state and retrieves the retained result.
+- An assigned workload completes while its client is offline.
+- The client later discovers final state and retrieves the retained result.
 - Replayed assignment and cancellation messages are harmless.
-- Allocator and owner restarts recover from durable state.
+- Allocator and client restarts recover from durable state.
 
 ## Tasks
 

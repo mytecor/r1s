@@ -419,7 +419,7 @@ func validateAndFingerprint(request r1sruntime.StartRequest, reporter r1sruntime
 		return "", fmt.Errorf("%w: marshal policy: %v", ErrInvalidRequest, err)
 	}
 	hash := sha256.New()
-	writeHashPart(hash, request.Owner)
+	writeHashPart(hash, request.Client)
 	writeHashPart(hash, workload)
 	writeHashPart(hash, policy)
 	return hex.EncodeToString(hash.Sum(nil)), nil

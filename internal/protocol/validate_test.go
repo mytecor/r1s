@@ -81,6 +81,7 @@ func TestValidateEveryPayload(t *testing.T) {
 		envelope(now, &r1sv1.Envelope_ExecutionState{ExecutionState: &r1sv1.ExecutionState{
 			ExecutionId: "execution", Phase: r1sv1.ExecutionPhase_EXECUTION_PHASE_RUNNING, OccurredAt: timestamppb.New(now),
 		}}),
+		envelope(now, &r1sv1.Envelope_ExecutionInspect{ExecutionInspect: &r1sv1.ExecutionInspect{ExecutionId: "execution"}}),
 	}
 	for _, candidate := range tests {
 		if err := protocol.ValidateEnvelope(candidate); err != nil {
@@ -108,7 +109,7 @@ func validRequestEnvelope(now time.Time) *r1sv1.Envelope {
 func envelope(now time.Time, payload any) *r1sv1.Envelope {
 	envelope := &r1sv1.Envelope{
 		MessageId: "message",
-		Sender:    []byte("owner"),
+		Sender:    []byte("client"),
 		SentAt:    timestamppb.New(now),
 	}
 	switch payload := payload.(type) {
@@ -121,6 +122,8 @@ func envelope(now time.Time, payload any) *r1sv1.Envelope {
 	case *r1sv1.Envelope_ExecutionCancel:
 		envelope.Payload = payload
 	case *r1sv1.Envelope_ExecutionState:
+		envelope.Payload = payload
+	case *r1sv1.Envelope_ExecutionInspect:
 		envelope.Payload = payload
 	default:
 		panic("unsupported test payload")

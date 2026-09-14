@@ -40,7 +40,7 @@ func TestStorePersistsCommittedSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	if permissions := info.Mode().Perm(); permissions&0o077 != 0 {
-		t.Fatalf("database permissions = %o, want owner-only", permissions)
+		t.Fatalf("database permissions = %o, want mode 0600", permissions)
 	}
 }
 

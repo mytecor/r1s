@@ -19,7 +19,7 @@ var (
 // StartRequest is an immutable execution specification passed to a runtime.
 type StartRequest struct {
 	ExecutionID string
-	Owner       []byte
+	Client      []byte
 	Workload    *r1sv1.Workload
 	Policy      *r1sv1.ExecutionPolicy
 	// StartedAt is the durable beginning of local policy timing. Runtimes use

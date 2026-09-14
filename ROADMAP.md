@@ -33,26 +33,26 @@ Reticulum-Go without tunnelling gRPC or HTTP/2 over RNS.
 
 Selected executions run through containerd with durable metadata and restart reconciliation.
 
-- **Status:** 🚧 in progress
+- **Status:** ✅ complete
 - **Done when:** an assigned workload starts and stops through containerd with reconciliation after
   restart.
 - **Depends on:** [F1](#f1-protocol-foundation)
 
-## [F4. Owner workflow](./roadmap/f4-owner-workflow/README.md)
+## [F4. Client workflow](./roadmap/f4-client-workflow/README.md)
 
-An owner publishes demand, collects offers, selects one allocator, inspects state, cancels work, and
+A client publishes demand, collects offers, selects one allocator, inspects state, cancels work, and
 retrieves a retained result.
 
-- **Status:** ⏳ not started
+- **Status:** ✅ complete
 - **Done when:** a CLI can request, select, inspect, cancel, and retrieve a result.
 - **Depends on:** [F2](#f2-rns-transport), [F3](#f3-oci-runtime)
 
 ## [F5. Partition recovery](./roadmap/f5-partition-recovery/README.md)
 
-The complete system tolerates duplicate messages, process restarts, and temporary loss of owner
+The complete system tolerates duplicate messages, process restarts, and temporary loss of client
 connectivity without duplicate execution or premature termination.
 
 - **Status:** ⏳ not started
 - **Done when:** end-to-end tests prove replay safety, network-partition survival, and result
   recovery.
-- **Depends on:** [F2](#f2-rns-transport), [F3](#f3-oci-runtime), [F4](#f4-owner-workflow)
+- **Depends on:** [F2](#f2-rns-transport), [F3](#f3-oci-runtime), [F4](#f4-client-workflow)

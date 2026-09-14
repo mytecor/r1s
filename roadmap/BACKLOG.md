@@ -32,5 +32,5 @@ This file records unresolved choices so they do not remain implicit in implement
 - Local gRPC management API over a Unix socket.
 - Resource classes beyond fixed concurrent execution slots.
 - VM and microVM runtime adapters.
-- Multi-owner fairness and allocator-local admission policy.
+- Multi-client fairness and allocator-local admission policy.
 - Application-level event buses, agent hierarchy, and task decomposition.

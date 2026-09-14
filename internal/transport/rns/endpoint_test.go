@@ -82,9 +82,12 @@ func TestEndpointsExchangeAuthenticatedEnvelopeOverUDP(t *testing.T) {
 	}
 	root := t.TempDir()
 	received := make(chan *r1sv1.Envelope, 1)
-	endpointA := newTestEndpoint(t, filepath.Join(root, "a"), portA, portB, func(context.Context, *r1sv1.Envelope) error {
+	endpointA := newTestEndpointWithCapacity(t, filepath.Join(root, "a"), portA, portB, nil, func(context.Context, *r1sv1.Envelope) error {
 		return nil
 	})
+	if endpointA.advertises {
+		t.Fatal("passive client endpoint advertises allocator capacity")
+	}
 	endpointB := newTestEndpoint(t, filepath.Join(root, "b"), portB, portA, func(_ context.Context, envelope *r1sv1.Envelope) error {
 		received <- envelope
 		return nil
@@ -158,6 +161,10 @@ func TestEndpointsExchangeAuthenticatedEnvelopeOverUDP(t *testing.T) {
 }
 
 func newTestEndpoint(t *testing.T, storage string, listenPort, targetPort int, handler func(context.Context, *r1sv1.Envelope) error) *Endpoint {
+	return newTestEndpointWithCapacity(t, storage, listenPort, targetPort, map[string]uint32{"default": 1}, handler)
+}
+
+func newTestEndpointWithCapacity(t *testing.T, storage string, listenPort, targetPort int, capacity map[string]uint32, handler func(context.Context, *r1sv1.Envelope) error) *Endpoint {
 	t.Helper()
 	config := common.DefaultConfig()
 	config.EnableTransport = false
@@ -173,7 +180,7 @@ func newTestEndpoint(t *testing.T, storage string, listenPort, targetPort int, h
 	endpoint, err := New(Config{
 		Reticulum:    config,
 		IdentityPath: filepath.Join(storage, "r1sd.identity"),
-		Capacity:     map[string]uint32{"default": 1},
+		Capacity:     capacity,
 		NetworkWait:  8 * time.Second,
 	}, handler)
 	if err != nil {

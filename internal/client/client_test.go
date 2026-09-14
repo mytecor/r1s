@@ -1,0 +1,276 @@
+package client
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/allocator"
+	r1sruntime "github.com/mytecor/r1s/internal/runtime"
+	statebolt "github.com/mytecor/r1s/internal/store/bolt"
+	"github.com/mytecor/r1s/internal/transport"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+func TestSelectIsDeterministicAndDurable(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0).UTC()
+	path := filepath.Join(t.TempDir(), "client.db")
+	store, err := statebolt.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	core, err := New(Config{Identity: []byte("client"), Store: store, Now: func() time.Time { return now }, NewID: sequenceIDs("request", "request-message", "execution", "assign-message")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerAllocator(t, core, "allocator-far", "far", 3)
+	registerAllocator(t, core, "allocator-near", "near", 1)
+	requestID, requestEnvelope, err := core.CreateRequest(testWorkload(), testPolicy(), "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestID != "request" {
+		t.Fatalf("request ID = %q", requestID)
+	}
+	mustObserveOffer(t, core, now, requestEnvelope, "allocator-far", "offer-far")
+	mustObserveOffer(t, core, now, requestEnvelope, "allocator-near", "offer-near")
+	destination, assignment, err := core.Select(requestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if destination != "near" || assignment.GetExecutionAssign().GetOfferId() != "offer-near" {
+		t.Fatalf("selection destination=%q assignment=%v", destination, assignment)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopenedStore, err := statebolt.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopenedStore.Close()
+	restarted, err := New(Config{Identity: []byte("client"), Store: reopenedStore, Now: func() time.Time { return now.Add(time.Minute) }, NewID: sequenceIDs("must-not-be-used")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedDestination, restartedAssignment, err := restarted.Select(requestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restartedDestination != destination || !proto.Equal(restartedAssignment, assignment) {
+		t.Fatalf("assignment changed after restart:\nfirst=%v\nrestarted=%v", assignment, restartedAssignment)
+	}
+	if len(restarted.Executions()) != 1 {
+		t.Fatalf("executions after restart = %d, want 1", len(restarted.Executions()))
+	}
+}
+
+func TestHandleRejectsUnknownAllocatorAndStaleState(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0).UTC()
+	core, err := New(Config{Identity: []byte("client"), Now: func() time.Time { return now }, NewID: sequenceIDs("request", "request-message", "execution", "assign-message")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerAllocator(t, core, "allocator", "destination", 1)
+	requestID, requestEnvelope, err := core.CreateRequest(testWorkload(), testPolicy(), "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := offerEnvelope(now, requestEnvelope, "unknown", "offer-unknown")
+	if err := core.Handle(context.Background(), unknown); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("unknown allocator error = %v", err)
+	}
+	mustObserveOffer(t, core, now, requestEnvelope, "allocator", "offer")
+	_, assignment, err := core.Select(requestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionID := assignment.GetExecutionAssign().GetExecutionId()
+	running := stateEnvelope(now.Add(time.Minute), "allocator", executionID, r1sv1.ExecutionPhase_EXECUTION_PHASE_RUNNING, 0)
+	if err := core.Handle(context.Background(), running); err != nil {
+		t.Fatal(err)
+	}
+	stale := stateEnvelope(now.Add(30*time.Second), "allocator", executionID, r1sv1.ExecutionPhase_EXECUTION_PHASE_STARTING, 0)
+	if err := core.Handle(context.Background(), stale); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _ := core.Execution(executionID)
+	if snapshot.State.GetPhase() != r1sv1.ExecutionPhase_EXECUTION_PHASE_RUNNING {
+		t.Fatalf("stale state regressed execution: %v", snapshot.State)
+	}
+	forged := stateEnvelope(now.Add(2*time.Minute), "other", executionID, r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED, 0)
+	if err := core.Handle(context.Background(), forged); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("forged state error = %v", err)
+	}
+}
+
+func TestTwoAllocatorWorkflowAndRetainedTerminalState(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0).UTC()
+	network := transport.NewMemory()
+	clientCore, err := New(Config{Identity: []byte("client"), Now: func() time.Time { return now }, NewID: sequenceIDs("request", "request-message", "execution", "assign-message", "inspect-message")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientEndpoint, err := network.Register("client", func(ctx context.Context, envelope *r1sv1.Envelope) error {
+		return clientCore.Handle(ctx, envelope)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimes := map[string]*testRuntime{"allocator-a": {}, "allocator-b": {}}
+	for index, name := range []string{"allocator-a", "allocator-b"} {
+		name := name
+		var endpoint *transport.MemoryEndpoint
+		allocatorCore, err := allocator.New(allocator.Config{
+			Identity: []byte(name), Capacity: map[string]uint32{"default": 1}, Now: func() time.Time { return now },
+			NewID: sequenceIDs(fmt.Sprintf("offer-%d", index), fmt.Sprintf("response-%d", index), fmt.Sprintf("state-%d", index), fmt.Sprintf("inspect-state-%d", index)),
+		}, runtimes[name])
+		if err != nil {
+			t.Fatal(err)
+		}
+		endpoint, err = network.Register(name, func(ctx context.Context, envelope *r1sv1.Envelope) error {
+			responses, handleErr := allocatorCore.Handle(ctx, envelope)
+			for _, response := range responses {
+				if sendErr := endpoint.Send(ctx, "client", response); sendErr != nil {
+					return sendErr
+				}
+			}
+			return handleErr
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		registerAllocator(t, clientCore, name, name, uint8(2-index))
+	}
+
+	requestID, requestEnvelope, err := clientCore.CreateRequest(testWorkload(), testPolicy(), "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, destination := range []string{"allocator-a", "allocator-b"} {
+		if err := clientEndpoint.Send(context.Background(), destination, requestEnvelope); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destination, assignment, err := clientCore.Select(requestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if destination != "allocator-b" {
+		t.Fatalf("selected %q, want allocator-b", destination)
+	}
+	if err := clientEndpoint.Send(context.Background(), destination, assignment); err != nil {
+		t.Fatal(err)
+	}
+	executionID := assignment.GetExecutionAssign().GetExecutionId()
+	now = now.Add(time.Second)
+	exitCode := int32(7)
+	if err := runtimes[destination].complete(executionID, &exitCode); err != nil {
+		t.Fatal(err)
+	}
+	_, inspect, err := clientCore.Inspect(executionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := clientEndpoint.Send(context.Background(), destination, inspect); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, ok := clientCore.Execution(executionID)
+	if !ok || snapshot.State.GetPhase() != r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED || snapshot.State.GetExitCode() != exitCode {
+		t.Fatalf("retained result = %+v", snapshot)
+	}
+}
+
+func registerAllocator(t *testing.T, core *Client, identity, destination string, hops uint8) {
+	t.Helper()
+	if err := core.RegisterAllocator(Allocator{Identity: []byte(identity), Destination: destination, Hops: hops, Capacity: map[string]uint32{"default": 1}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustObserveOffer(t *testing.T, core *Client, now time.Time, request *r1sv1.Envelope, allocatorID, offerID string) {
+	t.Helper()
+	if err := core.Handle(context.Background(), offerEnvelope(now, request, allocatorID, offerID)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func offerEnvelope(now time.Time, request *r1sv1.Envelope, allocatorID, offerID string) *r1sv1.Envelope {
+	return &r1sv1.Envelope{
+		MessageId: "message-" + offerID, Sender: []byte(allocatorID), CorrelationId: request.GetMessageId(), SentAt: timestamppb.New(now),
+		Payload: &r1sv1.Envelope_ExecutionOffer{ExecutionOffer: &r1sv1.ExecutionOffer{
+			OfferId: offerID, RequestId: request.GetExecutionRequest().GetRequestId(), ResourceClass: "default", ExpiresAt: timestamppb.New(now.Add(time.Minute)),
+		}},
+	}
+}
+
+func stateEnvelope(now time.Time, allocatorID, executionID string, phase r1sv1.ExecutionPhase, exitCode int32) *r1sv1.Envelope {
+	state := &r1sv1.ExecutionState{ExecutionId: executionID, Phase: phase, OccurredAt: timestamppb.New(now)}
+	if phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED {
+		state.ExitCode = &exitCode
+	}
+	return &r1sv1.Envelope{
+		MessageId: fmt.Sprintf("state-%d", now.UnixNano()), Sender: []byte(allocatorID), SentAt: timestamppb.New(now),
+		Payload: &r1sv1.Envelope_ExecutionState{ExecutionState: state},
+	}
+}
+
+func testWorkload() *r1sv1.Workload {
+	return &r1sv1.Workload{Image: "example.test/workload@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+}
+
+func testPolicy() *r1sv1.ExecutionPolicy {
+	return &r1sv1.ExecutionPolicy{MaxRuntime: durationpb.New(time.Minute), ResultRetention: durationpb.New(time.Hour)}
+}
+
+func sequenceIDs(values ...string) func() string {
+	var mu sync.Mutex
+	index := 0
+	return func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		if index >= len(values) {
+			return fmt.Sprintf("generated-%d", index)
+		}
+		value := values[index]
+		index++
+		return value
+	}
+}
+
+type testRuntime struct {
+	mu        sync.Mutex
+	reporters map[string]r1sruntime.Reporter
+}
+
+func (r *testRuntime) Start(_ context.Context, request r1sruntime.StartRequest, reporter r1sruntime.Reporter) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.reporters == nil {
+		r.reporters = make(map[string]r1sruntime.Reporter)
+	}
+	if r.reporters[request.ExecutionID] == nil {
+		r.reporters[request.ExecutionID] = reporter
+	}
+	return nil
+}
+
+func (r *testRuntime) Stop(context.Context, string) error { return nil }
+
+func (r *testRuntime) complete(executionID string, exitCode *int32) error {
+	r.mu.Lock()
+	reporter := r.reporters[executionID]
+	r.mu.Unlock()
+	if reporter == nil {
+		return errors.New("missing reporter")
+	}
+	return reporter(r1sruntime.Completion{ExecutionID: executionID, ExitCode: exitCode})
+}

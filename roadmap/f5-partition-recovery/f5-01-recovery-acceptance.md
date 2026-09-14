@@ -10,6 +10,6 @@ container execution.
 ## Acceptance
 
 - The workload starts exactly once.
-- It is not stopped by owner disconnection.
+- It is not stopped by client disconnection.
 - Its terminal state and result are available after reconnection.
 

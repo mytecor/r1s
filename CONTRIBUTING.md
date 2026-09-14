@@ -28,7 +28,7 @@ require a new package version such as `r1s.v2`.
 - Put every shipped executable in `cmd/<binary>/` using the standard Go project layout.
 - Keep `main` packages limited to configuration, dependency wiring, process lifecycle, and output.
 - Put reusable behavior in the appropriate non-command package and test it there.
-- The planned system binaries are `cmd/r1sd/` for the allocator service and `cmd/r1s/` for the owner CLI.
+- The planned system binaries are `cmd/r1sd/` for the allocator service and `cmd/r1s/` for the client CLI.
 
 ## Tests
 

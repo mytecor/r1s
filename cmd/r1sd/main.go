@@ -34,8 +34,7 @@ func main() {
 }
 
 func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) error {
-	flags := flag.NewFlagSet("r1sd", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	flags := newFlagSet("r1sd", stderr)
 	configPath := flags.String("rns-config", "", "path to a Reticulum-Go configuration file")
 	identityPath := flags.String("identity", "", "path to the persistent r1sd identity")
 	capacityValue := flags.String("capacity", "default=1", "comma-separated resource capacities, for example default=2,gpu=1")
@@ -48,7 +47,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	if strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identityPath) == "" {
-		return errors.New("-rns-config and -identity are required")
+		return errors.New("--rns-config and --identity are required")
 	}
 	capacity, err := parseCapacity(*capacityValue)
 	if err != nil {
@@ -68,17 +67,17 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		responses, handleErr := core.Handle(context.Background(), envelope)
 		if handleErr != nil {
 			logger.Printf("reject message %q from %x: %v", envelope.GetMessageId(), envelope.GetSender(), handleErr)
-			return handleErr
 		}
+		var responseErr error
 		for _, response := range responses {
 			sendContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			sendErr := endpoint.Send(sendContext, hex.EncodeToString(envelope.GetSender()), response)
 			cancel()
 			if sendErr != nil {
-				return fmt.Errorf("send response: %w", sendErr)
+				responseErr = errors.Join(responseErr, fmt.Errorf("send response: %w", sendErr))
 			}
 		}
-		return nil
+		return errors.Join(handleErr, responseErr)
 	}
 	endpoint, err = rns.New(rns.Config{
 		Reticulum:        reticulumConfig,
@@ -149,4 +148,20 @@ func parseCapacity(value string) (map[string]uint32, error) {
 		capacity[class] = uint32(slots)
 	}
 	return capacity, nil
+}
+
+func newFlagSet(name string, output io.Writer) *flag.FlagSet {
+	flags := flag.NewFlagSet(name, flag.ContinueOnError)
+	flags.SetOutput(output)
+	flags.Usage = func() {
+		fmt.Fprintf(output, "Usage of %s:\n", name)
+		flags.VisitAll(func(candidate *flag.Flag) {
+			fmt.Fprintf(output, "  --%s value\n    \t%s", candidate.Name, candidate.Usage)
+			if candidate.DefValue != "" && candidate.DefValue != "false" && candidate.DefValue != "0" {
+				fmt.Fprintf(output, " (default %s)", strconv.Quote(candidate.DefValue))
+			}
+			fmt.Fprintln(output)
+		})
+	}
+	return flags
 }

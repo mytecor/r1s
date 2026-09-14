@@ -16,7 +16,7 @@ import (
 func TestMemoryDeliversCloneWithAuthenticatedSender(t *testing.T) {
 	network := transport.NewMemory()
 	received := make(chan *r1sv1.Envelope, 1)
-	source, err := network.Register("authenticated-owner", func(_ context.Context, envelope *r1sv1.Envelope) error {
+	source, err := network.Register("authenticated-client", func(_ context.Context, envelope *r1sv1.Envelope) error {
 		received <- envelope
 		return nil
 	})
@@ -33,15 +33,15 @@ func TestMemoryDeliversCloneWithAuthenticatedSender(t *testing.T) {
 	}
 
 	original := testEnvelope()
-	original.Sender = []byte("forged-owner")
+	original.Sender = []byte("forged-client")
 	if err := source.Send(context.Background(), "allocator", original); err != nil {
 		t.Fatalf("Send() error = %v", err)
 	}
 	delivered := <-received
-	if got := string(delivered.GetSender()); got != "authenticated-owner" {
-		t.Fatalf("sender = %q, want authenticated-owner", got)
+	if got := string(delivered.GetSender()); got != "authenticated-client" {
+		t.Fatalf("sender = %q, want authenticated-client", got)
 	}
-	if original.GetMessageId() != "message" || string(original.GetSender()) != "forged-owner" {
+	if original.GetMessageId() != "message" || string(original.GetSender()) != "forged-client" {
 		t.Fatalf("original envelope was mutated: %v", original)
 	}
 	if proto.Equal(original, delivered) {

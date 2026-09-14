@@ -22,7 +22,7 @@ type Store struct {
 	database *goBolt.DB
 }
 
-// Open creates or opens a durable state database with owner-only permissions.
+// Open creates or opens a durable state database with mode 0600.
 func Open(path string) (*Store, error) {
 	if path == "" {
 		return nil, errors.New("state database path is required")

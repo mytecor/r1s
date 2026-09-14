@@ -54,6 +54,8 @@ func ValidateEnvelope(envelope *r1sv1.Envelope) error {
 		return validateCancel(payload.ExecutionCancel)
 	case *r1sv1.Envelope_ExecutionState:
 		return validateState(payload.ExecutionState)
+	case *r1sv1.Envelope_ExecutionInspect:
+		return validateInspect(payload.ExecutionInspect)
 	case nil:
 		return invalid("payload", "is required")
 	default:
@@ -162,6 +164,16 @@ func validateCancel(cancel *r1sv1.ExecutionCancel) error {
 	}
 	if strings.TrimSpace(cancel.GetExecutionId()) == "" {
 		return invalid("execution_cancel.execution_id", "is required")
+	}
+	return nil
+}
+
+func validateInspect(inspect *r1sv1.ExecutionInspect) error {
+	if inspect == nil {
+		return invalid("execution_inspect", "is required")
+	}
+	if strings.TrimSpace(inspect.GetExecutionId()) == "" {
+		return invalid("execution_inspect.execution_id", "is required")
 	}
 	return nil
 }

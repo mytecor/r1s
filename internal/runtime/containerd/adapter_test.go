@@ -245,7 +245,7 @@ func TestPinnedDigestAndContainerID(t *testing.T) {
 func testRequest(executionID string, maximum time.Duration) r1sruntime.StartRequest {
 	return r1sruntime.StartRequest{
 		ExecutionID: executionID,
-		Owner:       []byte("owner"),
+		Client:      []byte("client"),
 		Workload: &r1sv1.Workload{
 			Image:       "registry.example/r1s/fixture@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			Command:     []string{"/bin/sh", "-c"},

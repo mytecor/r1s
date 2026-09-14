@@ -10,11 +10,11 @@ links. r1s supplies workload demand, local allocation, assignment, and execution
 
 | Term | Meaning | Authority |
 | --- | --- | --- |
-| Owner | Participant that creates a request and chooses an offer | Its own requests and executions |
+| Client | `r1s` process that sends commands to allocators and chooses an offer | Its own requests and executions |
 | Allocator | Node-local service that advertises and reserves capacity | Local capacity and runtime |
 | Workload | Infrastructure-neutral OCI image, command, environment, and policy | Immutable request data |
 | Offer | Bounded reservation proposed by one allocator | Issuing allocator |
-| Execution | One selected, locally running workload instance | Owner for commands; allocator for mechanics |
+| Execution | One selected, locally running workload instance | Client for commands; allocator for mechanics |
 
 The core deliberately does not define agents, teams, prompts, CI jobs, or application-level event
 hierarchies. Those are workloads or protocols layered on top.
@@ -24,15 +24,15 @@ hierarchies. Those are workloads or protocols layered on top.
 ```mermaid
 flowchart LR
     Protocol[Versioned Protobuf protocol]
-    Owner[Owner logic]
+    Client[Client logic]
     Fabric[RNS fabric<br/>announce + Link/Channel]
     Allocator[Allocator core]
     Runtime[OCI runtime]
     Containerd[containerd]
 
-    Protocol -. defines messages .-> Owner
+    Protocol -. defines messages .-> Client
     Protocol -. defines messages .-> Allocator
-    Owner <--> Fabric
+    Client <--> Fabric
     Fabric <--> Allocator
     Allocator --> Runtime
     Runtime --> Containerd
@@ -43,6 +43,7 @@ The source boundaries are:
 ```text
 api/proto/r1s/v1/       versioned wire schema
 internal/protocol/      message validation and compatibility
+internal/client/         durable requests, offer selection, and observed execution state
 internal/allocator/     offers, capacity, assignment, authorization
 internal/transport/     transport boundary and RNS adapter
 internal/runtime/       runtime boundary and containerd adapter
@@ -58,12 +59,12 @@ lifecycle and recovery acceptance remain gated for a Linux host with containerd.
 
 All executable entry points use the standard Go `cmd/<binary>/` layout. Command packages perform
 configuration, dependency wiring, process lifecycle, and presentation only; protocol, allocator,
-transport, runtime, and owner behavior remains in reusable packages.
+transport, runtime, and client behavior remains in reusable packages.
 
 | Binary | Source | Purpose | Introduced by |
 | --- | --- | --- | --- |
 | `r1sd` | `cmd/r1sd/` | Long-running allocator service connected to RNS and containerd | F2, extended by F3 |
-| `r1s` | `cmd/r1s/` | Owner CLI for request, list, inspect, cancel, and result operations | F4 |
+| `r1s` | `cmd/r1s/` | Client CLI for request, list, inspect, cancel, and result operations | F4 |
 
 Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system
 binaries.
@@ -72,14 +73,14 @@ binaries.
 
 r1s has no globally consistent state:
 
-- an owner knows its requests, received offers, and selected executions;
+- a client knows its requests, received offers, and selected executions;
 - an allocator knows only its capacity, offers, and local executions;
-- an execution knows its immutable workload and owner;
+- an execution knows its immutable workload and client;
 - RNS routes between identities and destinations but does not become a durable job queue.
 
-Conflicts are resolved by narrow authority rather than consensus. Only the request owner may assign
-or cancel its execution. Only the allocator may claim its local capacity or report local runtime
-state.
+Conflicts are resolved by narrow authority rather than consensus. Only the authenticated client
+that created a request may assign or cancel its execution. Only the allocator may claim its local
+capacity or report local runtime state.
 
 The RNS adapter must populate `Envelope.sender` from the authenticated link identity. A remote peer
 must not be allowed to assert an arbitrary sender by serializing different bytes in the envelope.
@@ -92,14 +93,19 @@ payload. The package version will be part of the Protobuf namespace and import p
 
 The initial exchange is:
 
-1. An owner publishes `ExecutionRequest` with an OCI workload and finite policy.
+1. A client publishes `ExecutionRequest` with an OCI workload and finite policy.
 2. An allocator with free capacity creates a time-bounded `ExecutionOffer`.
-3. The owner sends `ExecutionAssign` to exactly one allocator.
+3. The client sends `ExecutionAssign` to exactly one allocator.
 4. The allocator starts the workload and publishes `ExecutionState` changes.
-5. The owner may send `ExecutionCancel`; the allocator verifies the authenticated sender.
+5. The client may send `ExecutionCancel`; the allocator verifies the authenticated sender.
+
+After either side restarts, the client may send `ExecutionInspect` to the selected allocator. The
+allocator verifies the authenticated client and returns its latest durable `ExecutionState`. This
+also supplies the first retained-result contract: terminal phase, detail, and exit code. Stream and
+artifact results remain deferred in [BACKLOG.md](./roadmap/BACKLOG.md).
 
 Offers reserve capacity but do not start the workload. This prevents every allocator from pulling
-and starting the same image before the owner makes a selection.
+and starting the same image before the client makes a selection.
 
 Protobuf evolution is additive: existing field numbers are never reused, removed fields are
 reserved, and unknown fields must remain safe to ignore.
@@ -110,11 +116,11 @@ Connection state never determines execution lifetime. After assignment, an execu
 autonomously through a network partition. It ends only when one of these explicit conditions occurs:
 
 - the workload completes or fails;
-- the authenticated owner cancels it;
+- the authenticated client cancels it;
 - its deadline or maximum runtime is reached;
 - a future local policy explicitly rejects or evicts it.
 
-Completed results may be retained for `result_retention` so an owner can retrieve them after
+Completed results may be retained for `result_retention` so a client can retrieve them after
 reconnecting. Result transfer and persistence are not implemented in the first slice.
 
 ## Transport boundary
@@ -126,6 +132,9 @@ announces or small control envelopes.
 
 An in-memory transport will implement the same interface for deterministic tests; it will not be a
 simulation of routing, cryptography, or link behavior.
+
+Allocator RNS endpoints announce capacity. Client endpoints are passive: they discover those
+announces and establish authenticated Links without advertising fake allocator capacity.
 
 ## Runtime boundary
 
@@ -150,3 +159,9 @@ state is committed before containerd metadata is removed so a store failure leav
 available for the next recovery attempt.
 
 Result storage beyond terminal metadata remains open in [BACKLOG.md](./roadmap/BACKLOG.md).
+
+Client requests, offers, the chosen assignment, allocator route, cancellation intent, and latest
+observed state are stored in a separate identity-bound bbolt snapshot. Assignment message IDs and
+timestamps are durable, so retry after a crash replays the same assignment rather than choosing a
+second allocator. Inspect uses a fresh message ID so allocator replay caching cannot return an old
+state.
