@@ -21,6 +21,8 @@ import (
 // completed workload's stdout/stderr stays locally readable after a real r1sd
 // restart, and the on-disk logstore layout (per-execution directory with
 // bounded stdout/stderr streams) contains exactly what the workload wrote.
+// Verified on mytecor-homelab (2026-09-15) with go test -race alongside
+// TestPartitionRecovery against containerd 2.3.4 / runc 1.4.3.
 //
 // Retention through the explicit owner request path is covered deterministically
 // by internal/allocator/acceptance_test.go (TestLogsOnlyByExplicitOwnerRequest)
