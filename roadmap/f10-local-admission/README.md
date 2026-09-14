@@ -2,7 +2,7 @@
 
 Corresponds to the [F10 milestone](../../ROADMAP.md#f10-local-admission-and-resource-limits).
 
-**Status:** 🚧 Implemented; acceptance tests and live Linux enforcement pending
+**Status:** 🚧 Implemented; admission acceptance tests pass; live Linux enforcement pending
 
 ## Outcome
 

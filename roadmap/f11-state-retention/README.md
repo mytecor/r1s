@@ -2,7 +2,7 @@
 
 Corresponds to the [F11 milestone](../../ROADMAP.md#f11-bounded-durable-history).
 
-**Status:** 🚧 Implemented; acceptance tests pending
+**Status:** 🚧 Implemented; retention acceptance tests pass (scaling benchmarks still planned)
 
 ## Outcome
 

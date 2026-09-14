@@ -82,7 +82,7 @@ partition-safe fallback.
 - Clients distinguish authenticated allocator rejection from missing responses.
 - Execution state ordering survives clock rollback and process restart.
 
-- **Status:** 🚧 implemented; direct acceptance tests pending
+- **Status:** 🚧 implemented; unit and protocol acceptance tests pass; live verify pending
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** F1, F2, F4, F5.
 
@@ -91,7 +91,7 @@ partition-safe fallback.
 - The allocator retains bounded stdout/stderr locally, including after a task fails or the daemon restarts.
 - An execution owner can separately request a bounded range of locally retained logs.
 
-- **Status:** 🚧 implemented; direct acceptance tests and live Linux restart pending
+- **Status:** 🚧 implemented; unit acceptance tests pass; live Linux restart pending
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** F3, F4, F8, and the F11 retention contract.
 
@@ -100,7 +100,7 @@ partition-safe fallback.
 - Allocator-defined resource classes enforce CPU, memory, and process limits.
 - An allocator controls which clients can reserve capacity and how much they can reserve.
 
-- **Status:** 🚧 implemented; acceptance tests and live Linux enforcement pending
+- **Status:** 🚧 implemented; admission acceptance tests pass; live Linux enforcement pending
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** F3, F8.
 
@@ -109,7 +109,7 @@ partition-safe fallback.
 - Finished executions and obsolete offers are collected without allowing old commands to restart work.
 - Persistence remains predictable as execution history grows.
 
-- **Status:** 🚧 in progress; retention implemented, scaling benchmarks pending
+- **Status:** 🚧 in progress; retention and acceptance tests pass; scaling benchmarks pending
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** F5, F6, F8.
 

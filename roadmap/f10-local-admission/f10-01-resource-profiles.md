@@ -1,6 +1,6 @@
 # F10-01 — Allocator resource profiles
 
-**Status:** 🚧 Implemented; acceptance tests and live Linux enforcement pending
+**Status:** 🚧 Implemented; admission acceptance tests pass; live Linux enforcement pending
 
 ## Outcome
 
@@ -17,6 +17,20 @@ Allocator-defined resource classes enforce CPU, memory, and process limits.
 - A live Linux workload is subject to its configured memory, CPU, and process limits.
 - Invalid profiles fail startup; existing executions retain their admitted limits after recovery.
 - Run `make check` and the feature-specific checks described above.
+
+## Verification status
+
+Covered by `internal/allocator/acceptance_test.go` (`TestInvalidResourceProfileFailsStartup`,
+`TestResourceProfileSurvivesRestart`, plus `internal/runtime/resources.go` validation used by the
+adapter):
+
+- Invalid profiles fail startup before capacity is advertised.
+- An admitted resource profile is persisted with the offer and execution and restored across restart.
+
+Still to verify on a live Linux runner: an actual workload is subject to its configured memory, CPU,
+and process limits via the containerd OCI spec, and existing executions keep their admitted limits
+after daemon recovery.
+
 
 ## Notes
 

@@ -1,6 +1,6 @@
 # F10-02 — Authenticated admission and quotas
 
-**Status:** 🚧 Implemented; acceptance tests and live Linux enforcement pending
+**Status:** 🚧 Implemented; admission acceptance tests pass; live Linux enforcement pending
 
 ## Outcome
 
@@ -18,6 +18,19 @@ An allocator controls which clients can reserve capacity and how much they can r
 - Spoofed payload identity cannot bypass quotas.
 - Concurrent requests and repeated cleanup never over-allocate or double-release quota.
 - Run `make check` and the feature-specific checks described above.
+
+## Verification status
+
+Covered by `internal/allocator/acceptance_test.go` (`TestAdmissionAllowlistAndIdentityQuotas`):
+
+- A spoofed payload identity cannot bypass the transport-authenticated sender allowlist.
+- Per-identity offer quotas are enforced; one client's quota cannot be exhausted by another, and
+  over-quota requests return an explicit `CAPACITY` error.
+
+Still to verify on a live Linux runner: concurrent requests and repeated cleanup never over-allocate
+or double-release quota across allocator restart, and per-identity execution quotas hold for real
+workloads.
+
 
 ## Notes
 

@@ -1,6 +1,6 @@
 # F8-01 — Explicit command errors
 
-**Status:** 🚧 Implemented; direct acceptance tests pending
+**Status:** 🚧 Implemented; unit and protocol acceptance tests pass; live verify pending
 
 ## Outcome
 
@@ -20,6 +20,23 @@ Clients distinguish authenticated allocator rejection from missing responses.
 - Unknown and unauthorized commands cannot disclose another client's execution data.
 - Duplicate rejection remains stable after restart; transport loss cannot produce duplicate execution.
 - Run `make check` and the feature-specific checks described above.
+
+## Verification status
+
+Covered by `internal/allocator/acceptance_test.go` (`TestCapacityRejectionReturnsCorrelatedCommandError`,
+`TestUnauthorizedAndUnknownCommandsAreOpaque`) and `internal/protocol/feedback_test.go`
+(`TestCommandErrorValidation`):
+
+- A capacity rejection is a correlated `CommandError` with code `CAPACITY` and retry flag, and the same
+  rejection replays stably without consuming capacity or starting work.
+- Unknown and unauthorized commands answer an opaque `NOT_FOUND` and never disclose another client's
+  execution state; workload output never appears in an error detail.
+- The wire validation rejects unknown error codes, missing correlation, and oversized detail.
+
+Still to verify on a live Linux runner: no duplicate execution under injected transport loss while a
+rejection is in flight (the deterministic replay tests cover the allocator side; the CLI aggregates
+rejections without unsafe failover).
+
 
 ## Notes
 

@@ -2,7 +2,7 @@
 
 Corresponds to the [F9 milestone](../../ROADMAP.md#f9-local-logs-and-explicit-retrieval).
 
-**Status:** 🚧 Implemented; direct acceptance tests and live Linux restart pending
+**Status:** 🚧 Implemented; unit acceptance tests pass; live Linux restart pending
 
 ## Outcome
 
