@@ -102,9 +102,8 @@ Without the flag those tests skip, so `make check` stays green.
 
 - [AGENTS.md](./AGENTS.md) — repository rules for automated contributors.
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — component boundaries, authority, and lifecycle.
-- [ROADMAP.md](./ROADMAP.md) — entry point to the plan, features, and implementation tasks.
+- [ROADMAP.md](./ROADMAP.md) — the roadmap: milestones, features, tasks, and open decisions.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — development and verification workflow.
-- [`roadmap/`](./roadmap/README.md) — vision, features, tasks, and open decisions.
 
 ## License
 
