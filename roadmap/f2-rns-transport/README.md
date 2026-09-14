@@ -1,6 +1,6 @@
 # F2 — RNS transport
 
-**Status:** In progress
+**Status:** Complete
 
 ## Outcome
 
@@ -34,7 +34,7 @@ Reticulum-Go without tunnelling gRPC or HTTP/2 over RNS.
   reliably delivers r1s envelopes over a Reticulum-Go Channel to that node, including recovery from
   injected channel-packet loss.
 
-## Remaining
+## Follow-on work
 
-- The production containerd/OCI runtime adapter (F3), durable allocator persistence, and the result
-  contract are open work tracked in [BACKLOG.md](../BACKLOG.md).
+- The production containerd/OCI runtime, durable allocator persistence, and the result contract are
+  owned by later features and [BACKLOG.md](../BACKLOG.md); they are not F2 completion criteria.

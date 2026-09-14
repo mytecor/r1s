@@ -8,11 +8,12 @@ The name follows the same contraction pattern as Kubernetes → k8s: Reticulum N
 
 ## Status
 
-r1s has completed its transport-independent protocol foundation. RNS transport work is in progress:
-the embedded Reticulum-Go adapter, authenticated sender replacement, allocator announces, and the
-initial `r1sd` entry point are implemented and covered by a two-node loopback test. Python-reference
-discovery and reliable Channel envelope delivery (including recovery from injected packet loss) are
-proven by a gated live harness; the production containerd adapter remains open work.
+r1s has completed its transport-independent protocol foundation and RNS transport. The embedded
+Reticulum-Go adapter, authenticated sender replacement, allocator announces, and `r1sd` entry point
+are covered by a two-node loopback test. Python-reference discovery and reliable Channel envelope
+delivery (including recovery from injected packet loss) are proven by a gated live harness. OCI
+runtime work is in progress: the containerd adapter and its daemon-independent tests are implemented;
+live lifecycle acceptance and durable restart reconciliation remain open.
 
 ## Design principles
 
@@ -62,10 +63,14 @@ identity:
 go run ./cmd/r1sd \
   -rns-config ./reticulum.conf \
   -identity ./r1sd.identity \
-  -capacity default=2,gpu=1
+  -capacity default=2,gpu=1 \
+  -containerd-address /run/containerd/containerd.sock \
+  -containerd-namespace r1s
 ```
 
-The daemon embeds Reticulum-Go; it does not require a separate Reticulum daemon. A UDP test pair can
+The daemon embeds Reticulum-Go; it does not require a separate Reticulum daemon. It does require a
+reachable containerd daemon, and accepted OCI image references must be pinned by digest. The
+`-containerd-snapshotter` flag selects a non-default snapshotter when needed. A UDP test pair can
 use `listen_ip`, `listen_port`, `target_host`, and `target_port` in two Reticulum configuration files
 with the listen and target ports swapped. `r1sd` runs as an endpoint, not an RNS routing transport,
 and keeps Reticulum transport state beside the configured service identity.
@@ -76,8 +81,8 @@ Regenerate Go bindings after changing the Protobuf schema:
 make generate
 ```
 
-Generation requires `protoc` 36.0; the matching `protoc-gen-go` version is pinned in
-[go.mod](./go.mod) and built automatically.
+Generation requires `protoc` 36.0; the exact `protoc-gen-go` version is pinned in the
+[Makefile](./Makefile) and installed automatically.
 
 Run generated-code verification, race-enabled Go tests, and documentation link checks:
 
@@ -97,6 +102,18 @@ RUN_LIVE_INTEROP=1 go test ./internal/transport/rns/ -run TestPythonReference -v
 ```
 
 Without the flag those tests skip, so `make check` stays green.
+
+Live containerd lifecycle acceptance is also gated and requires Linux, a reachable containerd
+daemon, and a fixture image reference pinned by digest:
+
+```sh
+RUN_CONTAINERD_INTEGRATION=1 \
+R1S_CONTAINERD_TEST_IMAGE='registry.example/image@sha256:...' \
+go test ./internal/runtime/containerd/ -run TestContainerdFixtureLifecycle -v
+```
+
+Set `CONTAINERD_ADDRESS` when the daemon does not use `/run/containerd/containerd.sock`. Without the
+gate, this test skips and remains compatible with ordinary `make check` runs.
 
 ## Documentation
 

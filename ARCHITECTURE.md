@@ -48,10 +48,11 @@ internal/transport/     transport boundary and RNS adapter
 internal/runtime/       runtime boundary and containerd adapter
 ```
 
-The protocol, allocator, transport contract and in-memory adapter, runtime contract, and initial RNS
-adapter are present. Python-reference RNS discovery interoperability and reliable Channel envelope
-delivery (including recovery from injected packet loss) are proven via a gated live harness; the
-containerd production adapter remains open work.
+The protocol, allocator, transport contract and in-memory adapter, runtime contract, RNS adapter,
+and containerd adapter are present. Python-reference RNS discovery interoperability and reliable
+Channel envelope delivery (including recovery from injected packet loss) are proven via a gated live
+harness. Live containerd lifecycle acceptance and durable allocator restart reconciliation remain
+open work.
 
 ## Commands
 
@@ -61,7 +62,7 @@ transport, runtime, and owner behavior remains in reusable packages.
 
 | Binary | Source | Purpose | Introduced by |
 | --- | --- | --- | --- |
-| `r1sd` | `cmd/r1sd/` | Long-running allocator service connected to RNS; uses an unavailable-runtime boundary until F3 | F2, completed by F3 |
+| `r1sd` | `cmd/r1sd/` | Long-running allocator service connected to RNS and containerd | F2, extended by F3 |
 | `r1s` | `cmd/r1s/` | Owner CLI for request, list, inspect, cancel, and result operations | F4 |
 
 Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system
@@ -128,9 +129,11 @@ simulation of routing, cryptography, or link behavior.
 
 ## Runtime boundary
 
-The runtime interface will accept a stable execution ID and require idempotent start and stop.
-The first production adapter targets containerd and OCI. VM or microVM backends may be added without
-changing the control protocol, but they are not part of the initial milestone.
+The runtime interface accepts a stable execution ID and requires idempotent start and stop. The
+containerd adapter isolates metadata in an r1s namespace, requires digest-pinned images, derives
+container IDs from execution IDs, and verifies stored identity/specification labels before reuse.
+VM or microVM backends may be added without changing the control protocol, but they are not part of
+the initial milestone.
 
 ## Persistence and recovery
 

@@ -3,6 +3,7 @@
 MODULE := github.com/mytecor/r1s
 PROTO_FILES := api/proto/r1s/v1/control.proto
 PROTOC_GEN_GO := bin/protoc-gen-go
+PROTOC_GEN_GO_VERSION := v1.36.11
 PROTOC_VERSION := 36.0
 
 check: generate-check race docs-check
@@ -22,9 +23,9 @@ protoc-check:
 		exit 1; \
 	}
 
-$(PROTOC_GEN_GO): go.mod go.sum
+$(PROTOC_GEN_GO): Makefile
 	mkdir -p bin
-	go build -o $@ google.golang.org/protobuf/cmd/protoc-gen-go
+	GOBIN=$(CURDIR)/bin go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
 
 test:
 	go test ./...

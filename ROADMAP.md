@@ -24,7 +24,7 @@ exercises delivery and transitions without a live RNS network.
 Two r1s processes discover allocator capacity and exchange authenticated Protobuf envelopes through
 Reticulum-Go without tunnelling gRPC or HTTP/2 over RNS.
 
-- **Status:** 🚧 in progress
+- **Status:** ✅ complete
 - **Done when:** two Go processes discover and exchange authenticated envelopes through
   Reticulum-Go.
 - **Depends on:** [F1](#f1-protocol-foundation)
@@ -33,7 +33,7 @@ Reticulum-Go without tunnelling gRPC or HTTP/2 over RNS.
 
 Selected executions run through containerd with durable metadata and restart reconciliation.
 
-- **Status:** ⏳ not started
+- **Status:** 🚧 in progress
 - **Done when:** an assigned workload starts and stops through containerd with reconciliation after
   restart.
 - **Depends on:** [F1](#f1-protocol-foundation)

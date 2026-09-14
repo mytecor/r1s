@@ -1,6 +1,6 @@
 # F2-01 — Integrate Reticulum-Go
 
-**Status:** In progress
+**Status:** Complete
 
 ## Outcome
 
@@ -36,7 +36,7 @@ and add the allocator service entry point under `cmd/r1sd/`.
   bytes over the same Channel, and the Go endpoint re-validates them with the authenticated identity;
   the injected drop is confirmed and recovered by Channel retransmission.
 
-## Remaining
+## Follow-on work
 
-- The production containerd/OCI runtime adapter (F3) and durable allocator persistence remain open
-  work tracked in [BACKLOG.md](../BACKLOG.md).
+- The production containerd/OCI runtime and durable allocator persistence remain later-feature work
+  tracked by [F3](../f3-oci-runtime/README.md) and [BACKLOG.md](../BACKLOG.md).

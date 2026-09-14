@@ -18,7 +18,7 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/allocator"
-	r1sruntime "github.com/mytecor/r1s/internal/runtime"
+	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
 	"github.com/mytecor/r1s/internal/transport/rns"
 	"quad4/reticulum-go/pkg/reticulumconfig"
 )
@@ -39,6 +39,9 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	identityPath := flags.String("identity", "", "path to the persistent r1sd identity")
 	capacityValue := flags.String("capacity", "default=1", "comma-separated resource capacities, for example default=2,gpu=1")
 	announceInterval := flags.Duration("announce-interval", 5*time.Minute, "service announce refresh interval")
+	containerdAddress := flags.String("containerd-address", runtimecontainerd.DefaultAddress, "path to the containerd socket")
+	containerdNamespace := flags.String("containerd-namespace", runtimecontainerd.DefaultNamespace, "isolated containerd namespace")
+	containerdSnapshotter := flags.String("containerd-snapshotter", "", "containerd snapshotter (daemon default when empty)")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -89,7 +92,18 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	if err != nil {
 		return fmt.Errorf("decode local identity: %w", err)
 	}
-	core, err = allocator.New(allocator.Config{Identity: identityHash, Capacity: capacity}, r1sruntime.Unavailable{})
+	runtimeContext, cancelRuntime := context.WithTimeout(ctx, 30*time.Second)
+	containerRuntime, err := runtimecontainerd.New(runtimeContext, runtimecontainerd.Config{
+		Address:     *containerdAddress,
+		Namespace:   *containerdNamespace,
+		Snapshotter: *containerdSnapshotter,
+	})
+	cancelRuntime()
+	if err != nil {
+		return err
+	}
+	defer containerRuntime.Close()
+	core, err = allocator.New(allocator.Config{Identity: identityHash, Capacity: capacity}, containerRuntime)
 	if err != nil {
 		return err
 	}

@@ -8,8 +8,8 @@ import (
 // ErrUnavailable reports that an OCI adapter has not been configured yet.
 var ErrUnavailable = errors.New("OCI runtime is unavailable")
 
-// Unavailable is the F2 bridge runtime used by r1sd until F3 wires containerd.
-// It never claims to have started or stopped an execution.
+// Unavailable is an explicit placeholder for callers that have not configured
+// a production runtime. It never claims to have started or stopped an execution.
 type Unavailable struct{}
 
 func (Unavailable) Start(context.Context, StartRequest, Reporter) error { return ErrUnavailable }
