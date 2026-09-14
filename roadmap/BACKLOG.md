@@ -4,11 +4,13 @@ This file records unresolved choices so they do not remain implicit in implement
 
 ## Open decisions
 
-1. **Reticulum-Go Channel upgrade** — F2 embeds the canonical Go module
-   `git.quad4.io/Networks/Reticulum-Go` at `v0.9.5`. The newer GitHub mirror release contains Channel
-   and node lifecycle fixes but is not published with consumable module metadata. Upgrade through the
-   canonical module path before declaring reliable retransmission and reconnect acceptance complete;
-   do not copy its internal dependencies into this repository.
+1. **Reticulum-Go Channel envelope delivery to the Python reference** — RSS discovery interoperability
+   against an upstream Python RNS node is implemented and proven by a gated live test
+   ([`internal/transport/rns/interop_python_test.go`](../internal/transport/rns/interop_python_test.go)).
+   The endpoint can also initiate a link toward such a node. What remains open is reliable envelope
+   delivery over a Reticulum-Go Channel to the Python reference implementation, which should be
+   closed from the canonical module path before declaring reliable retransmission and reconnect
+   acceptance complete; do not copy Reticulum-Go internal dependencies into this repository.
 2. **Allocator persistence** — choose the durable store for offers, executions, replay IDs, and
    recovery metadata. SQLite is the leading local-only option.
 3. **Result contract** — define inline result limits, RNS Resource transfer, checksums, retention,

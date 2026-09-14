@@ -49,8 +49,9 @@ internal/runtime/       runtime boundary and containerd adapter
 ```
 
 The protocol, allocator, transport contract and in-memory adapter, runtime contract, and initial RNS
-adapter are present. Python-reference RNS interoperability and the containerd production adapter are
-introduced or completed by later milestone work.
+adapter are present. Python-reference RNS discovery interoperability is proven via a gated live
+harness; reliable Channel envelope delivery to a Python reference node and the containerd production
+adapter remain open work.
 
 ## Commands
 

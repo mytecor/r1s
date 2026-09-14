@@ -11,7 +11,8 @@ The name follows the same contraction pattern as Kubernetes → k8s: Reticulum N
 r1s has completed its transport-independent protocol foundation. RNS transport work is in progress:
 the embedded Reticulum-Go adapter, authenticated sender replacement, allocator announces, and the
 initial `r1sd` entry point are implemented and covered by a two-node loopback test. Python-reference
-interoperability and the production containerd adapter remain planned work.
+discovery interoperability is proven by a gated live harness; reliable Channel envelope delivery to a
+Python RNS node and the production containerd adapter remain open work.
 
 ## Design principles
 
@@ -85,6 +86,17 @@ make check
 ```
 
 Go 1.26.5 is recorded in [go.mod](./go.mod) as the language baseline.
+
+Live interoperability against the upstream Python RNS reference is gated behind `RUN_LIVE_INTEROP=1`
+and requires an interpreter that can import the `RNS` module (a pipx `rns` venv is auto-detected,
+or point `PYTHON_INTEROP` at one). It spawns the reference peer and asserts that the Go endpoint
+finds its r1s descriptor:
+
+```sh
+RUN_LIVE_INTEROP=1 go test ./internal/transport/rns/ -run TestPythonReference -v
+```
+
+Without the flag those tests skip, so `make check` stays green.
 
 ## Documentation
 

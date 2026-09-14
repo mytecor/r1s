@@ -28,9 +28,12 @@ Reticulum-Go without tunnelling gRPC or HTTP/2 over RNS.
 - A loopback UDP test exercises announce and path discovery, Link establishment and re-establishment,
   identification, Channel delivery, validation, and forged-sender replacement between two
   independent endpoints.
+- A gated live interoperability harness ([`interop_python_test.go`](../../internal/transport/rns/interop_python_test.go))
+  and reference peer ([`testdata/python_reference_peer.py`](../../internal/transport/rns/testdata/python_reference_peer.py))
+  prove the Go endpoint discovers an r1s descriptor announced by an upstream Python RNS node.
 
 ## Remaining
 
-- Run and automate interoperability against the Python reference implementation.
-- Verify reliable Channel retransmission and reconnect behavior against a canonically published
-  Reticulum-Go release containing the post-0.9 Channel fixes.
+- Prove reliable Channel envelope delivery and retransmission against the Python reference node;
+  the harness currently covers discovery, and envelope delivery over a Reticulum-Go Channel remains
+  an open decision in [BACKLOG.md](../BACKLOG.md) (item 1).
