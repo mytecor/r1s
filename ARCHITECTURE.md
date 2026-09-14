@@ -52,8 +52,9 @@ internal/runtime/       runtime boundary and containerd adapter
 The protocol, allocator, transport contract and in-memory adapter, runtime contract, RNS adapter,
 and containerd adapter are present. Python-reference RNS discovery interoperability and reliable
 Channel envelope delivery (including recovery from injected packet loss) are proven via a gated live
-harness. Durable allocator state and restart reconciliation are implemented; live containerd
-lifecycle and recovery acceptance remain gated for a Linux host with containerd.
+harness. Durable allocator and client state, restart reconciliation, and the complete partition
+recovery acceptance harness are implemented. The live recovery harness remains gated for a Linux
+host with containerd and has passed on the project test host.
 
 ## Commands
 
@@ -165,3 +166,9 @@ observed state are stored in a separate identity-bound bbolt snapshot. Assignmen
 timestamps are durable, so retry after a crash replays the same assignment rather than choosing a
 second allocator. Inspect uses a fresh message ID so allocator replay caching cannot return an old
 state.
+
+The gated end-to-end recovery harness runs `r1sd` as a separate process over a loopback RNS UDP
+pair. It disconnects the client, restarts the allocator while the labelled containerd task remains
+running, waits for offline completion, restores the client, replays its durable assignment, and
+retrieves terminal metadata with a fresh inspect. A second real workload proves repeated request
+and cancellation envelopes remain idempotent.

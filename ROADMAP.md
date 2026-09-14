@@ -52,7 +52,7 @@ retrieves a retained result.
 The complete system tolerates duplicate messages, process restarts, and temporary loss of client
 connectivity without duplicate execution or premature termination.
 
-- **Status:** ⏳ not started
+- **Status:** ✅ complete
 - **Done when:** end-to-end tests prove replay safety, network-partition survival, and result
   recovery.
 - **Depends on:** [F2](#f2-rns-transport), [F3](#f3-oci-runtime), [F4](#f4-client-workflow)

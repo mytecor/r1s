@@ -9,16 +9,16 @@ The name follows the same contraction pattern as Kubernetes → k8s: Reticulum N
 
 ## Status
 
-r1s has completed its transport-independent protocol foundation, RNS transport, OCI runtime, and
-initial client workflow. The embedded
+r1s has completed its transport-independent protocol foundation, RNS transport, OCI runtime,
+initial client workflow, and partition-recovery acceptance. The embedded
 Reticulum-Go adapter, authenticated sender replacement, allocator announces, and `r1sd` entry point
 are covered by a two-node loopback test. Python-reference discovery and reliable Channel envelope
 delivery (including recovery from injected packet loss) are proven by a gated live harness. OCI
 runtime lifecycle and restart reconciliation are covered by deterministic tests and a live
 containerd harness. The `r1s` client durably creates requests, selects offers, returns immediately
 after assignment, inspects state after restart, cancels executions, and reads retained terminal
-metadata. Linux lifecycle, recovery, cancellation, and two-allocator client acceptance were run on
-`mytecor-homelab` on 2026-09-14.
+metadata. Linux lifecycle, recovery, cancellation, two-allocator client acceptance, and complete
+partition recovery were run on `mytecor-homelab` on 2026-09-14.
 
 ## Design principles
 
@@ -120,6 +120,22 @@ go test ./internal/runtime/containerd/ -run 'TestContainerdFixture(Lifecycle|Rec
 
 Set `CONTAINERD_ADDRESS` when the daemon does not use `/run/containerd/containerd.sock`. Without the
 gate, this test skips and remains compatible with ordinary `make check` runs.
+
+The F5 acceptance harness builds and restarts a real `r1sd`, disconnects and restores a durable
+client, exchanges duplicate control messages over a loopback RNS Channel, and observes the real
+containerd task through completion and cancellation:
+
+```sh
+RUN_PARTITION_RECOVERY=1 \
+R1S_CONTAINERD_TEST_IMAGE='registry.example/image@sha256:...' \
+go test ./internal/acceptance/ -run TestPartitionRecovery -v
+```
+
+It requires Linux and the same `CONTAINERD_ADDRESS` and optional `CONTAINERD_SNAPSHOTTER` settings
+as the runtime harness. Without the gate, it skips during ordinary verification.
+
+`TestPartitionRecovery` passed on `mytecor-homelab` on 2026-09-14 using Go 1.26.7, containerd
+2.3.4, runc 1.4.3, and a digest-pinned Alpine fixture.
 
 Allocator state is stored in a transactional bbolt database. `--state` selects its path and defaults
 to `<identity>.state.db`. The database is bound to the authenticated allocator identity; `r1sd`
