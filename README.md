@@ -12,8 +12,9 @@ r1s has completed its transport-independent protocol foundation and RNS transpor
 Reticulum-Go adapter, authenticated sender replacement, allocator announces, and `r1sd` entry point
 are covered by a two-node loopback test. Python-reference discovery and reliable Channel envelope
 delivery (including recovery from injected packet loss) are proven by a gated live harness. OCI
-runtime work is in progress: the containerd adapter and its daemon-independent tests are implemented;
-live lifecycle acceptance and durable restart reconciliation remain open.
+runtime work is in progress: durable allocator state and restart reconciliation are implemented
+with deterministic tests and a gated live containerd recovery harness. Live lifecycle and recovery
+acceptance remain to be run on a Linux host.
 
 ## Design principles
 
@@ -64,6 +65,7 @@ go run ./cmd/r1sd \
   -rns-config ./reticulum.conf \
   -identity ./r1sd.identity \
   -capacity default=2,gpu=1 \
+  -state ./r1sd.state.db \
   -containerd-address /run/containerd/containerd.sock \
   -containerd-namespace r1s
 ```
@@ -103,17 +105,21 @@ RUN_LIVE_INTEROP=1 go test ./internal/transport/rns/ -run TestPythonReference -v
 
 Without the flag those tests skip, so `make check` stays green.
 
-Live containerd lifecycle acceptance is also gated and requires Linux, a reachable containerd
-daemon, and a fixture image reference pinned by digest:
+Live containerd lifecycle and restart-recovery acceptance are gated and require Linux, a reachable
+containerd daemon, and a fixture image reference pinned by digest:
 
 ```sh
 RUN_CONTAINERD_INTEGRATION=1 \
 R1S_CONTAINERD_TEST_IMAGE='registry.example/image@sha256:...' \
-go test ./internal/runtime/containerd/ -run TestContainerdFixtureLifecycle -v
+go test ./internal/runtime/containerd/ -run 'TestContainerdFixture(Lifecycle|Recovery)' -v
 ```
 
 Set `CONTAINERD_ADDRESS` when the daemon does not use `/run/containerd/containerd.sock`. Without the
 gate, this test skips and remains compatible with ordinary `make check` runs.
+
+Allocator state is stored in a transactional bbolt database. `-state` selects its path and defaults
+to `<identity>.state.db`. The database is bound to the authenticated allocator identity; `r1sd`
+refuses to load it under another identity.
 
 ## Documentation
 

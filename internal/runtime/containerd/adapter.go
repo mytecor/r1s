@@ -30,7 +30,8 @@ const (
 var (
 	ErrInvalidConfig     = errors.New("invalid containerd runtime configuration")
 	ErrInvalidRequest    = errors.New("invalid containerd start request")
-	ErrExecutionConflict = errors.New("execution ID conflicts with an existing containerd workload")
+	ErrExecutionConflict = r1sruntime.ErrExecutionConflict
+	ErrExecutionMissing  = r1sruntime.ErrExecutionMissing
 	ErrDeadlineExceeded  = errors.New("execution policy deadline exceeded")
 	ErrClosed            = errors.New("containerd runtime is closed")
 )
@@ -57,6 +58,7 @@ type process interface {
 
 type backend interface {
 	Start(context.Context, r1sruntime.StartRequest, string) (process, error)
+	Recover(context.Context, r1sruntime.StartRequest, string) (process, error)
 	Stop(context.Context, string) error
 	Close() error
 }
@@ -164,9 +166,65 @@ func (a *Adapter) Start(ctx context.Context, request r1sruntime.StartRequest, re
 		}
 		a.mu.Unlock()
 
-		go a.monitor(request, current, reporter, a.now())
+		startedAt := request.StartedAt
+		if startedAt.IsZero() {
+			startedAt = a.now()
+		}
+		go a.monitor(request, current, reporter, startedAt)
 		return nil
 	}
+}
+
+// Recover reattaches to a matching task without creating or starting one.
+// Missing and partially-created runtime objects are reported to the allocator
+// so it can resolve its durable state without duplicating work.
+func (a *Adapter) Recover(ctx context.Context, request r1sruntime.StartRequest, reporter r1sruntime.Reporter) error {
+	fingerprint, err := validateAndFingerprint(request, reporter, a.now(), true)
+	if err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return ErrClosed
+	}
+	if current, exists := a.executions[request.ExecutionID]; exists {
+		if current.fingerprint != fingerprint {
+			a.mu.Unlock()
+			return fmt.Errorf("%w: %q", ErrExecutionConflict, request.ExecutionID)
+		}
+		ready := current.ready
+		a.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ready:
+			return current.startErr
+		}
+	}
+	current := &execution{fingerprint: fingerprint, ready: make(chan struct{}), done: make(chan struct{})}
+	a.executions[request.ExecutionID] = current
+	a.mu.Unlock()
+
+	started, recoverErr := a.backend.Recover(ctx, request, fingerprint)
+	a.mu.Lock()
+	current.process = started
+	current.startErr = recoverErr
+	close(current.ready)
+	if recoverErr != nil {
+		delete(a.executions, request.ExecutionID)
+		a.mu.Unlock()
+		return recoverErr
+	}
+	a.mu.Unlock()
+
+	startedAt := request.StartedAt
+	if startedAt.IsZero() {
+		startedAt = a.now()
+	}
+	go a.monitor(request, current, reporter, startedAt)
+	return nil
 }
 
 // Stop terminates and cleans an execution. Missing and previously stopped
@@ -280,17 +338,13 @@ func (a *Adapter) monitor(request r1sruntime.StartRequest, current *execution, r
 		}
 	}
 
-	cleanupContext, cancel := context.WithTimeout(context.Background(), a.cleanupTimeout)
-	cleanupErr := current.process.Cleanup(cleanupContext)
-	cancel()
-
 	var completionErr error
 	detail := ""
 	if deadlineExceeded {
-		completionErr = errors.Join(ErrDeadlineExceeded, result.err, cleanupErr)
+		completionErr = errors.Join(ErrDeadlineExceeded, result.err)
 		detail = ErrDeadlineExceeded.Error()
 	} else {
-		completionErr = errors.Join(result.err, cleanupErr)
+		completionErr = result.err
 		if result.err == nil {
 			detail = fmt.Sprintf("container exited with code %d", result.code)
 		}
@@ -313,13 +367,19 @@ func (a *Adapter) monitor(request r1sruntime.StartRequest, current *execution, r
 	if !stopping {
 		reportErr = reporter(completion)
 	}
+	var cleanupErr error
+	if stopping || reportErr == nil {
+		cleanupContext, cancel := context.WithTimeout(context.Background(), a.cleanupTimeout)
+		cleanupErr = current.process.Cleanup(cleanupContext)
+		cancel()
+	}
 	a.mu.Lock()
 	current.doneErr = errors.Join(cleanupErr, reportErr)
 	close(current.done)
 	a.mu.Unlock()
 }
 
-func validateAndFingerprint(request r1sruntime.StartRequest, reporter r1sruntime.Reporter, now time.Time) (string, error) {
+func validateAndFingerprint(request r1sruntime.StartRequest, reporter r1sruntime.Reporter, now time.Time, allowExpired ...bool) (string, error) {
 	if strings.TrimSpace(request.ExecutionID) == "" {
 		return "", fmt.Errorf("%w: execution ID is required", ErrInvalidRequest)
 	}
@@ -336,7 +396,7 @@ func validateAndFingerprint(request r1sruntime.StartRequest, reporter r1sruntime
 		if err := deadline.CheckValid(); err != nil {
 			return "", fmt.Errorf("%w: invalid deadline: %v", ErrInvalidRequest, err)
 		}
-		if !deadline.AsTime().After(now) {
+		if !deadline.AsTime().After(now) && (len(allowExpired) == 0 || !allowExpired[0]) {
 			return "", ErrDeadlineExceeded
 		}
 	}

@@ -19,6 +19,7 @@ import (
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/allocator"
 	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
+	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport/rns"
 	"quad4/reticulum-go/pkg/reticulumconfig"
 )
@@ -42,6 +43,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	containerdAddress := flags.String("containerd-address", runtimecontainerd.DefaultAddress, "path to the containerd socket")
 	containerdNamespace := flags.String("containerd-namespace", runtimecontainerd.DefaultNamespace, "isolated containerd namespace")
 	containerdSnapshotter := flags.String("containerd-snapshotter", "", "containerd snapshotter (daemon default when empty)")
+	statePath := flags.String("state", "", "allocator state database (defaults beside the identity)")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -92,6 +94,14 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	if err != nil {
 		return fmt.Errorf("decode local identity: %w", err)
 	}
+	if strings.TrimSpace(*statePath) == "" {
+		*statePath = *identityPath + ".state.db"
+	}
+	stateStore, err := statebolt.Open(*statePath)
+	if err != nil {
+		return err
+	}
+	defer stateStore.Close()
 	runtimeContext, cancelRuntime := context.WithTimeout(ctx, 30*time.Second)
 	containerRuntime, err := runtimecontainerd.New(runtimeContext, runtimecontainerd.Config{
 		Address:     *containerdAddress,
@@ -103,9 +113,15 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	defer containerRuntime.Close()
-	core, err = allocator.New(allocator.Config{Identity: identityHash, Capacity: capacity}, containerRuntime)
+	core, err = allocator.New(allocator.Config{Identity: identityHash, Capacity: capacity, Store: stateStore}, containerRuntime)
 	if err != nil {
 		return err
+	}
+	recoveryContext, cancelRecovery := context.WithTimeout(ctx, 30*time.Second)
+	err = core.Recover(recoveryContext)
+	cancelRecovery()
+	if err != nil {
+		return fmt.Errorf("reconcile allocator state: %w", err)
 	}
 	if err := endpoint.Start(ctx); err != nil {
 		return err

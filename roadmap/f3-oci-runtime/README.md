@@ -26,11 +26,15 @@ Selected executions run through containerd with durable metadata and restart rec
 - [`cmd/r1sd`](../../cmd/r1sd/) connects to containerd at startup and exposes address, namespace, and
   snapshotter configuration.
 - Unit tests exercise the adapter state machine without a daemon; a gated live harness covers a
-  real fixture workload and cancellation.
+  real fixture workload, cancellation, running-task reattachment, and offline completion recovery.
+- [`internal/store/bolt`](../../internal/store/bolt/) commits versioned allocator snapshots in a
+  local bbolt database bound to the allocator identity.
+- `r1sd` restores offers, executions, capacity, and replay records before accepting messages, then
+  reconciles non-terminal executions without restarting missing workloads.
 
 ## Remaining
 
 - Run the gated lifecycle harness against a Linux containerd installation and record the result in
   [F3-01](./f3-01-containerd-adapter.md).
-- Choose the durable allocator store and implement restart reconciliation in
-  [F3-02](./f3-02-reconciliation.md).
+- Run the gated recovery harness against the same Linux containerd installation and record the
+  result in [F3-02](./f3-02-reconciliation.md).

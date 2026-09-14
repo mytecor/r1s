@@ -52,6 +52,14 @@ func TestStartIsIdempotentAndReportsExit(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("completion was not reported")
 	}
+	runtime.mu.Lock()
+	done := runtime.executions[request.ExecutionID].done
+	runtime.mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup did not finish")
+	}
 	if implementation.process.cleanupCount() != 1 {
 		t.Fatalf("cleanups = %d, want 1", implementation.process.cleanupCount())
 	}
@@ -127,6 +135,70 @@ func TestMaximumRuntimeIsEnforcedLocally(t *testing.T) {
 	}
 }
 
+func TestRecoverReattachesWithoutStartingAndUsesDurableStartTime(t *testing.T) {
+	implementation := newFakeBackend()
+	now := time.Now()
+	runtime := newWithBackend(Config{CleanupTimeout: time.Second, Now: func() time.Time { return now }}, implementation)
+	reported := make(chan r1sruntime.Completion, 1)
+	request := testRequest("execution", time.Minute)
+	request.StartedAt = now.Add(-2 * time.Minute)
+	if err := runtime.Recover(context.Background(), request, func(completion r1sruntime.Completion) error {
+		reported <- completion
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case completion := <-reported:
+		if !errors.Is(completion.Err, ErrDeadlineExceeded) {
+			t.Fatalf("completion error = %v, want ErrDeadlineExceeded", completion.Err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("recovered deadline was not enforced")
+	}
+	implementation.mu.Lock()
+	starts, recovers := implementation.starts, implementation.recovers
+	implementation.mu.Unlock()
+	if starts != 0 || recovers != 1 {
+		t.Fatalf("starts=%d recovers=%d, want 0 and 1", starts, recovers)
+	}
+}
+
+func TestRecoverPropagatesMissingRuntimeObject(t *testing.T) {
+	implementation := newFakeBackend()
+	implementation.recoverErr = ErrExecutionMissing
+	runtime := newWithBackend(Config{}, implementation)
+	if err := runtime.Recover(context.Background(), testRequest("execution", time.Minute), func(r1sruntime.Completion) error { return nil }); !errors.Is(err, ErrExecutionMissing) {
+		t.Fatalf("Recover() error = %v, want ErrExecutionMissing", err)
+	}
+	if implementation.startCount() != 0 {
+		t.Fatal("Recover() started a missing workload")
+	}
+}
+
+func TestReporterFailureRetainsStoppedTaskForRecovery(t *testing.T) {
+	implementation := newFakeBackend()
+	runtime := newWithBackend(Config{}, implementation)
+	reportErr := errors.New("state store unavailable")
+	if err := runtime.Start(context.Background(), testRequest("execution", time.Minute), func(r1sruntime.Completion) error {
+		return reportErr
+	}); err != nil {
+		t.Fatal(err)
+	}
+	implementation.process.exit(exitResult{code: 9})
+	runtime.mu.Lock()
+	done := runtime.executions["execution"].done
+	runtime.mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("runtime did not finish reporting")
+	}
+	if implementation.process.cleanupCount() != 0 {
+		t.Fatal("runtime metadata was removed before terminal state became durable")
+	}
+}
+
 func TestCancelledStopDoesNotSuppressLaterTerminalReport(t *testing.T) {
 	implementation := newFakeBackend()
 	implementation.process.killDoesNotExit = true
@@ -185,12 +257,14 @@ func testRequest(executionID string, maximum time.Duration) r1sruntime.StartRequ
 }
 
 type fakeBackend struct {
-	mu       sync.Mutex
-	starts   int
-	stops    int
-	closed   int
-	process  *fakeProcess
-	startErr error
+	mu         sync.Mutex
+	starts     int
+	recovers   int
+	stops      int
+	closed     int
+	process    *fakeProcess
+	startErr   error
+	recoverErr error
 }
 
 func newFakeBackend() *fakeBackend {
@@ -202,6 +276,13 @@ func (b *fakeBackend) Start(context.Context, r1sruntime.StartRequest, string) (p
 	defer b.mu.Unlock()
 	b.starts++
 	return b.process, b.startErr
+}
+
+func (b *fakeBackend) Recover(context.Context, r1sruntime.StartRequest, string) (process, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.recovers++
+	return b.process, b.recoverErr
 }
 
 func (b *fakeBackend) Stop(context.Context, string) error {

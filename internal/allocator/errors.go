@@ -18,4 +18,6 @@ var (
 	ErrIDCollision          = errors.New("generated identifier already exists")
 	ErrReplayCapacity       = errors.New("replay capacity exhausted")
 	ErrReplayConflict       = errors.New("message ID reused with different content")
+	ErrStore                = errors.New("allocator state store failed")
+	ErrRecoveryUnsupported  = errors.New("runtime does not support recovery")
 )

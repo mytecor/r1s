@@ -12,6 +12,7 @@ import (
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
+	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -314,6 +315,131 @@ func TestReplayRetentionIsBounded(t *testing.T) {
 	}
 }
 
+func TestDurableStateRecoversRunningExecutionAndReplay(t *testing.T) {
+	clock := newFakeClock()
+	path := t.TempDir() + "/allocator.db"
+	firstStore, err := statebolt.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRuntime := newFakeRuntime()
+	first, err := New(Config{
+		Identity: []byte("allocator"), Capacity: map[string]uint32{"default": 1},
+		OfferTTL: 30 * time.Second, Now: clock.Now, NewID: sequenceIDs(), Store: firstStore,
+	}, firstRuntime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := requestEnvelope(clock.Now(), "request-message", "owner", "request")
+	offerResponse := mustHandle(t, first, request)
+	offer := offerResponse.GetExecutionOffer()
+	mustHandle(t, first, assignEnvelope(clock.Now(), "assign-message", "owner", "request", offer.GetOfferId(), "execution"))
+	if err := firstStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	secondStore, err := statebolt.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondStore.Close()
+	secondRuntime := newFakeRuntime()
+	second, err := New(Config{
+		Identity: []byte("allocator"), Capacity: map[string]uint32{"default": 1},
+		OfferTTL: 30 * time.Second, Now: clock.Now, NewID: sequenceIDs(), Store: secondStore,
+	}, secondRuntime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if available := second.Available("default"); available != 0 {
+		t.Fatalf("available after restart = %d, want 0", available)
+	}
+	replayed := mustHandle(t, second, request)
+	if !proto.Equal(replayed, offerResponse) {
+		t.Fatalf("durable replay changed response:\nfirst: %v\nsecond: %v", offerResponse, replayed)
+	}
+	if err := second.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if secondRuntime.recoverCount() != 1 || secondRuntime.startCount() != 0 {
+		t.Fatalf("recovery calls=%d starts=%d, want 1 and 0", secondRuntime.recoverCount(), secondRuntime.startCount())
+	}
+	exitCode := int32(23)
+	if err := secondRuntime.complete("execution", r1sruntime.Completion{ExitCode: &exitCode}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, ok := second.Execution("execution")
+	if !ok || snapshot.State.GetPhase() != r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED || snapshot.State.GetExitCode() != exitCode {
+		t.Fatalf("recovered completion = %+v", snapshot)
+	}
+	if available := second.Available("default"); available != 1 {
+		t.Fatalf("available after recovered completion = %d, want 1", available)
+	}
+}
+
+func TestRecoveryResolvesOfflineCompletionAndMissingRuntime(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		recoverErr error
+		completion *r1sruntime.Completion
+		phase      r1sv1.ExecutionPhase
+		exitCode   int32
+	}{
+		{name: "offline completion", completion: &r1sruntime.Completion{ExitCode: int32Pointer(7)}, phase: r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED, exitCode: 7},
+		{name: "missing", recoverErr: r1sruntime.ErrExecutionMissing, phase: r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED},
+		{name: "conflicting labels", recoverErr: r1sruntime.ErrExecutionConflict, phase: r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			clock := newFakeClock()
+			store := newMemoryStateStore()
+			first := newStoredTestAllocator(t, clock, newFakeRuntime(), store)
+			offer := mustHandle(t, first, requestEnvelope(clock.Now(), "request-message", "owner", "request")).GetExecutionOffer()
+			mustHandle(t, first, assignEnvelope(clock.Now(), "assign-message", "owner", "request", offer.GetOfferId(), "execution"))
+
+			recoveredRuntime := newFakeRuntime()
+			recoveredRuntime.recoverErr = test.recoverErr
+			recoveredRuntime.recoverCompletion = test.completion
+			restarted := newStoredTestAllocator(t, clock, recoveredRuntime, store)
+			if err := restarted.Recover(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			snapshot, _ := restarted.Execution("execution")
+			if snapshot.State.GetPhase() != test.phase || snapshot.State.GetExitCode() != test.exitCode {
+				t.Fatalf("recovered state = %v, want phase=%v exit=%d", snapshot.State, test.phase, test.exitCode)
+			}
+			if restarted.Available("default") != 1 {
+				t.Fatal("terminal recovery did not release capacity")
+			}
+		})
+	}
+}
+
+func TestDurableStateRejectsDifferentAllocatorIdentity(t *testing.T) {
+	clock := newFakeClock()
+	store := newMemoryStateStore()
+	first := newStoredTestAllocator(t, clock, newFakeRuntime(), store)
+	mustHandle(t, first, requestEnvelope(clock.Now(), "message", "owner", "request"))
+	_, err := New(Config{Identity: []byte("different"), Capacity: map[string]uint32{"default": 1}, Store: store}, newFakeRuntime())
+	if !errors.Is(err, ErrStore) {
+		t.Fatalf("identity mismatch error = %v, want ErrStore", err)
+	}
+}
+
+func TestDurableReplayPreservesClassifiableErrors(t *testing.T) {
+	clock := newFakeClock()
+	store := newMemoryStateStore()
+	first := newStoredTestAllocator(t, clock, newFakeRuntime(), store)
+	offer := mustHandle(t, first, requestEnvelope(clock.Now(), "request", "owner", "request")).GetExecutionOffer()
+	unauthorized := assignEnvelope(clock.Now(), "assign", "attacker", "request", offer.GetOfferId(), "execution")
+	if _, err := first.Handle(context.Background(), unauthorized); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("first error = %v, want ErrUnauthorized", err)
+	}
+	restarted := newStoredTestAllocator(t, clock, newFakeRuntime(), store)
+	if _, err := restarted.Handle(context.Background(), unauthorized); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("replayed durable error = %v, want ErrUnauthorized", err)
+	}
+}
+
 func mustHandle(t *testing.T, allocator *Allocator, envelope *r1sv1.Envelope) *r1sv1.Envelope {
 	t.Helper()
 	responses, err := allocator.Handle(context.Background(), envelope)
@@ -407,14 +533,17 @@ func sequenceIDs() func() string {
 }
 
 type fakeRuntime struct {
-	mu         sync.Mutex
-	starts     []r1sruntime.StartRequest
-	stops      []string
-	reporters  map[string]r1sruntime.Reporter
-	startErr   error
-	stopErr    error
-	blockStart chan struct{}
-	started    chan struct{}
+	mu                sync.Mutex
+	starts            []r1sruntime.StartRequest
+	stops             []string
+	reporters         map[string]r1sruntime.Reporter
+	startErr          error
+	stopErr           error
+	recoverErr        error
+	recoverCompletion *r1sruntime.Completion
+	recovers          int
+	blockStart        chan struct{}
+	started           chan struct{}
 }
 
 func newFakeRuntime() *fakeRuntime {
@@ -449,6 +578,24 @@ func (r *fakeRuntime) Stop(_ context.Context, executionID string) error {
 	return r.stopErr
 }
 
+func (r *fakeRuntime) Recover(_ context.Context, request r1sruntime.StartRequest, reporter r1sruntime.Reporter) error {
+	r.mu.Lock()
+	r.recovers++
+	r.reporters[request.ExecutionID] = reporter
+	recoverErr := r.recoverErr
+	completion := r.recoverCompletion
+	r.mu.Unlock()
+	if recoverErr != nil {
+		return recoverErr
+	}
+	if completion != nil {
+		copy := *completion
+		copy.ExecutionID = request.ExecutionID
+		return reporter(copy)
+	}
+	return nil
+}
+
 func (r *fakeRuntime) complete(executionID string, completion r1sruntime.Completion) error {
 	r.mu.Lock()
 	reporter := r.reporters[executionID]
@@ -472,8 +619,48 @@ func (r *fakeRuntime) stopCount() int {
 	return len(r.stops)
 }
 
+func (r *fakeRuntime) recoverCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.recovers
+}
+
 func (r *fakeRuntime) setStopError(err error) {
 	r.mu.Lock()
 	r.stopErr = err
 	r.mu.Unlock()
 }
+
+type memoryStateStore struct {
+	mu   sync.Mutex
+	data []byte
+}
+
+func newMemoryStateStore() *memoryStateStore { return &memoryStateStore{} }
+
+func (s *memoryStateStore) Load(context.Context) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]byte(nil), s.data...), nil
+}
+
+func (s *memoryStateStore) Save(_ context.Context, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data = append(s.data[:0], data...)
+	return nil
+}
+
+func newStoredTestAllocator(t *testing.T, clock *fakeClock, runtime *fakeRuntime, store StateStore) *Allocator {
+	t.Helper()
+	result, err := New(Config{
+		Identity: []byte("allocator"), Capacity: map[string]uint32{"default": 1},
+		OfferTTL: 30 * time.Second, Now: clock.Now, NewID: sequenceIDs(), Store: store,
+	}, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func int32Pointer(value int32) *int32 { return &value }

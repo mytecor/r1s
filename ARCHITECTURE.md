@@ -51,8 +51,8 @@ internal/runtime/       runtime boundary and containerd adapter
 The protocol, allocator, transport contract and in-memory adapter, runtime contract, RNS adapter,
 and containerd adapter are present. Python-reference RNS discovery interoperability and reliable
 Channel envelope delivery (including recovery from injected packet loss) are proven via a gated live
-harness. Live containerd lifecycle acceptance and durable allocator restart reconciliation remain
-open work.
+harness. Durable allocator state and restart reconciliation are implemented; live containerd
+lifecycle and recovery acceptance remain gated for a Linux host with containerd.
 
 ## Commands
 
@@ -137,5 +137,16 @@ the initial milestone.
 
 ## Persistence and recovery
 
-Durable allocator state, replay protection across restarts, result storage, and reconciliation with
-containerd are open work tracked in [BACKLOG.md](./roadmap/BACKLOG.md).
+The allocator stores one versioned state snapshot in a transactional bbolt database after every
+accepted transition. The snapshot is bound to the allocator's authenticated identity and contains
+offers, assignments, execution state, replay records, and the original start time used for local
+deadline enforcement.
+
+At startup, `r1sd` restores capacity accounting and reconciles non-terminal records with containerd
+before accepting transport messages. Matching running or stopped tasks regain completion and
+deadline monitoring without being restarted. A missing task or mismatched execution/specification
+label becomes a terminal failure; a persisted cancellation is completed idempotently. Terminal
+state is committed before containerd metadata is removed so a store failure leaves a stopped task
+available for the next recovery attempt.
+
+Result storage beyond terminal metadata remains open in [BACKLOG.md](./roadmap/BACKLOG.md).

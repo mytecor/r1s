@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,7 @@ type Config struct {
 	ReplayCapacity int
 	Now            func() time.Time
 	NewID          func() string
+	Store          StateStore
 }
 
 type offerStatus uint8
@@ -62,6 +64,7 @@ type executionRecord struct {
 	detail        string
 	exitCode      *int32
 	occurredAt    time.Time
+	startedAt     time.Time
 	released      bool
 }
 
@@ -106,6 +109,7 @@ type Allocator struct {
 	now            func() time.Time
 	newID          func() string
 	runtime        r1sruntime.Runtime
+	store          StateStore
 
 	offers     map[string]*offerRecord
 	requests   map[string]string
@@ -150,7 +154,7 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 		config.NewID = randomID
 	}
 
-	return &Allocator{
+	result := &Allocator{
 		identity:       bytes.Clone(config.Identity),
 		capacity:       capacity,
 		used:           make(map[string]uint32, len(capacity)),
@@ -160,11 +164,19 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 		now:            config.Now,
 		newID:          config.NewID,
 		runtime:        runtime,
+		store:          config.Store,
 		offers:         make(map[string]*offerRecord),
 		requests:       make(map[string]string),
 		executions:     make(map[string]*executionRecord),
 		replay:         make(map[string]*replayEntry),
-	}, nil
+	}
+	result.mu.Lock()
+	err := result.loadLocked(context.Background())
+	result.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // Handle validates an authenticated envelope and applies one allocator command.
@@ -205,7 +217,9 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 	default:
 		panic("payload type checked above")
 	}
-	a.finishReplay(entry, responses, err)
+	if persistErr := a.finishReplay(entry, responses, err); persistErr != nil {
+		err = errors.Join(err, persistErr)
+	}
 	return responses, err
 }
 
@@ -260,6 +274,12 @@ func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.Execu
 	}
 	a.requests[requestKey] = offerID
 	a.used[class]++
+	if err := a.persistLocked(context.Background()); err != nil {
+		delete(a.requests, requestKey)
+		delete(a.offers, offerID)
+		a.releaseClassLocked(class)
+		return nil, err
+	}
 	return []*r1sv1.Envelope{response}, nil
 }
 
@@ -312,15 +332,24 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 		request:       proto.Clone(offer.request).(*r1sv1.ExecutionRequest),
 		phase:         r1sv1.ExecutionPhase_EXECUTION_PHASE_STARTING,
 		occurredAt:    now,
+		startedAt:     now,
 	}
 	offer.status = offerAssigned
 	offer.execution = record.id
 	a.executions[record.id] = record
+	if err := a.persistLocked(context.Background()); err != nil {
+		delete(a.executions, record.id)
+		offer.status = offerOutstanding
+		offer.execution = ""
+		a.mu.Unlock()
+		return nil, err
+	}
 	startRequest := r1sruntime.StartRequest{
 		ExecutionID: record.id,
 		Owner:       bytes.Clone(record.owner),
 		Workload:    proto.Clone(record.request.GetWorkload()).(*r1sv1.Workload),
 		Policy:      proto.Clone(record.request.GetPolicy()).(*r1sv1.ExecutionPolicy),
+		StartedAt:   record.startedAt,
 	}
 	a.mu.Unlock()
 
@@ -344,9 +373,13 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 		current.occurredAt = a.now().UTC()
 	}
 	response, responseErr := a.stateEnvelopeLocked(current, envelope.GetMessageId(), a.now().UTC())
+	persistErr := a.persistLocked(context.Background())
 	a.mu.Unlock()
 	if responseErr != nil {
 		return nil, responseErr
+	}
+	if persistErr != nil {
+		return []*r1sv1.Envelope{response}, errors.Join(startErr, persistErr)
 	}
 	if startErr != nil {
 		return []*r1sv1.Envelope{response}, errors.Join(ErrRuntimeStart, startErr)
@@ -380,6 +413,13 @@ func (a *Allocator) handleCancel(ctx context.Context, envelope *r1sv1.Envelope, 
 	record.phase = r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING
 	record.detail = cancel.GetReason()
 	record.occurredAt = now
+	if err := a.persistLocked(context.Background()); err != nil {
+		record.phase = previousPhase
+		record.detail = previousDetail
+		record.occurredAt = previousTime
+		a.mu.Unlock()
+		return nil, err
+	}
 	a.mu.Unlock()
 
 	stopErr := a.runtime.Stop(ctx, record.id)
@@ -392,16 +432,21 @@ func (a *Allocator) handleCancel(ctx context.Context, envelope *r1sv1.Envelope, 
 			current.detail = previousDetail
 			current.occurredAt = previousTime
 		}
+		persistErr := a.persistLocked(context.Background())
 		a.mu.Unlock()
-		return nil, errors.Join(ErrRuntimeStop, stopErr)
+		return nil, errors.Join(ErrRuntimeStop, stopErr, persistErr)
 	}
 	if !terminal(current.phase) {
 		a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED, cancel.GetReason(), nil, a.now().UTC())
 	}
 	response, responseErr := a.stateEnvelopeLocked(current, envelope.GetMessageId(), a.now().UTC())
+	persistErr := a.persistLocked(context.Background())
 	a.mu.Unlock()
 	if responseErr != nil {
 		return nil, responseErr
+	}
+	if persistErr != nil {
+		return []*r1sv1.Envelope{response}, persistErr
 	}
 	return []*r1sv1.Envelope{response}, nil
 }
@@ -432,6 +477,106 @@ func (a *Allocator) RuntimeCompleted(completion r1sruntime.Completion) error {
 		return fmt.Errorf("%w: execution %q is already %s", ErrInvalidTransition, record.id, record.phase)
 	}
 	a.finishLocked(record, phase, detail, completion.ExitCode, a.now().UTC())
+	return a.persistLocked(context.Background())
+}
+
+// Recover reconciles durable non-terminal executions with the runtime. It
+// never creates a missing workload: missing or conflicting runtime metadata is
+// recorded as a terminal failure, while running tasks regain completion and
+// deadline monitoring.
+func (a *Allocator) Recover(ctx context.Context) error {
+	recoverer, ok := a.runtime.(r1sruntime.Recoverer)
+	if !ok {
+		a.mu.Lock()
+		hasActive := false
+		for _, record := range a.executions {
+			hasActive = hasActive || !terminal(record.phase)
+		}
+		a.mu.Unlock()
+		if hasActive {
+			return ErrRecoveryUnsupported
+		}
+		return nil
+	}
+
+	a.mu.Lock()
+	ids := make([]string, 0, len(a.executions))
+	for id, record := range a.executions {
+		if !terminal(record.phase) {
+			ids = append(ids, id)
+		}
+	}
+	a.mu.Unlock()
+	sort.Strings(ids)
+
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		a.mu.Lock()
+		record := a.executions[id]
+		if record == nil || terminal(record.phase) {
+			a.mu.Unlock()
+			continue
+		}
+		if record.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING {
+			reason := record.detail
+			a.mu.Unlock()
+			if err := a.runtime.Stop(ctx, id); err != nil {
+				return errors.Join(ErrRuntimeStop, err)
+			}
+			a.mu.Lock()
+			if current := a.executions[id]; current != nil && !terminal(current.phase) {
+				a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED, reason, nil, a.now().UTC())
+			}
+			err := a.persistLocked(context.Background())
+			a.mu.Unlock()
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
+		request := r1sruntime.StartRequest{
+			ExecutionID: record.id,
+			Owner:       bytes.Clone(record.owner),
+			Workload:    proto.Clone(record.request.GetWorkload()).(*r1sv1.Workload),
+			Policy:      proto.Clone(record.request.GetPolicy()).(*r1sv1.ExecutionPolicy),
+			StartedAt:   record.startedAt,
+		}
+		a.mu.Unlock()
+		reporter := func(completion r1sruntime.Completion) error {
+			if completion.ExecutionID == "" {
+				completion.ExecutionID = id
+			}
+			if completion.ExecutionID != id {
+				return fmt.Errorf("%w: runtime reported %q for %q", ErrExecutionConflict, completion.ExecutionID, id)
+			}
+			return a.RuntimeCompleted(completion)
+		}
+		recoverErr := recoverer.Recover(ctx, request, reporter)
+
+		a.mu.Lock()
+		current := a.executions[id]
+		if recoverErr == nil {
+			if current != nil && !terminal(current.phase) {
+				current.phase = r1sv1.ExecutionPhase_EXECUTION_PHASE_RUNNING
+				current.occurredAt = a.now().UTC()
+			}
+		} else if errors.Is(recoverErr, r1sruntime.ErrExecutionMissing) || errors.Is(recoverErr, r1sruntime.ErrExecutionConflict) {
+			if current != nil && !terminal(current.phase) {
+				a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED, recoverErr.Error(), nil, a.now().UTC())
+			}
+		} else {
+			a.mu.Unlock()
+			return errors.Join(ErrRuntimeStart, recoverErr)
+		}
+		persistErr := a.persistLocked(context.Background())
+		a.mu.Unlock()
+		if persistErr != nil {
+			return persistErr
+		}
+	}
 	return nil
 }
 
@@ -439,7 +584,11 @@ func (a *Allocator) RuntimeCompleted(completion r1sruntime.Completion) error {
 func (a *Allocator) SweepExpired() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.expireOffersLocked(a.now().UTC())
+	expired := a.expireOffersLocked(a.now().UTC())
+	if expired > 0 {
+		_ = a.persistLocked(context.Background())
+	}
+	return expired
 }
 
 // Available reports currently unreserved slots for a resource class.
@@ -520,16 +669,21 @@ func (a *Allocator) beginReplay(key string, envelope *r1sv1.Envelope, now time.T
 	}
 	entry := &replayEntry{seenAt: now, done: make(chan struct{}), envelope: proto.Clone(envelope).(*r1sv1.Envelope)}
 	a.replay[key] = entry
+	if err := a.persistLocked(context.Background()); err != nil {
+		delete(a.replay, key)
+		return nil, false, err
+	}
 	return entry, false, nil
 }
 
-func (a *Allocator) finishReplay(entry *replayEntry, responses []*r1sv1.Envelope, err error) {
+func (a *Allocator) finishReplay(entry *replayEntry, responses []*r1sv1.Envelope, err error) error {
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	entry.responses = cloneEnvelopes(responses)
 	entry.err = err
 	close(entry.done)
 	a.evictReplayLocked(a.replayCapacity)
-	a.mu.Unlock()
+	return a.persistLocked(context.Background())
 }
 
 func (a *Allocator) pruneReplayLocked(now time.Time) {

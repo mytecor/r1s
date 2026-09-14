@@ -5,6 +5,7 @@ go 1.26.5
 require (
 	github.com/containerd/containerd/v2 v2.3.5
 	github.com/containerd/errdefs v1.0.0
+	go.etcd.io/bbolt v1.4.3
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 	quad4/reticulum-go v1.1.1
 )
