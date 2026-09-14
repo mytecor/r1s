@@ -23,6 +23,10 @@ import (
 	"quad4/reticulum-go/pkg/reticulumconfig"
 )
 
+// version identifies the build. Release binaries set it with
+// -ldflags "-X main.version=<tag>"; source builds report "dev".
+var version = "dev"
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -42,6 +46,7 @@ type application struct {
 
 func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) error {
 	flags := newFlagSet("r1s", stderr)
+	showVersion := flags.Bool("version", false, "print the version and exit")
 	configPath := flags.String("rns-config", "", "path to a Reticulum-Go configuration file")
 	identityPath := flags.String("identity", "", "path to the persistent client identity")
 	statePath := flags.String("state", "", "client state database (defaults beside the identity)")
@@ -50,6 +55,13 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	commandArguments := flags.Args()
+	if *showVersion {
+		if len(commandArguments) != 0 {
+			return errors.New("--version does not take a command")
+		}
+		fmt.Fprintln(stdout, version)
+		return nil
+	}
 	if len(commandArguments) == 0 {
 		return errors.New("command is required: request, list, inspect, cancel, or result")
 	}

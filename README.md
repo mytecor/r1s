@@ -56,6 +56,46 @@ sequenceDiagram
 An offer reserves a bounded local slot. Workload start happens only after the client selects that
 offer, avoiding speculative image pulls on every allocator that sees a request.
 
+## Install
+
+Download the archive for your platform from the [releases page](https://github.com/mytecor/r1s/releases)
+and put the binaries on `PATH`. Builds cover Linux, macOS, and Windows on `amd64` and `arm64`, and
+every release archive carries both `r1sd` and `r1s` and a copy of this `README.md`. The binaries are
+unsigned, so a macOS download through a browser needs `xattr -d com.apple.quarantine` before the first
+run.
+
+The `r1sd` daemon and the `r1s` client can be installed independently or together into a directory on
+`PATH`:
+
+```sh
+mkdir -p "$HOME/.local/bin"
+cp r1sd r1s "$HOME/.local/bin/"
+# macOS only: remove the quarantine attribute from browser downloads first
+xattr -d com.apple.quarantine "$HOME/.local/bin/r1sd" "$HOME/.local/bin/r1s"
+```
+
+`r1sd --version` and `r1s --version` report the release version; source builds report `dev`. Every
+release publishes a `SHA256SUMS` file covering all of its archives; verify a download against it
+before use:
+
+```sh
+sha256sum -c SHA256SUMS
+```
+
+The binaries expect a reachable containerd daemon and a Reticulum-Go configuration; see the
+[Development](#development) section for how to run them.
+
+### Build from source
+
+Needs Go 1.26.5+. The module pins its Reticulum-Go dependency with `replace` directives, which
+`go install <module>@latest` rejects, so clone first:
+
+```sh
+git clone https://github.com/mytecor/r1s
+cd r1s
+GOBIN="$HOME/.local/bin" go install ./cmd/r1s ./cmd/r1sd
+```
+
 ## Development
 
 System binaries follow the standard Go command layout. [`cmd/r1sd/`](./cmd/r1sd/) contains the
@@ -193,6 +233,42 @@ go run ./cmd/r1s --rns-config ./client-reticulum.conf --identity ./client.identi
 `result` currently returns retained terminal phase, detail, and exit code. Stdout/stderr and large
 artifact transfer remain part of the open result-contract decision in
 [BACKLOG.md](./roadmap/BACKLOG.md).
+
+## Building and releasing
+
+`ci.yml` runs `gofmt`, `go vet`, `go test`, and a cross-compile of every released platform on each
+push to `main` and each pull request.
+
+`release.yml` never starts on its own — no push, tag, or schedule trigger, only a manual run from the
+Actions tab or the CLI:
+
+```sh
+gh workflow run release.yml -f bump=patch
+```
+
+**Neither the version nor the tag is written by hand.** The run raises the highest existing `vX.Y.Z`
+tag by `bump` (`patch`, `minor`, `major`), starting at `v0.1.0` in a repository with no tags, and
+prints the result in the log and run summary before anything is published. Pre-release tags never seed
+a bump, so release candidates and jumps need an explicit version, which overrides the bump:
+
+```sh
+gh workflow run release.yml -f version=v1.0.0-rc.1
+```
+
+The run tests, builds, and only then tags the checked-out commit and publishes a release with generated
+notes, every archive, and `SHA256SUMS` — so a failed build leaves no tag behind. An explicit version
+that is not `vX.Y.Z` (an optional `-rc.1` suffix is fine), or one whose tag exists, fails before
+anything is built. Add `-f dry_run=true` to build the archives as a workflow artifact without tagging
+or publishing.
+
+Both workflows call `scripts/build-release.sh`, which also runs locally and writes to `dist/`:
+
+```sh
+scripts/build-release.sh v0.1.0
+```
+
+The version is stamped into both binaries through `-ldflags -X main.version=...` and reported by
+`r1sd --version` and `r1s --version`; with no argument the script falls back to `git describe`.
 
 ## Documentation
 

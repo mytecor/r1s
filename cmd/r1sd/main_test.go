@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"bytes"
+	"context"
+	"strings"
+	"testing"
+)
 
 func TestParseCapacity(t *testing.T) {
 	capacity, err := parseCapacity("default=2, gpu = 1")
@@ -14,5 +19,18 @@ func TestParseCapacity(t *testing.T) {
 		if _, err := parseCapacity(value); err == nil {
 			t.Errorf("parseCapacity(%q) succeeded", value)
 		}
+	}
+}
+
+func TestVersionFlagPrintsVersion(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := run(context.Background(), []string{"--version"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(stdout.String()); got != version {
+		t.Fatalf("r1sd --version = %q, want %q", got, version)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("r1sd --version wrote to stderr: %q", stderr.String())
 	}
 }

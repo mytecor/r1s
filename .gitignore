@@ -2,6 +2,7 @@
 .lycheecache
 bin/
 coverage.out
+/dist/
 
 # CocoIndex Code (ccc)
 /.cocoindex_code/

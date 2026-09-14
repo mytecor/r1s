@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"strings"
@@ -61,5 +62,18 @@ func TestHelpUsesCanonicalDoubleDashFlags(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "--rns-config value") {
 		t.Fatalf("help = %q", output.String())
+	}
+}
+
+func TestVersionFlagPrintsVersion(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := run(context.Background(), []string{"--version"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(stdout.String()); got != version {
+		t.Fatalf("r1s --version = %q, want %q", got, version)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("r1s --version wrote to stderr: %q", stderr.String())
 	}
 }

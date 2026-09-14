@@ -24,6 +24,10 @@ import (
 	"quad4/reticulum-go/pkg/reticulumconfig"
 )
 
+// version identifies the build. Release binaries set it with
+// -ldflags "-X main.version=<tag>"; source builds report "dev".
+var version = "dev"
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -35,6 +39,7 @@ func main() {
 
 func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) error {
 	flags := newFlagSet("r1sd", stderr)
+	showVersion := flags.Bool("version", false, "print the version and exit")
 	configPath := flags.String("rns-config", "", "path to a Reticulum-Go configuration file")
 	identityPath := flags.String("identity", "", "path to the persistent r1sd identity")
 	capacityValue := flags.String("capacity", "default=1", "comma-separated resource capacities, for example default=2,gpu=1")
@@ -45,6 +50,10 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	statePath := flags.String("state", "", "allocator state database (defaults beside the identity)")
 	if err := flags.Parse(arguments); err != nil {
 		return err
+	}
+	if *showVersion {
+		fmt.Fprintln(stdout, version)
+		return nil
 	}
 	if strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identityPath) == "" {
 		return errors.New("--rns-config and --identity are required")
