@@ -11,8 +11,8 @@ The name follows the same contraction pattern as Kubernetes → k8s: Reticulum N
 r1s has completed its transport-independent protocol foundation. RNS transport work is in progress:
 the embedded Reticulum-Go adapter, authenticated sender replacement, allocator announces, and the
 initial `r1sd` entry point are implemented and covered by a two-node loopback test. Python-reference
-discovery interoperability is proven by a gated live harness; reliable Channel envelope delivery to a
-Python RNS node and the production containerd adapter remain open work.
+discovery and reliable Channel envelope delivery (including recovery from injected packet loss) are
+proven by a gated live harness; the production containerd adapter remains open work.
 
 ## Design principles
 

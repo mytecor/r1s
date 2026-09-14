@@ -30,10 +30,11 @@ Reticulum-Go without tunnelling gRPC or HTTP/2 over RNS.
   independent endpoints.
 - A gated live interoperability harness ([`interop_python_test.go`](../../internal/transport/rns/interop_python_test.go))
   and reference peer ([`testdata/python_reference_peer.py`](../../internal/transport/rns/testdata/python_reference_peer.py))
-  prove the Go endpoint discovers an r1s descriptor announced by an upstream Python RNS node.
+  prove the Go endpoint discovers an r1s descriptor announced by an upstream Python RNS node and
+  reliably delivers r1s envelopes over a Reticulum-Go Channel to that node, including recovery from
+  injected channel-packet loss.
 
 ## Remaining
 
-- Prove reliable Channel envelope delivery and retransmission against the Python reference node;
-  the harness currently covers discovery, and envelope delivery over a Reticulum-Go Channel remains
-  an open decision in [BACKLOG.md](../BACKLOG.md) (item 1).
+- The production containerd/OCI runtime adapter (F3), durable allocator persistence, and the result
+  contract are open work tracked in [BACKLOG.md](../BACKLOG.md).

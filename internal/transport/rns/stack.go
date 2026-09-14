@@ -17,8 +17,15 @@ type stack struct {
 	started    []interfaces.Interface
 }
 
-func newStack(config *common.ReticulumConfig) (*stack, error) {
+func newStack(config *common.ReticulumConfig, provided ...interfaces.Interface) (*stack, error) {
 	result := &stack{transport: rnstransport.NewTransport(config)}
+	// Caller-supplied interfaces bypass config-driven construction. Tests use
+	// this to wrap an interface (packet loss injection, capture) while keeping
+	// the transport and identity machinery intact.
+	if len(provided) > 0 {
+		result.interfaces = append(result.interfaces, provided...)
+		return result, nil
+	}
 	for name, interfaceConfig := range config.Interfaces {
 		if !interfaceConfig.Enabled {
 			continue

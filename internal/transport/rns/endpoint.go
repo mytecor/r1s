@@ -20,6 +20,7 @@ import (
 	"quad4/reticulum-go/pkg/common"
 	"quad4/reticulum-go/pkg/destination"
 	"quad4/reticulum-go/pkg/identity"
+	"quad4/reticulum-go/pkg/interfaces"
 	"quad4/reticulum-go/pkg/link"
 )
 
@@ -45,6 +46,10 @@ type Config struct {
 	Aspect           string
 	AnnounceInterval time.Duration
 	NetworkWait      time.Duration
+	// Interfaces, when non-empty, replaces config-driven interface
+	// construction. Tests use this to inject wrapped interfaces (for example
+	// packet-loss capture) while keeping the transport machinery intact.
+	Interfaces []interfaces.Interface
 }
 
 // Service describes an allocator learned from an authenticated announce.
@@ -128,7 +133,7 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load identity: %w", err)
 	}
-	rnsStack, err := newStack(config.Reticulum)
+	rnsStack, err := newStack(config.Reticulum, config.Interfaces...)
 	if err != nil {
 		return nil, fmt.Errorf("construct Reticulum stack: %w", err)
 	}
