@@ -3,6 +3,7 @@ package allocator
 import "errors"
 
 var (
+	ErrOfferReleased        = errors.New("offer was released")
 	ErrInvalidConfig        = errors.New("invalid allocator configuration")
 	ErrUnsupportedMessage   = errors.New("unsupported allocator message")
 	ErrCapacityExhausted    = errors.New("allocator capacity exhausted")

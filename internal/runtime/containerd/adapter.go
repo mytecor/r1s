@@ -6,14 +6,17 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/logstore"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 	"google.golang.org/protobuf/proto"
 )
@@ -38,6 +41,8 @@ var (
 
 // Config selects the containerd daemon and isolated metadata namespace.
 type Config struct {
+	Logs           *logstore.Store
+	LogBinary      string
 	Address        string
 	Namespace      string
 	Snapshotter    string
@@ -310,6 +315,24 @@ func (a *Adapter) Close() error {
 	return a.backend.Close()
 }
 
+func (a *Adapter) Forget(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if current := a.executions[id]; current != nil {
+		if !channelClosed(current.done) {
+			return fmt.Errorf("runtime cleanup still active")
+		}
+		if current.doneErr != nil {
+			return current.doneErr
+		}
+		delete(a.executions, id)
+	}
+	return nil
+}
+
 func (a *Adapter) monitor(request r1sruntime.StartRequest, current *execution, reporter r1sruntime.Reporter, startedAt time.Time) {
 	var timer <-chan time.Time
 	var deadlineTimer *time.Timer
@@ -409,6 +432,9 @@ func validateAndFingerprint(request r1sruntime.StartRequest, reporter r1sruntime
 		return "", fmt.Errorf("%w: deadline or max runtime is required", ErrInvalidRequest)
 	}
 
+	if err := request.Resources.Validate(); err != nil {
+		return "", err
+	}
 	marshal := proto.MarshalOptions{Deterministic: true}
 	workload, err := marshal.Marshal(request.Workload)
 	if err != nil {
@@ -422,6 +448,10 @@ func validateAndFingerprint(request r1sruntime.StartRequest, reporter r1sruntime
 	writeHashPart(hash, request.Client)
 	writeHashPart(hash, workload)
 	writeHashPart(hash, policy)
+	if request.Resources != (r1sruntime.Resources{}) {
+		resources, _ := json.Marshal(request.Resources)
+		writeHashPart(hash, resources)
+	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
@@ -485,6 +515,9 @@ func validateConfig(config Config) error {
 	}
 	if config.Namespace == "version" {
 		return fmt.Errorf("%w: namespace %q is reserved", ErrInvalidConfig, config.Namespace)
+	}
+	if config.Logs != nil && !filepath.IsAbs(config.LogBinary) {
+		return fmt.Errorf("%w: log binary must be absolute", ErrInvalidConfig)
 	}
 	if config.CleanupTimeout <= 0 {
 		return fmt.Errorf("%w: cleanup timeout must be positive", ErrInvalidConfig)

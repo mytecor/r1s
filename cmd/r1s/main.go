@@ -63,12 +63,12 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return nil
 	}
 	if len(commandArguments) == 0 {
-		return errors.New("command is required: request, list, inspect, cancel, or result")
+		return errors.New("command is required: request, list, inspect, cancel, result, or logs")
 	}
 	command := commandArguments[0]
 	args := commandArguments[1:]
 	if !knownCommand(command) {
-		return fmt.Errorf("unknown command %q: expected request, list, inspect, cancel, or result", command)
+		return fmt.Errorf("unknown command %q: expected request, list, inspect, cancel, result, or logs", command)
 	}
 	if containsHelp(args) {
 		return dispatch(&application{}, command, args, stderr)
@@ -127,12 +127,22 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		if err := endpoint.Start(ctx); err != nil {
 			return err
 		}
+		finishReleases := clientCore.StartOfferReleases(ctx, endpoint.Send)
+		defer func() {
+			for _, release := range finishReleases() {
+				fmt.Fprintf(stderr, "offer release pending allocator=%s offer=%s; retained for retry, lease expiry remains the fallback\n", release.Destination, release.Envelope.GetExecutionOfferRelease().GetOfferId())
+			}
+			// Stop incoming callbacks before the durable client store is closed.
+			_ = endpoint.Close()
+		}()
 	}
 	return dispatch(app, command, args, stderr)
 }
 
 func dispatch(app *application, command string, args []string, stderr io.Writer) error {
 	switch command {
+	case "logs":
+		return app.logs(args, stderr)
 	case "request":
 		return app.request(args, stderr)
 	case "list":
@@ -144,12 +154,12 @@ func dispatch(app *application, command string, args []string, stderr io.Writer)
 	case "result":
 		return app.inspect(args, stderr, true)
 	default:
-		return fmt.Errorf("unknown command %q: expected request, list, inspect, cancel, or result", command)
+		return fmt.Errorf("unknown command %q: expected request, list, inspect, cancel, result, or logs", command)
 	}
 }
 
 func knownCommand(command string) bool {
-	return command == "request" || command == "list" || command == "inspect" || command == "cancel" || command == "result"
+	return command == "logs" || command == "request" || command == "list" || command == "inspect" || command == "cancel" || command == "result"
 }
 
 func containsHelp(arguments []string) bool {
@@ -184,6 +194,7 @@ func (a *application) request(arguments []string, stderr io.Writer) error {
 		return err
 	}
 	sent := make(map[string]bool)
+	var rejections []error
 	for _, destination := range allocators {
 		if err := a.send(destination, envelope); err != nil {
 			return fmt.Errorf("send request to %s: %w", destination, err)
@@ -199,6 +210,13 @@ collect:
 			return a.ctx.Err()
 		case <-timer.C:
 			break collect
+		case response := <-a.events:
+			if response.GetCorrelationId() == envelope.GetMessageId() {
+				if err := client.RemoteFailure(response); err != nil {
+					rejections = append(rejections, err)
+					fmt.Fprintln(stderr, err)
+				}
+			}
 		case service := <-a.endpoint.Discoveries():
 			if service.Descriptor.Capacity[request.GetResourceClass()] == 0 {
 				continue
@@ -220,7 +238,7 @@ collect:
 	}
 	destination, assignment, err := a.client.Select(requestID)
 	if err != nil {
-		return fmt.Errorf("request %s: %w", requestID, err)
+		return fmt.Errorf("request %s: %w", requestID, errors.Join(append(rejections, err)...))
 	}
 	if err := a.send(destination, assignment); err != nil {
 		return fmt.Errorf("send assignment: %w", err)
@@ -270,7 +288,7 @@ func (a *application) inspect(arguments []string, stderr io.Writer, resultOnly b
 	if err := a.send(destination, envelope); err != nil {
 		return err
 	}
-	if err := a.waitForState(executionID, *wait); err != nil {
+	if err := a.waitForState(executionID, envelope.GetMessageId(), *wait); err != nil {
 		return err
 	}
 	snapshot, _ := a.client.Execution(executionID)
@@ -302,7 +320,7 @@ func (a *application) cancel(arguments []string, stderr io.Writer) error {
 	if err := a.send(destination, envelope); err != nil {
 		return err
 	}
-	if err := a.waitForState(executionID, *wait); err != nil {
+	if err := a.waitForState(executionID, envelope.GetMessageId(), *wait); err != nil {
 		return err
 	}
 	snapshot, _ := a.client.Execution(executionID)
@@ -316,7 +334,7 @@ func (a *application) send(destination string, envelope *r1sv1.Envelope) error {
 	return a.endpoint.Send(ctx, destination, envelope)
 }
 
-func (a *application) waitForState(executionID string, timeout time.Duration) error {
+func (a *application) waitForState(executionID, correlationID string, timeout time.Duration) error {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	for {
@@ -326,6 +344,12 @@ func (a *application) waitForState(executionID string, timeout time.Duration) er
 		case <-timer.C:
 			return fmt.Errorf("timed out waiting for execution %s state", executionID)
 		case envelope := <-a.events:
+			if envelope.GetCorrelationId() != correlationID {
+				continue
+			}
+			if err := client.RemoteFailure(envelope); err != nil {
+				return err
+			}
 			if envelope.GetExecutionState().GetExecutionId() == executionID {
 				return nil
 			}

@@ -18,6 +18,7 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/allocator"
+	"github.com/mytecor/r1s/internal/logstore"
 	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport/rns"
@@ -29,6 +30,9 @@ import (
 var version = "dev"
 
 func main() {
+	if runtimecontainerd.RunLogWriter(os.Args[1:]) {
+		return
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, flag.ErrHelp) {
@@ -47,6 +51,11 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	containerdAddress := flags.String("containerd-address", runtimecontainerd.DefaultAddress, "path to the containerd socket")
 	containerdNamespace := flags.String("containerd-namespace", runtimecontainerd.DefaultNamespace, "isolated containerd namespace")
 	containerdSnapshotter := flags.String("containerd-snapshotter", "", "containerd snapshotter (daemon default when empty)")
+	logPath := flags.String("logs", "", "local log directory (defaults beside state database)")
+	logBytes := flags.Int64("log-bytes", 1<<20, "maximum retained bytes per stream")
+	logBudget := flags.Int64("log-budget", 2<<30, "maximum reserved local log data bytes")
+	maxRecords := flags.Int("max-records", allocator.DefaultMaxRecords, "maximum durable offer/execution/tombstone budget")
+	admissionPath := flags.String("admission-policy", "", "local resource profiles, allowed identities, and quotas JSON")
 	statePath := flags.String("state", "", "allocator state database (defaults beside the identity)")
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -61,6 +70,19 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	capacity, err := parseCapacity(*capacityValue)
 	if err != nil {
 		return err
+	}
+	var admissionReader io.Reader
+	if *admissionPath != "" {
+		f, err := os.Open(*admissionPath)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		admissionReader = f
+	}
+	admission, err := allocator.ReadAdmission(admissionReader, capacity)
+	if err != nil {
+		return fmt.Errorf("admission policy: %w", err)
 	}
 	reticulumConfig, err := reticulumconfig.LoadConfig(*configPath)
 	if err != nil {
@@ -110,8 +132,20 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	defer stateStore.Close()
+	if *logPath == "" {
+		*logPath = *statePath + ".logs"
+	}
+	logs, err := logstore.New(*logPath, *logBytes, *logBudget)
+	if err != nil {
+		return err
+	}
+	logBinary, err := os.Executable()
+	if err != nil {
+		return err
+	}
 	runtimeContext, cancelRuntime := context.WithTimeout(ctx, 30*time.Second)
 	containerRuntime, err := runtimecontainerd.New(runtimeContext, runtimecontainerd.Config{
+		Logs: logs, LogBinary: logBinary,
 		Address:     *containerdAddress,
 		Namespace:   *containerdNamespace,
 		Snapshotter: *containerdSnapshotter,
@@ -121,7 +155,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	defer containerRuntime.Close()
-	core, err = allocator.New(allocator.Config{Identity: identityHash, Capacity: capacity, Store: stateStore}, containerRuntime)
+	core, err = allocator.New(allocator.Config{Identity: identityHash, Capacity: capacity, Store: stateStore, Admission: admission, Logs: logs, MaxRecords: *maxRecords}, containerRuntime)
 	if err != nil {
 		return err
 	}
@@ -135,8 +169,18 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	fmt.Fprintf(stdout, "r1sd ready identity=%s destination=%s\n", endpoint.Name(), endpoint.Destination())
-	<-ctx.Done()
-	return ctx.Err()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		if err := core.Sweep(ctx); err != nil {
+			logger.Printf("state/log cleanup: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func parseCapacity(value string) (map[string]uint32, error) {

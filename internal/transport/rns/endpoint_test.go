@@ -82,7 +82,9 @@ func TestEndpointsExchangeAuthenticatedEnvelopeOverUDP(t *testing.T) {
 	}
 	root := t.TempDir()
 	received := make(chan *r1sv1.Envelope, 1)
-	endpointA := newTestEndpointWithCapacity(t, filepath.Join(root, "a"), portA, portB, nil, func(context.Context, *r1sv1.Envelope) error {
+	replies := make(chan *r1sv1.Envelope, 1)
+	endpointA := newTestEndpointWithCapacity(t, filepath.Join(root, "a"), portA, portB, nil, func(_ context.Context, envelope *r1sv1.Envelope) error {
+		replies <- envelope
 		return nil
 	})
 	if endpointA.advertises {
@@ -157,6 +159,40 @@ func TestEndpointsExchangeAuthenticatedEnvelopeOverUDP(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("envelope was not delivered after path and link reconnect")
+	}
+
+	release := validEnvelope()
+	release.MessageId = "release"
+	release.Payload = &r1sv1.Envelope_ExecutionOfferRelease{ExecutionOfferRelease: &r1sv1.ExecutionOfferRelease{RequestId: "request", OfferId: "offer"}}
+	if err := endpointA.Send(sendContext, endpointB.Destination(), release); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case delivered := <-received:
+		if !proto.Equal(delivered.GetExecutionOfferRelease(), release.GetExecutionOfferRelease()) {
+			t.Fatalf("release payload=%v", delivered)
+		}
+		wantSender, _ := hex.DecodeString(endpointA.Name())
+		if !bytes.Equal(delivered.GetSender(), wantSender) {
+			t.Fatal("release sender is not authenticated")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("release not delivered")
+	}
+	ack := validEnvelope()
+	ack.MessageId, ack.CorrelationId = "release-ack", "release"
+	ack.Payload = &r1sv1.Envelope_ExecutionOfferReleaseAck{ExecutionOfferReleaseAck: &r1sv1.ExecutionOfferReleaseAck{RequestId: "request", OfferId: "offer", Outcome: r1sv1.OfferReleaseOutcome_OFFER_RELEASE_OUTCOME_RELEASED}}
+	if err := endpointB.Send(sendContext, endpointA.Name(), ack); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case delivered := <-replies:
+		wantSender, _ := hex.DecodeString(endpointB.Name())
+		if !proto.Equal(delivered.GetExecutionOfferReleaseAck(), ack.GetExecutionOfferReleaseAck()) || delivered.GetCorrelationId() != "release" || !bytes.Equal(delivered.GetSender(), wantSender) {
+			t.Fatalf("release acknowledgement=%v", delivered)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("release acknowledgement not delivered")
 	}
 }
 

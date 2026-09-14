@@ -9,11 +9,11 @@ import (
 	"syscall"
 
 	containerdclient "github.com/containerd/containerd/v2/client"
-	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/containerd/v2/pkg/reference"
 	"github.com/containerd/errdefs"
+	"github.com/mytecor/r1s/internal/logstore"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 )
 
@@ -23,6 +23,8 @@ const (
 )
 
 type clientBackend struct {
+	logs        *logstore.Store
+	logBinary   string
 	client      *containerdclient.Client
 	namespace   string
 	snapshotter string
@@ -40,7 +42,7 @@ func newClientBackend(ctx context.Context, config Config) (*clientBackend, error
 	if err != nil {
 		return nil, fmt.Errorf("connect to containerd: %w", err)
 	}
-	implementation := &clientBackend{client: client, namespace: config.Namespace, snapshotter: config.Snapshotter}
+	implementation := &clientBackend{client: client, namespace: config.Namespace, snapshotter: config.Snapshotter, logs: config.Logs, logBinary: config.LogBinary}
 	if _, err := client.Version(implementation.context(ctx)); err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("query containerd version: %w", err)
@@ -76,6 +78,9 @@ func (b *clientBackend) Start(ctx context.Context, request r1sruntime.StartReque
 	}
 
 	specOptions := []oci.SpecOpts{oci.WithImageConfig(image)}
+	if r := request.Resources; r != (r1sruntime.Resources{}) {
+		specOptions = append(specOptions, oci.WithMemoryLimit(uint64(r.MemoryBytes)), oci.WithCPUCFS(r.CPUMilli*100, 100000), oci.WithPidsLimit(r.Pids))
+	}
 	if len(request.Workload.GetCommand()) > 0 {
 		arguments := append([]string{}, request.Workload.GetCommand()...)
 		arguments = append(arguments, request.Workload.GetArgs()...)
@@ -120,7 +125,11 @@ func (b *clientBackend) Start(ctx context.Context, request r1sruntime.StartReque
 		}
 	}()
 
-	task, err := container.NewTask(ctx, cio.NullIO)
+	taskIO, err := b.taskIO(request.ExecutionID)
+	if err != nil {
+		return nil, err
+	}
+	task, err := container.NewTask(ctx, taskIO)
 	if err != nil {
 		return nil, fmt.Errorf("create task %q: %w", containerID, err)
 	}
@@ -212,7 +221,11 @@ func (b *clientBackend) resume(ctx context.Context, container containerdclient.C
 		if !errdefs.IsNotFound(err) {
 			return nil, fmt.Errorf("load task %q: %w", container.ID(), err)
 		}
-		task, err = container.NewTask(ctx, cio.NullIO)
+		taskIO, ioErr := b.taskIO(executionID)
+		if ioErr != nil {
+			return nil, ioErr
+		}
+		task, err = container.NewTask(ctx, taskIO)
 		if err != nil {
 			return nil, fmt.Errorf("recreate task %q: %w", container.ID(), err)
 		}

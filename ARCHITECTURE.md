@@ -108,6 +108,14 @@ artifact results remain deferred in [BACKLOG.md](./roadmap/BACKLOG.md).
 Offers reserve capacity but do not start the workload. This prevents every allocator from pulling
 and starting the same image before the client makes a selection.
 
+The client atomically stores its chosen assignment and stable `ExecutionOfferRelease` intents for
+known losing offers. Each losing allocator verifies the authenticated owner and acknowledges a
+released, expired, or assigned outcome. Only an outstanding reservation returns capacity; an
+assigned execution is never changed by release. Late offers observed after selection get their own
+durable release intent. Unknown release payloads on older allocators can be ignored safely because
+the original offer TTL still bounds the reservation. New durable released-offer states require a
+binary that understands them; an older allocator refuses that state rather than reopening capacity.
+
 Protobuf evolution is additive: existing field numbers are never reused, removed fields are
 reserved, and unknown fields must remain safe to ignore.
 
@@ -121,8 +129,16 @@ autonomously through a network partition. It ends only when one of these explici
 - its deadline or maximum runtime is reached;
 - a future local policy explicitly rejects or evicts it.
 
-Completed results may be retained for `result_retention` so a client can retrieve them after
-reconnecting. Result transfer and persistence are not implemented in the first slice.
+Terminal metadata is durably retained so a client can retrieve it after reconnecting. Enforcement
+of `result_retention` and bounded local log storage are planned work.
+
+Container stdout/stderr belongs in local allocator storage. Logs are transferred only after an
+explicit request from the authenticated execution owner. Completion, failure, cancellation,
+reconnection, `inspect`, and `result` must never automatically send logs or attach log tails to
+execution state or error details. A failed container changes lifecycle metadata only; the client
+may separately request its logs when needed. A log request bounds the stream, offset, and byte
+count; disconnection ends that transfer without affecting execution. The same explicit-request
+rule applies whether the eventual transfer uses RNS Resources or another artifact plane.
 
 ## Transport boundary
 

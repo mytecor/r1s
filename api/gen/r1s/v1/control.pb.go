@@ -23,6 +23,58 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type OfferReleaseOutcome int32
+
+const (
+	OfferReleaseOutcome_OFFER_RELEASE_OUTCOME_UNSPECIFIED OfferReleaseOutcome = 0
+	OfferReleaseOutcome_OFFER_RELEASE_OUTCOME_RELEASED    OfferReleaseOutcome = 1
+	OfferReleaseOutcome_OFFER_RELEASE_OUTCOME_EXPIRED     OfferReleaseOutcome = 2
+	OfferReleaseOutcome_OFFER_RELEASE_OUTCOME_ASSIGNED    OfferReleaseOutcome = 3
+)
+
+// Enum value maps for OfferReleaseOutcome.
+var (
+	OfferReleaseOutcome_name = map[int32]string{
+		0: "OFFER_RELEASE_OUTCOME_UNSPECIFIED",
+		1: "OFFER_RELEASE_OUTCOME_RELEASED",
+		2: "OFFER_RELEASE_OUTCOME_EXPIRED",
+		3: "OFFER_RELEASE_OUTCOME_ASSIGNED",
+	}
+	OfferReleaseOutcome_value = map[string]int32{
+		"OFFER_RELEASE_OUTCOME_UNSPECIFIED": 0,
+		"OFFER_RELEASE_OUTCOME_RELEASED":    1,
+		"OFFER_RELEASE_OUTCOME_EXPIRED":     2,
+		"OFFER_RELEASE_OUTCOME_ASSIGNED":    3,
+	}
+)
+
+func (x OfferReleaseOutcome) Enum() *OfferReleaseOutcome {
+	p := new(OfferReleaseOutcome)
+	*p = x
+	return p
+}
+
+func (x OfferReleaseOutcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (OfferReleaseOutcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_api_proto_r1s_v1_control_proto_enumTypes[0].Descriptor()
+}
+
+func (OfferReleaseOutcome) Type() protoreflect.EnumType {
+	return &file_api_proto_r1s_v1_control_proto_enumTypes[0]
+}
+
+func (x OfferReleaseOutcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use OfferReleaseOutcome.Descriptor instead.
+func (OfferReleaseOutcome) EnumDescriptor() ([]byte, []int) {
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{0}
+}
+
 type ExecutionPhase int32
 
 const (
@@ -68,11 +120,11 @@ func (x ExecutionPhase) String() string {
 }
 
 func (ExecutionPhase) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_proto_r1s_v1_control_proto_enumTypes[0].Descriptor()
+	return file_api_proto_r1s_v1_control_proto_enumTypes[1].Descriptor()
 }
 
 func (ExecutionPhase) Type() protoreflect.EnumType {
-	return &file_api_proto_r1s_v1_control_proto_enumTypes[0]
+	return &file_api_proto_r1s_v1_control_proto_enumTypes[1]
 }
 
 func (x ExecutionPhase) Number() protoreflect.EnumNumber {
@@ -81,7 +133,7 @@ func (x ExecutionPhase) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ExecutionPhase.Descriptor instead.
 func (ExecutionPhase) EnumDescriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{0}
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{1}
 }
 
 // Envelope is the authenticated unit exchanged by transports. Transports MUST
@@ -100,6 +152,11 @@ type Envelope struct {
 	//	*Envelope_ExecutionCancel
 	//	*Envelope_ExecutionState
 	//	*Envelope_ExecutionInspect
+	//	*Envelope_ExecutionOfferRelease
+	//	*Envelope_ExecutionOfferReleaseAck
+	//	*Envelope_CommandError
+	//	*Envelope_ExecutionLogsRequest
+	//	*Envelope_ExecutionLogsResponse
 	Payload       isEnvelope_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -224,6 +281,51 @@ func (x *Envelope) GetExecutionInspect() *ExecutionInspect {
 	return nil
 }
 
+func (x *Envelope) GetExecutionOfferRelease() *ExecutionOfferRelease {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_ExecutionOfferRelease); ok {
+			return x.ExecutionOfferRelease
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetExecutionOfferReleaseAck() *ExecutionOfferReleaseAck {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_ExecutionOfferReleaseAck); ok {
+			return x.ExecutionOfferReleaseAck
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetCommandError() *CommandError {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_CommandError); ok {
+			return x.CommandError
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetExecutionLogsRequest() *ExecutionLogsRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_ExecutionLogsRequest); ok {
+			return x.ExecutionLogsRequest
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetExecutionLogsResponse() *ExecutionLogsResponse {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_ExecutionLogsResponse); ok {
+			return x.ExecutionLogsResponse
+		}
+	}
+	return nil
+}
+
 type isEnvelope_Payload interface {
 	isEnvelope_Payload()
 }
@@ -252,6 +354,26 @@ type Envelope_ExecutionInspect struct {
 	ExecutionInspect *ExecutionInspect `protobuf:"bytes,15,opt,name=execution_inspect,json=executionInspect,proto3,oneof"`
 }
 
+type Envelope_ExecutionOfferRelease struct {
+	ExecutionOfferRelease *ExecutionOfferRelease `protobuf:"bytes,16,opt,name=execution_offer_release,json=executionOfferRelease,proto3,oneof"`
+}
+
+type Envelope_ExecutionOfferReleaseAck struct {
+	ExecutionOfferReleaseAck *ExecutionOfferReleaseAck `protobuf:"bytes,17,opt,name=execution_offer_release_ack,json=executionOfferReleaseAck,proto3,oneof"`
+}
+
+type Envelope_CommandError struct {
+	CommandError *CommandError `protobuf:"bytes,18,opt,name=command_error,json=commandError,proto3,oneof"`
+}
+
+type Envelope_ExecutionLogsRequest struct {
+	ExecutionLogsRequest *ExecutionLogsRequest `protobuf:"bytes,19,opt,name=execution_logs_request,json=executionLogsRequest,proto3,oneof"`
+}
+
+type Envelope_ExecutionLogsResponse struct {
+	ExecutionLogsResponse *ExecutionLogsResponse `protobuf:"bytes,20,opt,name=execution_logs_response,json=executionLogsResponse,proto3,oneof"`
+}
+
 func (*Envelope_ExecutionRequest) isEnvelope_Payload() {}
 
 func (*Envelope_ExecutionOffer) isEnvelope_Payload() {}
@@ -263,6 +385,16 @@ func (*Envelope_ExecutionCancel) isEnvelope_Payload() {}
 func (*Envelope_ExecutionState) isEnvelope_Payload() {}
 
 func (*Envelope_ExecutionInspect) isEnvelope_Payload() {}
+
+func (*Envelope_ExecutionOfferRelease) isEnvelope_Payload() {}
+
+func (*Envelope_ExecutionOfferReleaseAck) isEnvelope_Payload() {}
+
+func (*Envelope_CommandError) isEnvelope_Payload() {}
+
+func (*Envelope_ExecutionLogsRequest) isEnvelope_Payload() {}
+
+func (*Envelope_ExecutionLogsResponse) isEnvelope_Payload() {}
 
 // Workload describes an OCI workload without exposing a concrete runtime API.
 type Workload struct {
@@ -599,6 +731,120 @@ func (x *ExecutionAssign) GetExecutionId() string {
 	return ""
 }
 
+// Release only gives back a reservation owned by the authenticated client.
+// It never cancels an assigned execution.
+type ExecutionOfferRelease struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	OfferId       string                 `protobuf:"bytes,2,opt,name=offer_id,json=offerId,proto3" json:"offer_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecutionOfferRelease) Reset() {
+	*x = ExecutionOfferRelease{}
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionOfferRelease) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionOfferRelease) ProtoMessage() {}
+
+func (x *ExecutionOfferRelease) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutionOfferRelease.ProtoReflect.Descriptor instead.
+func (*ExecutionOfferRelease) Descriptor() ([]byte, []int) {
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ExecutionOfferRelease) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ExecutionOfferRelease) GetOfferId() string {
+	if x != nil {
+		return x.OfferId
+	}
+	return ""
+}
+
+type ExecutionOfferReleaseAck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	OfferId       string                 `protobuf:"bytes,2,opt,name=offer_id,json=offerId,proto3" json:"offer_id,omitempty"`
+	Outcome       OfferReleaseOutcome    `protobuf:"varint,3,opt,name=outcome,proto3,enum=r1s.v1.OfferReleaseOutcome" json:"outcome,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecutionOfferReleaseAck) Reset() {
+	*x = ExecutionOfferReleaseAck{}
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionOfferReleaseAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionOfferReleaseAck) ProtoMessage() {}
+
+func (x *ExecutionOfferReleaseAck) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutionOfferReleaseAck.ProtoReflect.Descriptor instead.
+func (*ExecutionOfferReleaseAck) Descriptor() ([]byte, []int) {
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ExecutionOfferReleaseAck) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ExecutionOfferReleaseAck) GetOfferId() string {
+	if x != nil {
+		return x.OfferId
+	}
+	return ""
+}
+
+func (x *ExecutionOfferReleaseAck) GetOutcome() OfferReleaseOutcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return OfferReleaseOutcome_OFFER_RELEASE_OUTCOME_UNSPECIFIED
+}
+
 type ExecutionCancel struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
@@ -609,7 +855,7 @@ type ExecutionCancel struct {
 
 func (x *ExecutionCancel) Reset() {
 	*x = ExecutionCancel{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[6]
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -621,7 +867,7 @@ func (x *ExecutionCancel) String() string {
 func (*ExecutionCancel) ProtoMessage() {}
 
 func (x *ExecutionCancel) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[6]
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -634,7 +880,7 @@ func (x *ExecutionCancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionCancel.ProtoReflect.Descriptor instead.
 func (*ExecutionCancel) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{6}
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ExecutionCancel) GetExecutionId() string {
@@ -662,7 +908,7 @@ type ExecutionInspect struct {
 
 func (x *ExecutionInspect) Reset() {
 	*x = ExecutionInspect{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[7]
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -674,7 +920,7 @@ func (x *ExecutionInspect) String() string {
 func (*ExecutionInspect) ProtoMessage() {}
 
 func (x *ExecutionInspect) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[7]
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -687,7 +933,7 @@ func (x *ExecutionInspect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionInspect.ProtoReflect.Descriptor instead.
 func (*ExecutionInspect) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{7}
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ExecutionInspect) GetExecutionId() string {
@@ -698,19 +944,21 @@ func (x *ExecutionInspect) GetExecutionId() string {
 }
 
 type ExecutionState struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
-	Phase         ExecutionPhase         `protobuf:"varint,2,opt,name=phase,proto3,enum=r1s.v1.ExecutionPhase" json:"phase,omitempty"`
-	OccurredAt    *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
-	Detail        string                 `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
-	ExitCode      *int32                 `protobuf:"varint,5,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	Phase       ExecutionPhase         `protobuf:"varint,2,opt,name=phase,proto3,enum=r1s.v1.ExecutionPhase" json:"phase,omitempty"`
+	OccurredAt  *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
+	Detail      string                 `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
+	ExitCode    *int32                 `protobuf:"varint,5,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
+	// Zero denotes a legacy peer; positive revisions order durable transitions.
+	Revision      uint64 `protobuf:"varint,6,opt,name=revision,proto3" json:"revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecutionState) Reset() {
 	*x = ExecutionState{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[8]
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -722,7 +970,7 @@ func (x *ExecutionState) String() string {
 func (*ExecutionState) ProtoMessage() {}
 
 func (x *ExecutionState) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[8]
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -735,7 +983,7 @@ func (x *ExecutionState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionState.ProtoReflect.Descriptor instead.
 func (*ExecutionState) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{8}
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ExecutionState) GetExecutionId() string {
@@ -773,11 +1021,249 @@ func (x *ExecutionState) GetExitCode() int32 {
 	return 0
 }
 
+func (x *ExecutionState) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+// Errors contain bounded service diagnostics, never workload output.
+type CommandError struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Code   string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	Detail string                 `protobuf:"bytes,2,opt,name=detail,proto3" json:"detail,omitempty"`
+	// A new command may be tried against the SAME allocator. No failover authority.
+	Retryable     bool `protobuf:"varint,3,opt,name=retryable,proto3" json:"retryable,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommandError) Reset() {
+	*x = CommandError{}
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommandError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommandError) ProtoMessage() {}
+
+func (x *CommandError) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommandError.ProtoReflect.Descriptor instead.
+func (*CommandError) Descriptor() ([]byte, []int) {
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *CommandError) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *CommandError) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+func (x *CommandError) GetRetryable() bool {
+	if x != nil {
+		return x.Retryable
+	}
+	return false
+}
+
+// One explicit request authorizes at most max_bytes bytes from one stream.
+type ExecutionLogsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	Stream        string                 `protobuf:"bytes,2,opt,name=stream,proto3" json:"stream,omitempty"`
+	Offset        uint64                 `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	MaxBytes      uint32                 `protobuf:"varint,4,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecutionLogsRequest) Reset() {
+	*x = ExecutionLogsRequest{}
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionLogsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionLogsRequest) ProtoMessage() {}
+
+func (x *ExecutionLogsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutionLogsRequest.ProtoReflect.Descriptor instead.
+func (*ExecutionLogsRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ExecutionLogsRequest) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *ExecutionLogsRequest) GetStream() string {
+	if x != nil {
+		return x.Stream
+	}
+	return ""
+}
+
+func (x *ExecutionLogsRequest) GetOffset() uint64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *ExecutionLogsRequest) GetMaxBytes() uint32 {
+	if x != nil {
+		return x.MaxBytes
+	}
+	return 0
+}
+
+type ExecutionLogsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	Stream        string                 `protobuf:"bytes,2,opt,name=stream,proto3" json:"stream,omitempty"`
+	Offset        uint64                 `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	Data          []byte                 `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
+	NextOffset    uint64                 `protobuf:"varint,5,opt,name=next_offset,json=nextOffset,proto3" json:"next_offset,omitempty"`
+	Eof           bool                   `protobuf:"varint,6,opt,name=eof,proto3" json:"eof,omitempty"`
+	Truncated     bool                   `protobuf:"varint,7,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	Sha256        []byte                 `protobuf:"bytes,8,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecutionLogsResponse) Reset() {
+	*x = ExecutionLogsResponse{}
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionLogsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionLogsResponse) ProtoMessage() {}
+
+func (x *ExecutionLogsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutionLogsResponse.ProtoReflect.Descriptor instead.
+func (*ExecutionLogsResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ExecutionLogsResponse) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *ExecutionLogsResponse) GetStream() string {
+	if x != nil {
+		return x.Stream
+	}
+	return ""
+}
+
+func (x *ExecutionLogsResponse) GetOffset() uint64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *ExecutionLogsResponse) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *ExecutionLogsResponse) GetNextOffset() uint64 {
+	if x != nil {
+		return x.NextOffset
+	}
+	return 0
+}
+
+func (x *ExecutionLogsResponse) GetEof() bool {
+	if x != nil {
+		return x.Eof
+	}
+	return false
+}
+
+func (x *ExecutionLogsResponse) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+func (x *ExecutionLogsResponse) GetSha256() []byte {
+	if x != nil {
+		return x.Sha256
+	}
+	return nil
+}
+
 var File_api_proto_r1s_v1_control_proto protoreflect.FileDescriptor
 
 const file_api_proto_r1s_v1_control_proto_rawDesc = "" +
 	"\n" +
-	"\x1eapi/proto/r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd2\x04\n" +
+	"\x1eapi/proto/r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfa\a\n" +
 	"\bEnvelope\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x16\n" +
@@ -790,7 +1276,12 @@ const file_api_proto_r1s_v1_control_proto_rawDesc = "" +
 	"\x10execution_assign\x18\f \x01(\v2\x17.r1s.v1.ExecutionAssignH\x00R\x0fexecutionAssign\x12D\n" +
 	"\x10execution_cancel\x18\r \x01(\v2\x17.r1s.v1.ExecutionCancelH\x00R\x0fexecutionCancel\x12A\n" +
 	"\x0fexecution_state\x18\x0e \x01(\v2\x16.r1s.v1.ExecutionStateH\x00R\x0eexecutionState\x12G\n" +
-	"\x11execution_inspect\x18\x0f \x01(\v2\x18.r1s.v1.ExecutionInspectH\x00R\x10executionInspectB\t\n" +
+	"\x11execution_inspect\x18\x0f \x01(\v2\x18.r1s.v1.ExecutionInspectH\x00R\x10executionInspect\x12W\n" +
+	"\x17execution_offer_release\x18\x10 \x01(\v2\x1d.r1s.v1.ExecutionOfferReleaseH\x00R\x15executionOfferRelease\x12a\n" +
+	"\x1bexecution_offer_release_ack\x18\x11 \x01(\v2 .r1s.v1.ExecutionOfferReleaseAckH\x00R\x18executionOfferReleaseAck\x12;\n" +
+	"\rcommand_error\x18\x12 \x01(\v2\x14.r1s.v1.CommandErrorH\x00R\fcommandError\x12T\n" +
+	"\x16execution_logs_request\x18\x13 \x01(\v2\x1c.r1s.v1.ExecutionLogsRequestH\x00R\x14executionLogsRequest\x12W\n" +
+	"\x17execution_logs_response\x18\x14 \x01(\v2\x1d.r1s.v1.ExecutionLogsResponseH\x00R\x15executionLogsResponseB\t\n" +
 	"\apayloadJ\x04\b\x05\x10\n" +
 	"\"\x80\x02\n" +
 	"\bWorkload\x12\x14\n" +
@@ -824,21 +1315,55 @@ const file_api_proto_r1s_v1_control_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
 	"\boffer_id\x18\x02 \x01(\tR\aofferId\x12!\n" +
-	"\fexecution_id\x18\x03 \x01(\tR\vexecutionId\"L\n" +
+	"\fexecution_id\x18\x03 \x01(\tR\vexecutionId\"Q\n" +
+	"\x15ExecutionOfferRelease\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
+	"\boffer_id\x18\x02 \x01(\tR\aofferId\"\x8b\x01\n" +
+	"\x18ExecutionOfferReleaseAck\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
+	"\boffer_id\x18\x02 \x01(\tR\aofferId\x125\n" +
+	"\aoutcome\x18\x03 \x01(\x0e2\x1b.r1s.v1.OfferReleaseOutcomeR\aoutcome\"L\n" +
 	"\x0fExecutionCancel\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"5\n" +
 	"\x10ExecutionInspect\x12!\n" +
-	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\"\xe6\x01\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\"\x82\x02\n" +
 	"\x0eExecutionState\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12,\n" +
 	"\x05phase\x18\x02 \x01(\x0e2\x16.r1s.v1.ExecutionPhaseR\x05phase\x12;\n" +
 	"\voccurred_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"occurredAt\x12\x16\n" +
 	"\x06detail\x18\x04 \x01(\tR\x06detail\x12 \n" +
-	"\texit_code\x18\x05 \x01(\x05H\x00R\bexitCode\x88\x01\x01B\f\n" +
+	"\texit_code\x18\x05 \x01(\x05H\x00R\bexitCode\x88\x01\x01\x12\x1a\n" +
+	"\brevision\x18\x06 \x01(\x04R\brevisionB\f\n" +
 	"\n" +
-	"_exit_code*\xe6\x01\n" +
+	"_exit_code\"X\n" +
+	"\fCommandError\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x16\n" +
+	"\x06detail\x18\x02 \x01(\tR\x06detail\x12\x1c\n" +
+	"\tretryable\x18\x03 \x01(\bR\tretryable\"\x86\x01\n" +
+	"\x14ExecutionLogsRequest\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x16\n" +
+	"\x06stream\x18\x02 \x01(\tR\x06stream\x12\x16\n" +
+	"\x06offset\x18\x03 \x01(\x04R\x06offset\x12\x1b\n" +
+	"\tmax_bytes\x18\x04 \x01(\rR\bmaxBytes\"\xe7\x01\n" +
+	"\x15ExecutionLogsResponse\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x16\n" +
+	"\x06stream\x18\x02 \x01(\tR\x06stream\x12\x16\n" +
+	"\x06offset\x18\x03 \x01(\x04R\x06offset\x12\x12\n" +
+	"\x04data\x18\x04 \x01(\fR\x04data\x12\x1f\n" +
+	"\vnext_offset\x18\x05 \x01(\x04R\n" +
+	"nextOffset\x12\x10\n" +
+	"\x03eof\x18\x06 \x01(\bR\x03eof\x12\x1c\n" +
+	"\ttruncated\x18\a \x01(\bR\ttruncated\x12\x16\n" +
+	"\x06sha256\x18\b \x01(\fR\x06sha256*\xa7\x01\n" +
+	"\x13OfferReleaseOutcome\x12%\n" +
+	"!OFFER_RELEASE_OUTCOME_UNSPECIFIED\x10\x00\x12\"\n" +
+	"\x1eOFFER_RELEASE_OUTCOME_RELEASED\x10\x01\x12!\n" +
+	"\x1dOFFER_RELEASE_OUTCOME_EXPIRED\x10\x02\x12\"\n" +
+	"\x1eOFFER_RELEASE_OUTCOME_ASSIGNED\x10\x03*\xe6\x01\n" +
 	"\x0eExecutionPhase\x12\x1f\n" +
 	"\x1bEXECUTION_PHASE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18EXECUTION_PHASE_STARTING\x10\x01\x12\x1b\n" +
@@ -860,45 +1385,57 @@ func file_api_proto_r1s_v1_control_proto_rawDescGZIP() []byte {
 	return file_api_proto_r1s_v1_control_proto_rawDescData
 }
 
-var file_api_proto_r1s_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_api_proto_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_api_proto_r1s_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_api_proto_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_api_proto_r1s_v1_control_proto_goTypes = []any{
-	(ExecutionPhase)(0),           // 0: r1s.v1.ExecutionPhase
-	(*Envelope)(nil),              // 1: r1s.v1.Envelope
-	(*Workload)(nil),              // 2: r1s.v1.Workload
-	(*ExecutionPolicy)(nil),       // 3: r1s.v1.ExecutionPolicy
-	(*ExecutionRequest)(nil),      // 4: r1s.v1.ExecutionRequest
-	(*ExecutionOffer)(nil),        // 5: r1s.v1.ExecutionOffer
-	(*ExecutionAssign)(nil),       // 6: r1s.v1.ExecutionAssign
-	(*ExecutionCancel)(nil),       // 7: r1s.v1.ExecutionCancel
-	(*ExecutionInspect)(nil),      // 8: r1s.v1.ExecutionInspect
-	(*ExecutionState)(nil),        // 9: r1s.v1.ExecutionState
-	nil,                           // 10: r1s.v1.Workload.EnvironmentEntry
-	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),   // 12: google.protobuf.Duration
+	(OfferReleaseOutcome)(0),         // 0: r1s.v1.OfferReleaseOutcome
+	(ExecutionPhase)(0),              // 1: r1s.v1.ExecutionPhase
+	(*Envelope)(nil),                 // 2: r1s.v1.Envelope
+	(*Workload)(nil),                 // 3: r1s.v1.Workload
+	(*ExecutionPolicy)(nil),          // 4: r1s.v1.ExecutionPolicy
+	(*ExecutionRequest)(nil),         // 5: r1s.v1.ExecutionRequest
+	(*ExecutionOffer)(nil),           // 6: r1s.v1.ExecutionOffer
+	(*ExecutionAssign)(nil),          // 7: r1s.v1.ExecutionAssign
+	(*ExecutionOfferRelease)(nil),    // 8: r1s.v1.ExecutionOfferRelease
+	(*ExecutionOfferReleaseAck)(nil), // 9: r1s.v1.ExecutionOfferReleaseAck
+	(*ExecutionCancel)(nil),          // 10: r1s.v1.ExecutionCancel
+	(*ExecutionInspect)(nil),         // 11: r1s.v1.ExecutionInspect
+	(*ExecutionState)(nil),           // 12: r1s.v1.ExecutionState
+	(*CommandError)(nil),             // 13: r1s.v1.CommandError
+	(*ExecutionLogsRequest)(nil),     // 14: r1s.v1.ExecutionLogsRequest
+	(*ExecutionLogsResponse)(nil),    // 15: r1s.v1.ExecutionLogsResponse
+	nil,                              // 16: r1s.v1.Workload.EnvironmentEntry
+	(*timestamppb.Timestamp)(nil),    // 17: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),      // 18: google.protobuf.Duration
 }
 var file_api_proto_r1s_v1_control_proto_depIdxs = []int32{
-	11, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
-	4,  // 1: r1s.v1.Envelope.execution_request:type_name -> r1s.v1.ExecutionRequest
-	5,  // 2: r1s.v1.Envelope.execution_offer:type_name -> r1s.v1.ExecutionOffer
-	6,  // 3: r1s.v1.Envelope.execution_assign:type_name -> r1s.v1.ExecutionAssign
-	7,  // 4: r1s.v1.Envelope.execution_cancel:type_name -> r1s.v1.ExecutionCancel
-	9,  // 5: r1s.v1.Envelope.execution_state:type_name -> r1s.v1.ExecutionState
-	8,  // 6: r1s.v1.Envelope.execution_inspect:type_name -> r1s.v1.ExecutionInspect
-	10, // 7: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
-	11, // 8: r1s.v1.ExecutionPolicy.deadline:type_name -> google.protobuf.Timestamp
-	12, // 9: r1s.v1.ExecutionPolicy.max_runtime:type_name -> google.protobuf.Duration
-	12, // 10: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
-	2,  // 11: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
-	3,  // 12: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
-	11, // 13: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
-	0,  // 14: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
-	11, // 15: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	17, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
+	5,  // 1: r1s.v1.Envelope.execution_request:type_name -> r1s.v1.ExecutionRequest
+	6,  // 2: r1s.v1.Envelope.execution_offer:type_name -> r1s.v1.ExecutionOffer
+	7,  // 3: r1s.v1.Envelope.execution_assign:type_name -> r1s.v1.ExecutionAssign
+	10, // 4: r1s.v1.Envelope.execution_cancel:type_name -> r1s.v1.ExecutionCancel
+	12, // 5: r1s.v1.Envelope.execution_state:type_name -> r1s.v1.ExecutionState
+	11, // 6: r1s.v1.Envelope.execution_inspect:type_name -> r1s.v1.ExecutionInspect
+	8,  // 7: r1s.v1.Envelope.execution_offer_release:type_name -> r1s.v1.ExecutionOfferRelease
+	9,  // 8: r1s.v1.Envelope.execution_offer_release_ack:type_name -> r1s.v1.ExecutionOfferReleaseAck
+	13, // 9: r1s.v1.Envelope.command_error:type_name -> r1s.v1.CommandError
+	14, // 10: r1s.v1.Envelope.execution_logs_request:type_name -> r1s.v1.ExecutionLogsRequest
+	15, // 11: r1s.v1.Envelope.execution_logs_response:type_name -> r1s.v1.ExecutionLogsResponse
+	16, // 12: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
+	17, // 13: r1s.v1.ExecutionPolicy.deadline:type_name -> google.protobuf.Timestamp
+	18, // 14: r1s.v1.ExecutionPolicy.max_runtime:type_name -> google.protobuf.Duration
+	18, // 15: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
+	3,  // 16: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
+	4,  // 17: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
+	17, // 18: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
+	0,  // 19: r1s.v1.ExecutionOfferReleaseAck.outcome:type_name -> r1s.v1.OfferReleaseOutcome
+	1,  // 20: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
+	17, // 21: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
+	22, // [22:22] is the sub-list for method output_type
+	22, // [22:22] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_r1s_v1_control_proto_init() }
@@ -913,15 +1450,20 @@ func file_api_proto_r1s_v1_control_proto_init() {
 		(*Envelope_ExecutionCancel)(nil),
 		(*Envelope_ExecutionState)(nil),
 		(*Envelope_ExecutionInspect)(nil),
+		(*Envelope_ExecutionOfferRelease)(nil),
+		(*Envelope_ExecutionOfferReleaseAck)(nil),
+		(*Envelope_CommandError)(nil),
+		(*Envelope_ExecutionLogsRequest)(nil),
+		(*Envelope_ExecutionLogsResponse)(nil),
 	}
-	file_api_proto_r1s_v1_control_proto_msgTypes[8].OneofWrappers = []any{}
+	file_api_proto_r1s_v1_control_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_r1s_v1_control_proto_rawDesc), len(file_api_proto_r1s_v1_control_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   10,
+			NumEnums:      2,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

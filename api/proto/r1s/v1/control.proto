@@ -24,6 +24,11 @@ message Envelope {
     ExecutionCancel execution_cancel = 13;
     ExecutionState execution_state = 14;
     ExecutionInspect execution_inspect = 15;
+    ExecutionOfferRelease execution_offer_release = 16;
+    ExecutionOfferReleaseAck execution_offer_release_ack = 17;
+    CommandError command_error = 18;
+    ExecutionLogsRequest execution_logs_request = 19;
+    ExecutionLogsResponse execution_logs_response = 20;
   }
 }
 
@@ -64,6 +69,26 @@ message ExecutionAssign {
   string execution_id = 3;
 }
 
+// Release only gives back a reservation owned by the authenticated client.
+// It never cancels an assigned execution.
+message ExecutionOfferRelease {
+  string request_id = 1;
+  string offer_id = 2;
+}
+
+message ExecutionOfferReleaseAck {
+  string request_id = 1;
+  string offer_id = 2;
+  OfferReleaseOutcome outcome = 3;
+}
+
+enum OfferReleaseOutcome {
+  OFFER_RELEASE_OUTCOME_UNSPECIFIED = 0;
+  OFFER_RELEASE_OUTCOME_RELEASED = 1;
+  OFFER_RELEASE_OUTCOME_EXPIRED = 2;
+  OFFER_RELEASE_OUTCOME_ASSIGNED = 3;
+}
+
 message ExecutionCancel {
   string execution_id = 1;
   string reason = 2;
@@ -91,4 +116,33 @@ message ExecutionState {
   google.protobuf.Timestamp occurred_at = 3;
   string detail = 4;
   optional int32 exit_code = 5;
+  // Zero denotes a legacy peer; positive revisions order durable transitions.
+  uint64 revision = 6;
+}
+
+// Errors contain bounded service diagnostics, never workload output.
+message CommandError {
+  string code = 1;
+  string detail = 2;
+  // A new command may be tried against the SAME allocator. No failover authority.
+  bool retryable = 3;
+}
+
+// One explicit request authorizes at most max_bytes bytes from one stream.
+message ExecutionLogsRequest {
+  string execution_id = 1;
+  string stream = 2;
+  uint64 offset = 3;
+  uint32 max_bytes = 4;
+}
+
+message ExecutionLogsResponse {
+  string execution_id = 1;
+  string stream = 2;
+  uint64 offset = 3;
+  bytes data = 4;
+  uint64 next_offset = 5;
+  bool eof = 6;
+  bool truncated = 7;
+  bytes sha256 = 8;
 }

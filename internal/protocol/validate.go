@@ -44,6 +44,12 @@ func ValidateEnvelope(envelope *r1sv1.Envelope) error {
 	}
 
 	switch payload := envelope.GetPayload().(type) {
+	case *r1sv1.Envelope_CommandError:
+		return validateError(envelope, payload.CommandError)
+	case *r1sv1.Envelope_ExecutionLogsRequest:
+		return validateLogsRequest(payload.ExecutionLogsRequest)
+	case *r1sv1.Envelope_ExecutionLogsResponse:
+		return validateLogsResponse(envelope, payload.ExecutionLogsResponse)
 	case *r1sv1.Envelope_ExecutionRequest:
 		return validateRequest(envelope, payload.ExecutionRequest)
 	case *r1sv1.Envelope_ExecutionOffer:
@@ -56,6 +62,10 @@ func ValidateEnvelope(envelope *r1sv1.Envelope) error {
 		return validateState(payload.ExecutionState)
 	case *r1sv1.Envelope_ExecutionInspect:
 		return validateInspect(payload.ExecutionInspect)
+	case *r1sv1.Envelope_ExecutionOfferRelease:
+		return validateOfferRelease(payload.ExecutionOfferRelease)
+	case *r1sv1.Envelope_ExecutionOfferReleaseAck:
+		return validateOfferReleaseAck(envelope, payload.ExecutionOfferReleaseAck)
 	case nil:
 		return invalid("payload", "is required")
 	default:

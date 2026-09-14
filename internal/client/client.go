@@ -44,6 +44,7 @@ type offerRecord struct {
 	offer       *r1sv1.ExecutionOffer
 	allocatorID []byte
 	receivedAt  time.Time
+	release     *releaseIntent
 }
 
 type requestRecord struct {
@@ -90,7 +91,9 @@ type ExecutionSnapshot struct {
 
 // Client owns durable request selection and observed execution state.
 type Client struct {
-	mu sync.Mutex
+	logMessageID string
+	logRequest   *r1sv1.ExecutionLogsRequest
+	mu           sync.Mutex
 
 	identity []byte
 	store    StateStore
@@ -198,10 +201,16 @@ func (o *Client) Handle(_ context.Context, envelope *r1sv1.Envelope) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	switch payload := envelope.GetPayload().(type) {
+	case *r1sv1.Envelope_ExecutionLogsResponse:
+		return o.handleLogsLocked(envelope)
+	case *r1sv1.Envelope_CommandError:
+		return o.handleErrorLocked(envelope)
 	case *r1sv1.Envelope_ExecutionOffer:
 		return o.handleOfferLocked(envelope, payload.ExecutionOffer)
 	case *r1sv1.Envelope_ExecutionState:
 		return o.handleStateLocked(envelope, payload.ExecutionState)
+	case *r1sv1.Envelope_ExecutionOfferReleaseAck:
+		return o.handleReleaseAckLocked(envelope, payload.ExecutionOfferReleaseAck)
 	default:
 		return ErrUnsupportedMessage
 	}
@@ -225,10 +234,19 @@ func (o *Client) handleOfferLocked(envelope *r1sv1.Envelope, offer *r1sv1.Execut
 		}
 		return nil
 	}
+	newOffer := &offerRecord{offer: proto.Clone(offer).(*r1sv1.ExecutionOffer), allocatorID: bytes.Clone(envelope.GetSender()), receivedAt: o.now().UTC()}
 	if record.executionID != "" {
-		return nil
+		execution := o.executions[record.executionID]
+		if execution.offerID == offer.GetOfferId() && bytes.Equal(execution.allocatorID, envelope.GetSender()) {
+			return ErrConflict
+		}
+		intent, err := o.newReleaseLocked(newOffer)
+		if err != nil {
+			return err
+		}
+		newOffer.release = intent
 	}
-	record.offers[offer.GetOfferId()] = &offerRecord{offer: proto.Clone(offer).(*r1sv1.ExecutionOffer), allocatorID: bytes.Clone(envelope.GetSender()), receivedAt: o.now().UTC()}
+	record.offers[offer.GetOfferId()] = newOffer
 	if err := o.persistLocked(context.Background()); err != nil {
 		delete(record.offers, offer.GetOfferId())
 		return err
@@ -245,16 +263,28 @@ func (o *Client) handleStateLocked(envelope *r1sv1.Envelope, state *r1sv1.Execut
 		return ErrUnauthorized
 	}
 	if record.state != nil {
-		oldTime := record.state.GetOccurredAt().AsTime()
-		newTime := state.GetOccurredAt().AsTime()
-		if newTime.Before(oldTime) {
-			return nil
-		}
-		if newTime.Equal(oldTime) {
-			if proto.Equal(record.state, state) {
+		oldRevision, newRevision := record.state.GetRevision(), state.GetRevision()
+		if oldRevision > 0 || newRevision > 0 {
+			if newRevision < oldRevision {
 				return nil
 			}
-			return ErrConflict
+			if newRevision == oldRevision {
+				if proto.Equal(record.state, state) {
+					return nil
+				}
+				return ErrConflict
+			}
+		} else {
+			oldTime, newTime := record.state.GetOccurredAt().AsTime(), state.GetOccurredAt().AsTime()
+			if newTime.Before(oldTime) {
+				return nil
+			}
+			if newTime.Equal(oldTime) {
+				if proto.Equal(record.state, state) {
+					return nil
+				}
+				return ErrConflict
+			}
 		}
 		if terminal(record.state.GetPhase()) && !proto.Equal(record.state, state) {
 			return ErrConflict
@@ -314,9 +344,26 @@ func (o *Client) Select(requestID string) (string, *r1sv1.Envelope, error) {
 		id: executionID, requestID: requestID, offerID: selected.offer.GetOfferId(), allocatorID: bytes.Clone(selected.allocatorID),
 		destination: allocator.Destination, assignmentMessageID: messageID, assignmentSentAt: now,
 	}
+	prepared := make(map[*offerRecord]*releaseIntent)
+	for _, offer := range record.offers {
+		if offer == selected || offer.release != nil {
+			continue
+		}
+		intent, err := o.newReleaseLocked(offer)
+		if err != nil {
+			return "", nil, err
+		}
+		prepared[offer] = intent
+	}
+	for offer, intent := range prepared {
+		offer.release = intent
+	}
 	record.executionID = executionID
 	o.executions[executionID] = execution
 	if err := o.persistLocked(context.Background()); err != nil {
+		for offer := range prepared {
+			offer.release = nil
+		}
 		record.executionID = ""
 		delete(o.executions, executionID)
 		return "", nil, err

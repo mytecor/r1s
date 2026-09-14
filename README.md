@@ -56,6 +56,12 @@ sequenceDiagram
 An offer reserves a bounded local slot. Workload start happens only after the client selects that
 offer, avoiding speculative image pulls on every allocator that sees a request.
 
+Selection durably records release commands for all known losing offers. The client sends them in
+the background and also releases late offers received while it remains connected. Every network
+command retries unacknowledged, unexpired releases using their original message IDs. CLI shutdown
+allows up to two seconds for release acknowledgements and reports remaining releases on stderr;
+allocator expiry remains the fallback. Releasing an assigned offer never cancels its execution.
+
 ## Install
 
 Download the archive for your platform from the [releases page](https://github.com/mytecor/r1s/releases)
@@ -230,14 +236,17 @@ go run ./cmd/r1s --rns-config ./client-reticulum.conf --identity ./client.identi
 go run ./cmd/r1s --rns-config ./client-reticulum.conf --identity ./client.identity result <execution-id>
 ```
 
-`result` currently returns retained terminal phase, detail, and exit code. Stdout/stderr and large
-artifact transfer remain part of the open result-contract decision in
-[BACKLOG.md](./roadmap/BACKLOG.md).
+`result` currently returns retained terminal phase, detail, and exit code. Container logs must stay
+local to the allocator and be transferred only after a separate explicit, authenticated log
+request. Completion or failure never triggers automatic log delivery; neither do `inspect`,
+`result`, or reconnection. Local stdout/stderr retention and on-demand retrieval are planned in
+[F9](./roadmap/f9-local-logs/README.md); the current runtime discards stdout/stderr.
 
 ## Building and releasing
 
-`ci.yml` runs `gofmt`, `go vet`, `go test`, and a cross-compile of every released platform on each
-push to `main` and each pull request.
+`ci.yml` checks `gofmt`, runs `go vet` and `make check` (generated bindings, race-enabled tests,
+and local documentation links), and cross-compiles every released platform on each push to `main`
+and each pull request. CI installs protoc 36.0 and lychee 0.24.2 from checksum-pinned archives.
 
 `release.yml` never starts on its own — no push, tag, or schedule trigger, only a manual run from the
 Actions tab or the CLI:

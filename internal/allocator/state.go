@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"google.golang.org/protobuf/proto"
 )
 
-const stateVersion = 1
+const stateVersion = 2
 
 // StateStore atomically loads and saves one opaque allocator snapshot.
 // Implementations must not retain or mutate the supplied byte slices.
@@ -21,6 +22,8 @@ type StateStore interface {
 }
 
 type persistedState struct {
+	HighWater  time.Time            `json:"high_water,omitempty"`
+	Tombstones map[string]tombstone `json:"tombstones,omitempty"`
 	Version    int                  `json:"version"`
 	Identity   []byte               `json:"identity"`
 	Offers     []persistedOffer     `json:"offers,omitempty"`
@@ -29,15 +32,18 @@ type persistedState struct {
 }
 
 type persistedOffer struct {
-	Offer        []byte      `json:"offer"`
-	Request      []byte      `json:"request"`
-	Client       []byte      `json:"client,omitempty"`
-	LegacySender []byte      `json:"owner,omitempty"`
-	Status       offerStatus `json:"status"`
-	Execution    string      `json:"execution,omitempty"`
+	Resources    r1sruntime.Resources `json:"resources,omitzero"`
+	Offer        []byte               `json:"offer"`
+	Request      []byte               `json:"request"`
+	Client       []byte               `json:"client,omitempty"`
+	LegacySender []byte               `json:"owner,omitempty"`
+	Status       offerStatus          `json:"status"`
+	Execution    string               `json:"execution,omitempty"`
 }
 
 type persistedExecution struct {
+	RetainUntil   time.Time            `json:"retain_until,omitempty"`
+	Resources     r1sruntime.Resources `json:"resources,omitzero"`
 	ID            string               `json:"id"`
 	OfferID       string               `json:"offer_id"`
 	Client        []byte               `json:"client,omitempty"`
@@ -50,6 +56,7 @@ type persistedExecution struct {
 	OccurredAt    time.Time            `json:"occurred_at"`
 	StartedAt     time.Time            `json:"started_at"`
 	Released      bool                 `json:"released"`
+	Revision      uint64               `json:"revision,omitempty"`
 }
 
 type persistedReplay struct {
@@ -77,13 +84,17 @@ func (a *Allocator) loadLocked(ctx context.Context) error {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return fmt.Errorf("%w: decode allocator state: %v", ErrStore, err)
 	}
-	if state.Version != stateVersion {
+	if state.Version != 1 && state.Version != stateVersion {
 		return fmt.Errorf("%w: unsupported allocator state version %d", ErrStore, state.Version)
 	}
 	if !bytesEqual(state.Identity, a.identity) {
 		return fmt.Errorf("%w: state belongs to a different allocator identity", ErrStore)
 	}
 
+	a.highWater = state.HighWater
+	if state.Tombstones != nil {
+		a.tombstones = state.Tombstones
+	}
 	for _, saved := range state.Offers {
 		offer := new(r1sv1.ExecutionOffer)
 		request := new(r1sv1.ExecutionRequest)
@@ -99,8 +110,8 @@ func (a *Allocator) loadLocked(ctx context.Context) error {
 		if _, exists := a.offers[offer.GetOfferId()]; exists {
 			return fmt.Errorf("%w: duplicate durable offer %q", ErrStore, offer.GetOfferId())
 		}
-		record := &offerRecord{offer: offer, request: request, client: cloneBytes(firstBytes(saved.Client, saved.LegacySender)), status: saved.Status, execution: saved.Execution}
-		if record.status < offerOutstanding || record.status > offerExpired {
+		record := &offerRecord{offer: offer, request: request, client: cloneBytes(firstBytes(saved.Client, saved.LegacySender)), status: saved.Status, execution: saved.Execution, resources: saved.Resources}
+		if record.status < offerOutstanding || record.status > offerReleased {
 			return fmt.Errorf("%w: invalid durable offer status", ErrStore)
 		}
 		requestKey := authorityKey(record.client, request.GetRequestId())
@@ -131,7 +142,10 @@ func (a *Allocator) loadLocked(ctx context.Context) error {
 		a.executions[saved.ID] = &executionRecord{
 			id: saved.ID, offerID: saved.OfferID, client: cloneBytes(firstBytes(saved.Client, saved.LegacySender)), resourceClass: saved.ResourceClass,
 			request: request, phase: saved.Phase, detail: saved.Detail, exitCode: cloneInt32(saved.ExitCode),
-			occurredAt: saved.OccurredAt, startedAt: saved.StartedAt, released: saved.Released,
+			occurredAt: saved.OccurredAt, startedAt: saved.StartedAt, released: saved.Released, revision: max(1, saved.Revision), resources: saved.Resources, retainUntil: saved.RetainUntil,
+		}
+		if terminal(saved.Phase) && saved.RetainUntil.IsZero() {
+			a.executions[saved.ID].retainUntil = saved.OccurredAt.Add(retention(request.GetPolicy()))
 		}
 	}
 
@@ -182,7 +196,7 @@ func (a *Allocator) persistLocked(ctx context.Context) error {
 	if a.store == nil {
 		return nil
 	}
-	state := persistedState{Version: stateVersion, Identity: cloneBytes(a.identity)}
+	state := persistedState{Version: stateVersion, Identity: cloneBytes(a.identity), HighWater: a.highWater, Tombstones: a.tombstones}
 	for _, record := range a.offers {
 		offer, err := proto.Marshal(record.offer)
 		if err != nil {
@@ -192,7 +206,7 @@ func (a *Allocator) persistLocked(ctx context.Context) error {
 		if err != nil {
 			return errors.Join(ErrStore, err)
 		}
-		state.Offers = append(state.Offers, persistedOffer{Offer: offer, Request: request, Client: cloneBytes(record.client), Status: record.status, Execution: record.execution})
+		state.Offers = append(state.Offers, persistedOffer{Offer: offer, Request: request, Client: cloneBytes(record.client), Status: record.status, Execution: record.execution, Resources: record.resources})
 	}
 	for _, record := range a.executions {
 		request, err := proto.Marshal(record.request)
@@ -202,7 +216,7 @@ func (a *Allocator) persistLocked(ctx context.Context) error {
 		state.Executions = append(state.Executions, persistedExecution{
 			ID: record.id, OfferID: record.offerID, Client: cloneBytes(record.client), ResourceClass: record.resourceClass,
 			Request: request, Phase: record.phase, Detail: record.detail, ExitCode: cloneInt32(record.exitCode),
-			OccurredAt: record.occurredAt, StartedAt: record.startedAt, Released: record.released,
+			OccurredAt: record.occurredAt, StartedAt: record.startedAt, Released: record.released, Revision: record.revision, Resources: record.resources, RetainUntil: record.retainUntil,
 		})
 	}
 	for key, entry := range a.replay {
@@ -254,6 +268,9 @@ func restoreError(code, message string) error {
 
 func durableErrors() map[string]error {
 	return map[string]error{
+		"result_expired": ErrResultExpired, "command_expired": ErrCommandExpired,
+		"admission":           ErrAdmission,
+		"offer_released":      ErrOfferReleased,
 		"unsupported_message": ErrUnsupportedMessage,
 		"capacity_exhausted":  ErrCapacityExhausted,
 		"offer_not_found":     ErrOfferNotFound,

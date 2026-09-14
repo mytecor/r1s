@@ -22,6 +22,7 @@ type StartRequest struct {
 	Client      []byte
 	Workload    *r1sv1.Workload
 	Policy      *r1sv1.ExecutionPolicy
+	Resources   Resources
 	// StartedAt is the durable beginning of local policy timing. Runtimes use
 	// the current time when it is zero for compatibility with direct callers.
 	StartedAt time.Time
@@ -51,4 +52,9 @@ type Runtime interface {
 // or restarting a missing workload.
 type Recoverer interface {
 	Recover(context.Context, StartRequest, Reporter) error
+}
+
+// Forgetter drops only terminal runtime bookkeeping after durable result expiry.
+type Forgetter interface {
+	Forget(context.Context, string) error
 }

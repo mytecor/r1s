@@ -13,6 +13,9 @@
 - Treat the sender identity verified by the transport as authority; never trust an identity copied
   from an unverified payload.
 - Do not tie execution lifetime to a connection or heartbeat.
+- Keep container stdout/stderr local to the allocator. Transfer logs only in response to an explicit
+  authenticated log request; never attach or automatically send logs on completion, failure,
+  inspection, result retrieval, or reconnection.
 - Preserve Protobuf field numbers once the schema exists and evolve messages additively.
 - Record unfinished decisions in [`roadmap/BACKLOG.md`](./roadmap/BACKLOG.md).
 

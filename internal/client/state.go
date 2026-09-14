@@ -38,9 +38,10 @@ type persistedRequest struct {
 }
 
 type persistedOffer struct {
-	Offer       []byte    `json:"offer"`
-	AllocatorID []byte    `json:"allocator_id"`
-	ReceivedAt  time.Time `json:"received_at"`
+	Offer       []byte         `json:"offer"`
+	AllocatorID []byte         `json:"allocator_id"`
+	ReceivedAt  time.Time      `json:"received_at"`
+	Release     *releaseIntent `json:"release,omitempty"`
 }
 
 type persistedExecution struct {
@@ -104,7 +105,10 @@ func (o *Client) loadLocked(ctx context.Context) error {
 			if offer.GetOfferId() == "" || offer.GetRequestId() != request.GetRequestId() || record.offers[offer.GetOfferId()] != nil {
 				return fmt.Errorf("%w: invalid durable offer", ErrStore)
 			}
-			record.offers[offer.GetOfferId()] = &offerRecord{offer: offer, allocatorID: append([]byte(nil), savedOffer.AllocatorID...), receivedAt: savedOffer.ReceivedAt}
+			if intent := savedOffer.Release; intent != nil && (intent.MessageID == "" || intent.SentAt.IsZero() || intent.Destination == "" || saved.ExecutionID == "") {
+				return fmt.Errorf("%w: invalid durable offer release", ErrStore)
+			}
+			record.offers[offer.GetOfferId()] = &offerRecord{offer: offer, allocatorID: append([]byte(nil), savedOffer.AllocatorID...), receivedAt: savedOffer.ReceivedAt, release: savedOffer.Release}
 		}
 		o.requests[request.GetRequestId()] = record
 	}
@@ -115,6 +119,9 @@ func (o *Client) loadLocked(ctx context.Context) error {
 		request := o.requests[saved.RequestID]
 		if request == nil || request.executionID != saved.ID {
 			return fmt.Errorf("%w: execution has no matching request", ErrStore)
+		}
+		if offer := request.offers[saved.OfferID]; offer != nil && offer.release != nil && bytesEqual(offer.allocatorID, saved.AllocatorID) {
+			return fmt.Errorf("%w: selected offer has release intent", ErrStore)
 		}
 		record := &executionRecord{
 			id: saved.ID, requestID: saved.RequestID, offerID: saved.OfferID, allocatorID: append([]byte(nil), saved.AllocatorID...),
@@ -152,7 +159,7 @@ func (o *Client) persistLocked(ctx context.Context) error {
 			if err != nil {
 				return errors.Join(ErrStore, err)
 			}
-			saved.Offers = append(saved.Offers, persistedOffer{Offer: offerData, AllocatorID: append([]byte(nil), offer.allocatorID...), ReceivedAt: offer.receivedAt})
+			saved.Offers = append(saved.Offers, persistedOffer{Offer: offerData, AllocatorID: append([]byte(nil), offer.allocatorID...), ReceivedAt: offer.receivedAt, Release: offer.release})
 		}
 		state.Requests = append(state.Requests, saved)
 	}

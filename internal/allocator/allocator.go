@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -28,6 +29,7 @@ const (
 
 // Config defines local allocator authority and fixed class capacities.
 type Config struct {
+	MaxRecords     int
 	Identity       []byte
 	Capacity       map[string]uint32
 	OfferTTL       time.Duration
@@ -36,6 +38,8 @@ type Config struct {
 	Now            func() time.Time
 	NewID          func() string
 	Store          StateStore
+	Admission      AdmissionPolicy
+	Logs           r1sruntime.LogStore
 }
 
 type offerStatus uint8
@@ -44,6 +48,7 @@ const (
 	offerOutstanding offerStatus = iota + 1
 	offerAssigned
 	offerExpired
+	offerReleased
 )
 
 type offerRecord struct {
@@ -52,6 +57,7 @@ type offerRecord struct {
 	client    []byte
 	status    offerStatus
 	execution string
+	resources r1sruntime.Resources
 }
 
 type executionRecord struct {
@@ -66,6 +72,9 @@ type executionRecord struct {
 	occurredAt    time.Time
 	startedAt     time.Time
 	released      bool
+	retainUntil   time.Time
+	revision      uint64
+	resources     r1sruntime.Resources
 }
 
 type replayEntry struct {
@@ -83,6 +92,7 @@ type OfferSnapshot struct {
 	Outstanding bool
 	Assigned    bool
 	Expired     bool
+	Released    bool
 	ExecutionID string
 }
 
@@ -98,7 +108,10 @@ type ExecutionSnapshot struct {
 
 // Allocator owns local offers, executions, replay state, and capacity accounting.
 type Allocator struct {
-	mu sync.Mutex
+	maxRecords int
+	highWater  time.Time
+	tombstones map[string]tombstone
+	mu         sync.Mutex
 
 	identity       []byte
 	capacity       map[string]uint32
@@ -110,6 +123,8 @@ type Allocator struct {
 	newID          func() string
 	runtime        r1sruntime.Runtime
 	store          StateStore
+	admission      AdmissionPolicy
+	logs           r1sruntime.LogStore
 
 	offers     map[string]*offerRecord
 	requests   map[string]string
@@ -154,7 +169,21 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 		config.NewID = randomID
 	}
 
+	if err := config.Admission.validate(capacity); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+	}
+	// Copy policy maps and slices so callers cannot mutate admission concurrently.
+	policyData, _ := json.Marshal(config.Admission)
+	var admission AdmissionPolicy
+	_ = json.Unmarshal(policyData, &admission)
+	if config.MaxRecords == 0 {
+		config.MaxRecords = DefaultMaxRecords
+	}
+	if config.MaxRecords < 2 {
+		return nil, ErrInvalidConfig
+	}
 	result := &Allocator{
+		maxRecords: config.MaxRecords, tombstones: make(map[string]tombstone),
 		identity:       bytes.Clone(config.Identity),
 		capacity:       capacity,
 		used:           make(map[string]uint32, len(capacity)),
@@ -165,6 +194,8 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 		newID:          config.NewID,
 		runtime:        runtime,
 		store:          config.Store,
+		admission:      admission,
+		logs:           config.Logs,
 		offers:         make(map[string]*offerRecord),
 		requests:       make(map[string]string),
 		executions:     make(map[string]*executionRecord),
@@ -185,8 +216,14 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 	if err := protocol.ValidateEnvelope(envelope); err != nil {
 		return nil, err
 	}
+	if err := a.checkFreshness(envelope); err != nil {
+		return a.errorResponse(envelope, err), err
+	}
+	if envelope.GetExecutionLogsRequest() != nil {
+		return a.handleLogs(ctx, envelope)
+	}
 	switch envelope.GetPayload().(type) {
-	case *r1sv1.Envelope_ExecutionRequest, *r1sv1.Envelope_ExecutionAssign, *r1sv1.Envelope_ExecutionCancel, *r1sv1.Envelope_ExecutionInspect:
+	case *r1sv1.Envelope_ExecutionRequest, *r1sv1.Envelope_ExecutionAssign, *r1sv1.Envelope_ExecutionCancel, *r1sv1.Envelope_ExecutionInspect, *r1sv1.Envelope_ExecutionOfferRelease:
 	default:
 		return nil, ErrUnsupportedMessage
 	}
@@ -194,7 +231,7 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 	replayKey := authorityKey(envelope.GetSender(), envelope.GetMessageId())
 	entry, duplicate, replayErr := a.beginReplay(replayKey, envelope, a.now().UTC())
 	if replayErr != nil {
-		return nil, replayErr
+		return a.errorResponse(envelope, replayErr), replayErr
 	}
 	if duplicate {
 		select {
@@ -216,8 +253,13 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		responses, err = a.handleCancel(ctx, envelope, payload.ExecutionCancel)
 	case *r1sv1.Envelope_ExecutionInspect:
 		responses, err = a.handleInspect(envelope, payload.ExecutionInspect)
+	case *r1sv1.Envelope_ExecutionOfferRelease:
+		responses, err = a.handleOfferRelease(envelope, payload.ExecutionOfferRelease)
 	default:
 		panic("payload type checked above")
+	}
+	if err != nil && len(responses) == 0 {
+		responses = a.errorResponse(envelope, err)
 	}
 	if persistErr := a.finishReplay(entry, responses, err); persistErr != nil {
 		err = errors.Join(err, persistErr)
@@ -251,9 +293,15 @@ func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.Execu
 	requestKey := authorityKey(envelope.GetSender(), request.GetRequestId())
 	if offerID, ok := a.requests[requestKey]; ok {
 		record := a.offers[offerID]
-		if record != nil && record.status != offerExpired {
+		if record != nil {
+			if record.status == offerExpired {
+				return nil, ErrOfferExpired
+			}
 			if !proto.Equal(record.request, request) {
 				return nil, fmt.Errorf("%w: request ID %q was reused with different content", ErrExecutionConflict, request.GetRequestId())
+			}
+			if record.status == offerReleased {
+				return nil, ErrOfferReleased
 			}
 			response, err := a.offerEnvelopeLocked(record.offer, envelope.GetMessageId(), now)
 			if err != nil {
@@ -263,6 +311,20 @@ func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.Execu
 		}
 	}
 
+	for _, dead := range a.tombstones {
+		if bytes.Equal(dead.Client, envelope.GetSender()) && dead.RequestID == request.GetRequestId() {
+			return nil, ErrResultExpired
+		}
+	}
+	if len(a.offers)*2+len(a.tombstones)+2 > a.maxRecords {
+		return nil, ErrCapacityExhausted
+	}
+	if request.GetPolicy().GetResultRetention().AsDuration() > CommandHorizon {
+		return nil, fmt.Errorf("%w: retention exceeds seven days", protocol.ErrInvalidEnvelope)
+	}
+	if err := a.admitLocked(envelope.GetSender(), false); err != nil {
+		return nil, err
+	}
 	class := request.GetResourceClass()
 	limit, ok := a.capacity[class]
 	if !ok || a.used[class] >= limit {
@@ -286,10 +348,11 @@ func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.Execu
 		return nil, err
 	}
 	a.offers[offerID] = &offerRecord{
-		offer:   proto.Clone(offer).(*r1sv1.ExecutionOffer),
-		request: proto.Clone(request).(*r1sv1.ExecutionRequest),
-		client:  bytes.Clone(envelope.GetSender()),
-		status:  offerOutstanding,
+		offer:     proto.Clone(offer).(*r1sv1.ExecutionOffer),
+		request:   proto.Clone(request).(*r1sv1.ExecutionRequest),
+		client:    bytes.Clone(envelope.GetSender()),
+		status:    offerOutstanding,
+		resources: a.admission.Profiles[class],
 	}
 	a.requests[requestKey] = offerID
 	a.used[class]++
@@ -320,6 +383,9 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 		return nil, fmt.Errorf("%w: assignment request does not match offer", ErrExecutionConflict)
 	}
 	switch offer.status {
+	case offerReleased:
+		a.mu.Unlock()
+		return nil, ErrOfferReleased
 	case offerExpired:
 		a.mu.Unlock()
 		return nil, ErrOfferExpired
@@ -343,6 +409,10 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 		return nil, fmt.Errorf("%w: %q", ErrExecutionConflict, assign.GetExecutionId())
 	}
 
+	if err := a.admitLocked(envelope.GetSender(), true); err != nil {
+		a.mu.Unlock()
+		return nil, err
+	}
 	record := &executionRecord{
 		id:            assign.GetExecutionId(),
 		offerID:       offer.offer.GetOfferId(),
@@ -351,6 +421,8 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 		request:       proto.Clone(offer.request).(*r1sv1.ExecutionRequest),
 		phase:         r1sv1.ExecutionPhase_EXECUTION_PHASE_STARTING,
 		occurredAt:    now,
+		revision:      1,
+		resources:     offer.resources,
 		startedAt:     now,
 	}
 	offer.status = offerAssigned
@@ -369,6 +441,7 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 		Workload:    proto.Clone(record.request.GetWorkload()).(*r1sv1.Workload),
 		Policy:      proto.Clone(record.request.GetPolicy()).(*r1sv1.ExecutionPolicy),
 		StartedAt:   record.startedAt,
+		Resources:   record.resources,
 	}
 	a.mu.Unlock()
 
@@ -390,6 +463,7 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 	} else if startErr == nil && current.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_STARTING {
 		current.phase = r1sv1.ExecutionPhase_EXECUTION_PHASE_RUNNING
 		current.occurredAt = a.now().UTC()
+		current.revision++
 	}
 	response, responseErr := a.stateEnvelopeLocked(current, envelope.GetMessageId(), a.now().UTC())
 	persistErr := a.persistLocked(context.Background())
@@ -429,13 +503,16 @@ func (a *Allocator) handleCancel(ctx context.Context, envelope *r1sv1.Envelope, 
 	previousPhase := record.phase
 	previousDetail := record.detail
 	previousTime := record.occurredAt
+	previousRevision := record.revision
 	record.phase = r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING
 	record.detail = cancel.GetReason()
 	record.occurredAt = now
+	record.revision++
 	if err := a.persistLocked(context.Background()); err != nil {
 		record.phase = previousPhase
 		record.detail = previousDetail
 		record.occurredAt = previousTime
+		record.revision = previousRevision
 		a.mu.Unlock()
 		return nil, err
 	}
@@ -449,7 +526,8 @@ func (a *Allocator) handleCancel(ctx context.Context, envelope *r1sv1.Envelope, 
 		if current.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING {
 			current.phase = previousPhase
 			current.detail = previousDetail
-			current.occurredAt = previousTime
+			current.occurredAt = a.now().UTC()
+			current.revision++
 		}
 		persistErr := a.persistLocked(context.Background())
 		a.mu.Unlock()
@@ -495,8 +573,15 @@ func (a *Allocator) RuntimeCompleted(completion r1sruntime.Completion) error {
 		}
 		return fmt.Errorf("%w: execution %q is already %s", ErrInvalidTransition, record.id, record.phase)
 	}
+	previous := *record
+	used := a.used[record.resourceClass]
 	a.finishLocked(record, phase, detail, completion.ExitCode, a.now().UTC())
-	return a.persistLocked(context.Background())
+	if err := a.persistLocked(context.Background()); err != nil {
+		*record = previous
+		a.used[record.resourceClass] = used
+		return err
+	}
+	return nil
 }
 
 // Recover reconciles durable non-terminal executions with the runtime. It
@@ -562,6 +647,7 @@ func (a *Allocator) Recover(ctx context.Context) error {
 			Workload:    proto.Clone(record.request.GetWorkload()).(*r1sv1.Workload),
 			Policy:      proto.Clone(record.request.GetPolicy()).(*r1sv1.ExecutionPolicy),
 			StartedAt:   record.startedAt,
+			Resources:   record.resources,
 		}
 		a.mu.Unlock()
 		reporter := func(completion r1sruntime.Completion) error {
@@ -578,9 +664,10 @@ func (a *Allocator) Recover(ctx context.Context) error {
 		a.mu.Lock()
 		current := a.executions[id]
 		if recoverErr == nil {
-			if current != nil && !terminal(current.phase) {
+			if current != nil && current.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_STARTING {
 				current.phase = r1sv1.ExecutionPhase_EXECUTION_PHASE_RUNNING
 				current.occurredAt = a.now().UTC()
+				current.revision++
 			}
 		} else if errors.Is(recoverErr, r1sruntime.ErrExecutionMissing) || errors.Is(recoverErr, r1sruntime.ErrExecutionConflict) {
 			if current != nil && !terminal(current.phase) {
@@ -637,6 +724,7 @@ func (a *Allocator) Offer(id string) (OfferSnapshot, bool) {
 		Outstanding: record.status == offerOutstanding,
 		Assigned:    record.status == offerAssigned,
 		Expired:     record.status == offerExpired,
+		Released:    record.status == offerReleased,
 		ExecutionID: record.execution,
 	}, true
 }
@@ -790,6 +878,12 @@ func (a *Allocator) finishLocked(record *executionRecord, phase r1sv1.ExecutionP
 	record.detail = detail
 	record.exitCode = cloneInt32(exitCode)
 	record.occurredAt = now
+	record.revision++
+	end := now
+	if a.highWater.After(end) {
+		end = a.highWater
+	}
+	record.retainUntil = end.Add(retention(record.request.GetPolicy()))
 	if !record.released {
 		a.releaseClassLocked(record.resourceClass)
 		record.released = true
@@ -809,6 +903,7 @@ func stateFromRecord(record *executionRecord) *r1sv1.ExecutionState {
 		OccurredAt:  timestamppb.New(record.occurredAt),
 		Detail:      record.detail,
 		ExitCode:    cloneInt32(record.exitCode),
+		Revision:    record.revision,
 	}
 }
 

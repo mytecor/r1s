@@ -126,6 +126,7 @@ func TestTwoAllocatorWorkflowAndRetainedTerminalState(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtimes := map[string]*testRuntime{"allocator-a": {}, "allocator-b": {}}
+	cores := make(map[string]*allocator.Allocator)
 	for index, name := range []string{"allocator-a", "allocator-b"} {
 		name := name
 		var endpoint *transport.MemoryEndpoint
@@ -136,6 +137,7 @@ func TestTwoAllocatorWorkflowAndRetainedTerminalState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		cores[name] = allocatorCore
 		endpoint, err = network.Register(name, func(ctx context.Context, envelope *r1sv1.Envelope) error {
 			responses, handleErr := allocatorCore.Handle(ctx, envelope)
 			for _, response := range responses {
@@ -166,6 +168,15 @@ func TestTwoAllocatorWorkflowAndRetainedTerminalState(t *testing.T) {
 	}
 	if destination != "allocator-b" {
 		t.Fatalf("selected %q, want allocator-b", destination)
+	}
+	// Deliver loser cleanup before assignment to prove ordering cannot free the winner.
+	for _, release := range clientCore.PendingReleases() {
+		if err := clientEndpoint.Send(context.Background(), release.Destination, release.Envelope); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if cores["allocator-a"].Available("default") != 1 || cores["allocator-b"].Available("default") != 0 || len(clientCore.PendingReleases()) != 0 {
+		t.Fatal("release did not immediately return only losing capacity")
 	}
 	if err := clientEndpoint.Send(context.Background(), destination, assignment); err != nil {
 		t.Fatal(err)
@@ -238,7 +249,9 @@ func sequenceIDs(values ...string) func() string {
 		mu.Lock()
 		defer mu.Unlock()
 		if index >= len(values) {
-			return fmt.Sprintf("generated-%d", index)
+			value := fmt.Sprintf("generated-%d", index)
+			index++
+			return value
 		}
 		value := values[index]
 		index++
