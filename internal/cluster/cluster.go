@@ -12,16 +12,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
 const (
-	KeySize       = 32
-	tokenPrefix   = "r1s1:"
-	stateVersion  = 1
-	idDomain      = "r1s-cluster-id-v1"
-	ClientRelPath = ".config/r1s/cluster"
+	KeySize        = 32
+	tokenPrefix    = "r1s1:"
+	stateVersion   = 1
+	idDomain       = "r1s-cluster-id-v1"
+	DefaultRelPath = ".config/r1s/cluster"
 )
 
 var (
@@ -71,6 +70,28 @@ func ParseToken(value string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: expected a base64url-encoded %d-byte key", ErrInvalidToken, KeySize)
 	}
 	return key, nil
+}
+
+// LoadSource loads cluster membership from an inline join token or a state
+// file path. It first tries the value as a file; only a missing file falls
+// back to token parsing. Inline tokens are not persisted.
+func LoadSource(value string) ([]byte, error) {
+	key, err := Load(value)
+	if err == nil {
+		return key, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return ParseToken(value)
+}
+
+// SourceLabel returns a non-secret description suitable for diagnostics.
+func SourceLabel(value string) string {
+	if _, err := os.Stat(value); errors.Is(err, os.ErrNotExist) {
+		return "inline join token"
+	}
+	return value
 }
 
 func Load(path string) ([]byte, error) {
@@ -143,17 +164,12 @@ func SaveNew(path string, key []byte) error {
 	return nil
 }
 
-func DefaultClientPath() (string, error) {
+// DefaultPath returns the per-user cluster membership path shared by both
+// clients and allocators.
+func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home directory: %w", err)
 	}
-	return filepath.Join(home, ClientRelPath), nil
-}
-
-func DefaultAllocatorPath() string {
-	if runtime.GOOS == "windows" {
-		return filepath.Join(os.Getenv("ProgramData"), "r1s", "cluster")
-	}
-	return "/var/lib/r1s/cluster"
+	return filepath.Join(home, DefaultRelPath), nil
 }

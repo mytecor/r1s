@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -40,8 +38,10 @@ var (
 
 // Config defines one embedded Reticulum endpoint.
 type Config struct {
-	Reticulum    *common.ReticulumConfig
-	IdentityPath string
+	Reticulum *common.ReticulumConfig
+	// IdentitySource is an existing or new identity file path, or a private
+	// RNS identity encoded in hex, Base32, or URL-safe Base64.
+	IdentitySource string
 	// ClusterKey is the shared 256-bit membership secret. It is used only for
 	// local ID derivation and link challenge-response, and is never announced.
 	ClusterKey []byte
@@ -66,7 +66,7 @@ type Service struct {
 	Hops        uint8
 }
 
-// Endpoint is one persistent RNS identity, destination, and set of authenticated links.
+// Endpoint is one RNS identity, destination, and set of authenticated links.
 type Endpoint struct {
 	mu          sync.Mutex
 	stack       *stack
@@ -115,8 +115,8 @@ var _ coretransport.Endpoint = (*Endpoint)(nil)
 
 // New constructs an endpoint without starting network interfaces.
 func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
-	if config.Reticulum == nil || strings.TrimSpace(config.IdentityPath) == "" || handler == nil {
-		return nil, fmt.Errorf("%w: Reticulum config, identity path, and handler are required", ErrInvalidConfig)
+	if config.Reticulum == nil || strings.TrimSpace(config.IdentitySource) == "" || handler == nil {
+		return nil, fmt.Errorf("%w: Reticulum config, identity source, and handler are required", ErrInvalidConfig)
 	}
 	clusterID, err := cluster.ID(config.ClusterKey)
 	if err != nil {
@@ -152,7 +152,7 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 		return nil, fmt.Errorf("%w: network wait must be positive", ErrInvalidConfig)
 	}
 
-	localIdentity, err := loadOrCreateIdentity(config.IdentityPath)
+	localIdentity, err := loadOrCreateIdentity(config.IdentitySource)
 	if err != nil {
 		return nil, fmt.Errorf("load identity: %w", err)
 	}
@@ -622,25 +622,4 @@ func parseDestination(value string) ([]byte, string, error) {
 
 func boundedContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(parent, timeout)
-}
-
-func loadOrCreateIdentity(path string) (*identity.Identity, error) {
-	loaded, err := identity.FromFile(path)
-	if err == nil {
-		return loaded, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	created, err := identity.New()
-	if err != nil {
-		return nil, err
-	}
-	if err := created.ToFile(path); err != nil {
-		return nil, err
-	}
-	return created, nil
 }

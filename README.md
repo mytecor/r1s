@@ -1,104 +1,48 @@
-# r1s
+<div align="center">
+  <img src="./assets/logo.svg" alt="r1s logo" height="96">
 
-r1s is a decentralized OCI workload execution fabric over the Reticulum Network Stack (RNS). The
-`r1s` process is a client of independent `r1sd` allocators: it publishes workload demand, collects
-their offers, and selects one execution directly. There is no cluster-wide API server, scheduler,
-registry, or global state.
+  [![Release](https://img.shields.io/github/v/release/mytecor/r1s?sort=semver&style=for-the-badge&label=Release&color=151515)](https://github.com/mytecor/r1s/releases/tag/v0.1.1)[![CI](https://img.shields.io/github/actions/workflow/status/mytecor/r1s/ci.yml?branch=main&style=for-the-badge&label=CI&color=151515)](https://github.com/mytecor/r1s/actions/workflows/ci.yml)![Go](https://img.shields.io/badge/Go-1.26.5-151515?logo=go&style=for-the-badge)![containerd](https://img.shields.io/badge/containerd-151515?logo=containerd&style=for-the-badge)![Protobuf](https://img.shields.io/badge/Protobuf-151515?logo=protobuf&style=for-the-badge)
 
-The name follows the same contraction pattern as Kubernetes → k8s: Reticulum Network Stack → r1s.
+  **r1s** *("ris", Scandinavian for "rice")* is a decentralized OCI workload execution fabric over the Reticulum Network Stack (RNS).
+</div>
 
-## Status
+## How it works
 
-r1s has completed its transport-independent protocol foundation, RNS transport, OCI runtime,
-initial client workflow, partition-recovery acceptance, and shared-secret cluster membership. The embedded
-Reticulum-Go adapter, authenticated sender replacement, allocator announces, and `r1sd` entry point
-are covered by a two-node loopback test. Python-reference discovery and reliable Channel envelope
-delivery (including recovery from injected packet loss) are proven by a gated live harness. OCI
-runtime lifecycle and restart reconciliation are covered by deterministic tests and a live
-containerd harness. The `r1s` client durably creates requests, selects offers, returns immediately
-after assignment, inspects state after restart, cancels executions, and reads retained terminal
-metadata. Linux lifecycle, recovery, cancellation, two-allocator client acceptance, and complete
-partition recovery were run on `mytecor-homelab` on 2026-09-14. The F6 offer-release partition
-recovery rerun, F7 Python-reference interop, and F9 log-retention-across-restart were re-verified
-on `mytecor-homelab` on 2026-09-15.
+The `r1s` client publishes workload demand, collects offers from independent `r1sd` allocators, and
+selects where to run each workload. There is no global API server, scheduler, registry, or shared
+state.
 
-## Design principles
+1. A client broadcasts an execution request.
+2. Allocators with available capacity return time-limited offers.
+3. The client selects one offer and releases the others.
+4. The selected allocator starts the OCI workload and reports its state.
 
-- **RNS-native:** discovery uses announces and control messages use authenticated RNS links.
-- **No global control plane:** each client controls its tasks; each allocator controls local capacity.
-- **Asynchronous protocol:** Protobuf messages are carried over RNS without imposing HTTP/2 or RPC
-  semantics on the network.
-- **OCI workloads:** the core describes generic images, commands, environment, and execution policy.
-- **Partition tolerant:** a client disconnect is not a lifecycle event. Assigned work continues until
-  completion, explicit cancellation, deadline, or maximum runtime.
-- **Replaceable adapters:** network and runtime implementations sit behind small Go interfaces.
-- **Closed cluster boundary:** discovery exposes only a public cluster ID, while every RNS link must
-  prove possession of the secret join token before carrying control messages.
+Workloads continue through client disconnects and allocator restarts. Every RNS link authenticates
+the peer identity and proves possession of the cluster key before carrying control messages.
+Container logs remain local to the allocator and are transferred only after an explicit,
+authenticated `logs` request.
 
-## Control flow
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant RNS as RNS fabric
-    participant Allocator
-    participant Runtime as OCI runtime
-
-    Client->>RNS: ExecutionRequest
-    RNS->>Allocator: ExecutionRequest
-    Allocator->>Allocator: Reserve capacity
-    Allocator->>RNS: ExecutionOffer
-    RNS->>Client: ExecutionOffer
-    Client->>RNS: ExecutionAssign
-    RNS->>Allocator: ExecutionAssign
-    Allocator->>Runtime: Start workload
-    Runtime-->>Allocator: Started
-    Allocator->>RNS: ExecutionState
-    RNS->>Client: ExecutionState
-```
-
-An offer reserves a bounded local slot. Workload start happens only after the client selects that
-offer, avoiding speculative image pulls on every allocator that sees a request.
-
-Selection durably records release commands for all known losing offers. The client sends them in
-the background and also releases late offers received while it remains connected. Every network
-command retries unacknowledged, unexpired releases using their original message IDs. CLI shutdown
-allows up to two seconds for release acknowledgements and reports remaining releases on stderr;
-allocator expiry remains the fallback. Releasing an assigned offer never cancels its execution.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for protocol, authority, lifecycle, persistence, and adapter
+boundaries.
 
 ## Install
 
-Download the archive for your platform from the [releases page](https://github.com/mytecor/r1s/releases)
-and put the binaries on `PATH`. Builds cover Linux, macOS, and Windows on `amd64` and `arm64`, and
-every release archive carries both `r1sd` and `r1s` and a copy of this `README.md`. The binaries are
-unsigned, so a macOS download through a browser needs `xattr -d com.apple.quarantine` before the first
-run.
-
-The `r1sd` daemon and the `r1s` client can be installed independently or together into a directory on
-`PATH`:
+Download an archive for Linux, macOS, or Windows from the
+[releases page](https://github.com/mytecor/r1s/releases).
+Copy binaries to a directory on `PATH`:
 
 ```sh
 mkdir -p "$HOME/.local/bin"
-cp r1sd r1s "$HOME/.local/bin/"
-# macOS only: remove the quarantine attribute from browser downloads first
-xattr -d com.apple.quarantine "$HOME/.local/bin/r1sd" "$HOME/.local/bin/r1s"
+cp r1s r1sd "$HOME/.local/bin/"
 ```
 
-`r1sd --version` and `r1s --version` report the release version; source builds report `dev`. Every
-release publishes a `SHA256SUMS` file covering all of its archives; verify a download against it
-before use:
+Release binaries are unsigned. On macOS, remove the quarantine attribute from browser downloads:
 
 ```sh
-sha256sum -c SHA256SUMS
+xattr -d com.apple.quarantine "$HOME/.local/bin/r1s" "$HOME/.local/bin/r1sd"
 ```
 
-The binaries expect a reachable containerd daemon and a Reticulum-Go configuration; see the
-[Development](#development) section for how to run them.
-
-### Build from source
-
-Needs Go 1.26.5+. The module pins its Reticulum-Go dependency with `replace` directives, which
-`go install <module>@latest` rejects, so clone first:
+## Build from source
 
 ```sh
 git clone https://github.com/mytecor/r1s
@@ -106,227 +50,87 @@ cd r1s
 GOBIN="$HOME/.local/bin" go install ./cmd/r1s ./cmd/r1sd
 ```
 
-## Cluster bootstrap
+`r1sd` requires a reachable containerd daemon, but does not require root itself. Run it as any user
+that can access the containerd socket and write its configured identity, state, and log paths. Both
+binaries require a Reticulum-Go configuration.
 
-Create a cluster on either kind of participant. The command stores a random 256-bit key locally and
-prints its public ID plus the secret join token exactly once:
+`--identity` accepts an existing or new identity file path, or a private RNS identity in the same
+formats as Reticulum-Go's identity importer: 128-character hex, Base32, or Base64. Existing files take
+priority. An inline identity is not persisted; its default state and log paths are placed under
+`~/.config/r1s` and named with the public identity hash. Use `--state` and the allocator's `--logs`
+flag to override them.
+
+## Quick start
+
+Create the cluster once on the first participant. Either binary can create it; this example uses a
+client:
 
 ```sh
 r1s cluster init
-# Cluster ID: <public SHA-256 identifier>
+# Cluster ID: <public identifier>
 # Join token: r1s1:<secret>
 ```
 
-Give only the join token to trusted participants:
+If an allocator is the first participant instead, run `r1sd cluster init`. Save the join token:
+`init` prints it only once. Do not run `init` independently on other participants, because that
+creates a different cluster.
+
+Join every additional client with the same token to persist membership:
 
 ```sh
 r1s cluster join 'r1s1:<secret>'
-sudo r1sd cluster join 'r1s1:<secret>'
 ```
 
-`r1s` defaults to `~/.config/r1s/cluster`; `r1sd` defaults to `/var/lib/r1s/cluster`. Use the global
-`--cluster <path>` flag before `cluster` or another command to select a different state file. The
-non-secret `cluster show` command prints the derived cluster ID and state path, never the token.
-Rejoining the same token is idempotent; an existing different membership is not overwritten.
-
-Allocator announces contain only the public cluster ID. A client ignores another cluster's
-announces, and a direct connection still cannot carry requests until both RNS identities complete a
-mutual HMAC challenge-response with the cluster key. The shared token grants baseline membership;
-an allocator can further restrict member identities and quotas with its local admission policy.
-
-For a source-tree development pair, create the two files used by the examples below:
+Join every allocator that did not create the cluster to persist membership, then start it:
 
 ```sh
-go run ./cmd/r1s --cluster ./client.cluster cluster init
-go run ./cmd/r1sd --cluster ./r1sd.cluster cluster join 'r1s1:<token printed above>'
+r1sd cluster join 'r1s1:<secret>'
+r1sd \
+  --rns-config /etc/r1s/reticulum.conf \
+  --identity /var/lib/r1s/identity \
+  --capacity default=2
 ```
 
-## Development
-
-System binaries follow the standard Go command layout. [`cmd/r1sd/`](./cmd/r1sd/) contains the
-allocator daemon and [`cmd/r1s/`](./cmd/r1s/) contains the client CLI.
-
-The initial allocator daemon can be run with an explicit Reticulum-Go configuration and persistent
-identity:
+Both binaries store membership in `~/.config/r1s/cluster` by default, resolved for the OS account
+running the process. For workload commands and `r1sd`, the global `--cluster` flag accepts either
+an inline join token or a state file path. The value is first loaded as a file; if that file does
+not exist, the same value is parsed as a join token:
 
 ```sh
-go run ./cmd/r1sd \
-  --rns-config ./reticulum.conf \
-  --identity ./r1sd.identity \
-  --cluster ./r1sd.cluster \
-  --capacity default=2,gpu=1 \
-  --state ./r1sd.state.db \
-  --containerd-address /run/containerd/containerd.sock \
-  --containerd-namespace r1s
+r1sd --cluster 'r1s1:<secret>' \
+  --rns-config /etc/r1s/reticulum.conf \
+  --identity '<private RNS identity hex, Base32, Base64, or path>'
+
+r1s --cluster /custom/path/to/cluster \
+  --rns-config "$HOME/.config/r1s/reticulum.conf" \
+  --identity "$HOME/.config/r1s/identity" \
+  list
 ```
 
-The daemon embeds Reticulum-Go; it does not require a separate Reticulum daemon. It does require a
-reachable containerd daemon, and accepted OCI image references must be pinned by digest. The
-`--containerd-snapshotter` flag selects a non-default snapshotter when needed. A UDP test pair can
-use `listen_ip`, `listen_port`, `target_host`, and `target_port` in two Reticulum configuration files
-with the listen and target ports swapped. `r1sd` runs as an endpoint, not an RNS routing transport,
-and keeps Reticulum transport state beside the configured service identity.
+An inline token is not written to disk and must be supplied on every invocation. With
+`cluster init`, `cluster join`, and `cluster show`, `--cluster` remains the destination state file
+path.
 
-Regenerate Go bindings after changing the Protobuf schema:
+The shared token establishes cluster membership; every participant still needs an RNS
+configuration that can reach the others. An allocator using an admission allowlist must also
+include each permitted client's RNS identity.
+
+Submit a digest-pinned OCI image. Allocators are discovered through RNS announces:
 
 ```sh
-make generate
-```
-
-Generation requires `protoc` 36.0; the exact `protoc-gen-go` version is pinned in the
-[Makefile](./Makefile) and installed automatically.
-
-Run generated-code verification, race-enabled Go tests, and documentation link checks:
-
-```sh
-make check
-```
-
-Go 1.26.5 is recorded in [go.mod](./go.mod) as the language baseline.
-
-Live interoperability against the upstream Python RNS reference is gated behind `RUN_LIVE_INTEROP=1`
-and requires an interpreter that can import the `RNS` module (a pipx `rns` venv is auto-detected,
-or point `PYTHON_INTEROP` at one). It spawns the reference peer and asserts that the Go endpoint
-finds its r1s descriptor:
-
-```sh
-RUN_LIVE_INTEROP=1 go test ./internal/transport/rns/ -run TestPythonReference -v
-```
-
-Without the flag those tests skip, so `make check` stays green.
-
-Live containerd lifecycle and restart-recovery acceptance are gated and require Linux, a reachable
-containerd daemon, and a fixture image reference pinned by digest:
-
-```sh
-RUN_CONTAINERD_INTEGRATION=1 \
-R1S_CONTAINERD_TEST_IMAGE='registry.example/image@sha256:...' \
-go test ./internal/runtime/containerd/ -run 'TestContainerdFixture(Lifecycle|Recovery)' -v
-```
-
-Set `CONTAINERD_ADDRESS` when the daemon does not use `/run/containerd/containerd.sock`. Without the
-gate, this test skips and remains compatible with ordinary `make check` runs.
-
-The F5 acceptance harness builds and restarts a real `r1sd`, disconnects and restores a durable
-client, exchanges duplicate control messages over a loopback RNS Channel, and observes the real
-containerd task through completion and cancellation:
-
-```sh
-RUN_PARTITION_RECOVERY=1 \
-R1S_CONTAINERD_TEST_IMAGE='registry.example/image@sha256:...' \
-go test ./internal/acceptance/ -run TestPartitionRecovery -v
-```
-
-It requires Linux and the same `CONTAINERD_ADDRESS` and optional `CONTAINERD_SNAPSHOTTER` settings
-as the runtime harness. Without the gate, it skips during ordinary verification.
-
-`TestPartitionRecovery` passed on `mytecor-homelab` on 2026-09-14 using Go 1.26.7, containerd
-2.3.4, runc 1.4.3, and a digest-pinned Alpine fixture.
-
-Allocator state is stored in a transactional bbolt database. `--state` selects its path and defaults
-to `<identity>.state.db`. The database is bound to the authenticated allocator identity; `r1sd`
-refuses to load it under another identity.
-
-The `r1s` client uses its own persistent identity and state database. Global flags precede the
-subcommand, and `--...` is the canonical flag spelling. `request` accepts a Protobuf JSON
-`ExecutionRequest` directly as its only positional argument; `requestId` must be omitted because
-the client generates and persists it.
-
-The JSON shape is:
-
-```json
-{
-  "workload": {
-    "image": "registry.example/image@sha256:...",
-    "command": ["/bin/sh", "-c"],
-    "args": ["echo hello"],
-    "environment": {"MODE": "production"},
-    "workingDirectory": "/work"
-  },
-  "policy": {
-    "maxRuntime": "600s",
-    "resultRetention": "86400s"
-  },
-  "resourceClass": "default"
-}
-```
-
-Durations use the standard Protobuf JSON format. A request may target allocator destination hashes
-printed by `r1sd`, or omit `--allocator` and collect allocator announces during `--offer-wait`:
-
-```sh
-go run ./cmd/r1s \
-  --rns-config ./client-reticulum.conf \
-  --identity ./client.identity \
-  --cluster ./client.cluster \
+r1s \
+  --rns-config "$HOME/.config/r1s/reticulum.conf" \
+  --identity "$HOME/.config/r1s/identity" \
   request \
-  --allocator '<allocator-destination-hash>' \
   '{"workload":{"image":"registry.example/image@sha256:..."},"policy":{"maxRuntime":"600s","resultRetention":"86400s"},"resourceClass":"default"}'
 ```
 
-Quote the JSON as one shell argument. Request-specific flags must precede that JSON argument.
-After the assignment is queued to the selected allocator, `request` returns immediately with the
-durable request and execution IDs. Use `inspect` or `result` when execution state is actually needed.
-
-Subsequent commands use the durable execution ID:
-
-```sh
-go run ./cmd/r1s --rns-config ./client-reticulum.conf --identity ./client.identity list
-go run ./cmd/r1s --rns-config ./client-reticulum.conf --identity ./client.identity inspect <execution-id>
-go run ./cmd/r1s --rns-config ./client-reticulum.conf --identity ./client.identity cancel <execution-id>
-go run ./cmd/r1s --rns-config ./client-reticulum.conf --identity ./client.identity result <execution-id>
-```
-
-`result` currently returns retained terminal phase, detail, and exit code. Container logs must stay
-local to the allocator and be transferred only after a separate explicit, authenticated log
-request. Completion or failure never triggers automatic log delivery; neither do `inspect`,
-`result`, or reconnection. Local stdout/stderr retention and on-demand retrieval are planned in
-[F9](./roadmap/f9-local-logs/README.md); the current runtime discards stdout/stderr.
-
-## Building and releasing
-
-`ci.yml` checks `gofmt`, runs `go vet` and `make check` (generated bindings, race-enabled tests,
-and local documentation links), and cross-compiles every released platform on each push to `main`
-and each pull request. CI installs protoc 36.0 and lychee 0.24.2 from checksum-pinned archives.
-
-`release.yml` never starts on its own — no push, tag, or schedule trigger, only a manual run from the
-Actions tab or the CLI:
-
-```sh
-gh workflow run release.yml -f bump=patch
-```
-
-**Neither the version nor the tag is written by hand.** The run raises the highest existing `vX.Y.Z`
-tag by `bump` (`patch`, `minor`, `major`), starting at `v0.1.0` in a repository with no tags, and
-prints the result in the log and run summary before anything is published. Pre-release tags never seed
-a bump, so release candidates and jumps need an explicit version, which overrides the bump:
-
-```sh
-gh workflow run release.yml -f version=v1.0.0-rc.1
-```
-
-The run tests, builds, and only then tags the checked-out commit and publishes a release with generated
-notes, every archive, and `SHA256SUMS` — so a failed build leaves no tag behind. An explicit version
-that is not `vX.Y.Z` (an optional `-rc.1` suffix is fine), or one whose tag exists, fails before
-anything is built. Add `-f dry_run=true` to build the archives as a workflow artifact without tagging
-or publishing.
-
-Both workflows call `scripts/build-release.sh`, which also runs locally and writes to `dist/`:
-
-```sh
-scripts/build-release.sh v0.1.0
-```
-
-The version is stamped into both binaries through `-ldflags -X main.version=...` and reported by
-`r1sd --version` and `r1s --version`; with no argument the script falls back to `git describe`.
+The command returns durable request and execution IDs after assignment. Use the execution ID with
+`inspect`, `cancel`, `result`, or `logs`; use `list` to show saved requests. Run `r1s --help` or a
+subcommand with `--help` for all options.
 
 ## Documentation
 
-- [AGENTS.md](./AGENTS.md) — repository rules for automated contributors.
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — component boundaries, authority, and lifecycle.
-- [ROADMAP.md](./ROADMAP.md) — the roadmap: milestones, features, tasks, and open decisions.
+- [ROADMAP.md](./ROADMAP.md) — features, current status, and open work.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — development and verification workflow.
-
-## License
-
-r1s is available under the [MIT License](./LICENSE).

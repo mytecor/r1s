@@ -46,7 +46,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	flags := newFlagSet("r1sd", stderr)
 	showVersion := flags.Bool("version", false, "print the version and exit")
 	configPath := flags.String("rns-config", "", "path to a Reticulum-Go configuration file")
-	identityPath := flags.String("identity", "", "path to the persistent r1sd identity")
+	identitySource := flags.String("identity", "", "private RNS identity (hex, Base32, Base64) or file path")
 	capacityValue := flags.String("capacity", "default=1", "comma-separated resource capacities, for example default=2,gpu=1")
 	announceInterval := flags.Duration("announce-interval", 5*time.Minute, "service announce refresh interval")
 	containerdAddress := flags.String("containerd-address", runtimecontainerd.DefaultAddress, "path to the containerd socket")
@@ -57,8 +57,8 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	logBudget := flags.Int64("log-budget", 2<<30, "maximum reserved local log data bytes")
 	maxRecords := flags.Int("max-records", allocator.DefaultMaxRecords, "maximum durable offer/execution/tombstone budget")
 	admissionPath := flags.String("admission-policy", "", "local resource profiles, allowed identities, and quotas JSON")
-	statePath := flags.String("state", "", "allocator state database (defaults beside the identity)")
-	clusterPath := flags.String("cluster", "", "cluster state file (defaults to /var/lib/r1s/cluster)")
+	statePath := flags.String("state", "", "allocator state database (defaults beside the identity file or under ~/.config/r1s)")
+	clusterSource := flags.String("cluster", "", "cluster join token or state file (defaults to ~/.config/r1s/cluster)")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -70,9 +70,13 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		if flags.Arg(0) != "cluster" {
 			return fmt.Errorf("unknown command %q: expected cluster", flags.Arg(0))
 		}
-		return cluster.RunCommand(flags.Args()[1:], allocatorClusterPath(*clusterPath), stdout, stderr)
+		resolvedClusterPath, err := allocatorClusterSource(*clusterSource)
+		if err != nil {
+			return err
+		}
+		return cluster.RunCommand(flags.Args()[1:], resolvedClusterPath, stdout, stderr)
 	}
-	if strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identityPath) == "" {
+	if strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identitySource) == "" {
 		return errors.New("--rns-config and --identity are required")
 	}
 	capacity, err := parseCapacity(*capacityValue)
@@ -92,17 +96,24 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	if err != nil {
 		return fmt.Errorf("admission policy: %w", err)
 	}
-	resolvedClusterPath := allocatorClusterPath(*clusterPath)
-	clusterKey, err := cluster.Load(resolvedClusterPath)
+	resolvedClusterSource, err := allocatorClusterSource(*clusterSource)
 	if err != nil {
-		return fmt.Errorf("load cluster membership from %s (run 'r1sd cluster join <token>'): %w", resolvedClusterPath, err)
+		return err
+	}
+	clusterKey, err := cluster.LoadSource(resolvedClusterSource)
+	if err != nil {
+		return fmt.Errorf("load cluster membership from %s (run 'r1sd cluster init', 'r1sd cluster join <token>', or pass '--cluster r1s1:<secret>'): %w", cluster.SourceLabel(resolvedClusterSource), err)
 	}
 	reticulumConfig, err := reticulumconfig.LoadConfig(*configPath)
 	if err != nil {
 		return fmt.Errorf("load Reticulum config: %w", err)
 	}
 	reticulumConfig.EnableTransport = false
-	reticulumConfig.ConfigPath = filepath.Join(filepath.Dir(*identityPath), "reticulum")
+	identityDirectory, err := identityDataDirectory(*identitySource)
+	if err != nil {
+		return err
+	}
+	reticulumConfig.ConfigPath = filepath.Join(identityDirectory, "reticulum")
 
 	logger := log.New(stderr, "r1sd: ", log.LstdFlags|log.Lmsgprefix)
 	var endpoint *rns.Endpoint
@@ -125,7 +136,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	}
 	endpoint, err = rns.New(rns.Config{
 		Reticulum:        reticulumConfig,
-		IdentityPath:     *identityPath,
+		IdentitySource:   *identitySource,
 		ClusterKey:       clusterKey,
 		Capacity:         capacity,
 		AnnounceInterval: *announceInterval,
@@ -139,7 +150,11 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return fmt.Errorf("decode local identity: %w", err)
 	}
 	if strings.TrimSpace(*statePath) == "" {
-		*statePath = *identityPath + ".state.db"
+		if rns.IsInlineIdentitySource(*identitySource) {
+			*statePath = filepath.Join(identityDirectory, endpoint.Name()+".state.db")
+		} else {
+			*statePath = *identitySource + ".state.db"
+		}
 	}
 	stateStore, err := statebolt.Open(*statePath)
 	if err != nil {
@@ -197,11 +212,22 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	}
 }
 
-func allocatorClusterPath(value string) string {
+func allocatorClusterSource(value string) (string, error) {
 	if strings.TrimSpace(value) != "" {
-		return value
+		return value, nil
 	}
-	return cluster.DefaultAllocatorPath()
+	return cluster.DefaultPath()
+}
+
+func identityDataDirectory(source string) (string, error) {
+	if !rns.IsInlineIdentitySource(source) {
+		return filepath.Dir(source), nil
+	}
+	defaultClusterPath, err := cluster.DefaultPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(defaultClusterPath), nil
 }
 
 func parseCapacity(value string) (map[string]uint32, error) {

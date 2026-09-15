@@ -199,7 +199,7 @@ func newAcceptanceClient(t *testing.T, listenPort, targetPort int, identityPath,
 
 	result := &acceptanceClient{}
 	endpoint, err := rns.New(rns.Config{
-		Reticulum: configuration, IdentityPath: identityPath, ClusterKey: acceptanceClusterKey, NetworkWait: 15 * time.Second,
+		Reticulum: configuration, IdentitySource: identityPath, ClusterKey: acceptanceClusterKey, NetworkWait: 15 * time.Second,
 	}, func(handlerContext context.Context, envelope *r1sv1.Envelope) error {
 		identityKey := hex.EncodeToString(envelope.GetSender())
 		if destination, ok := result.endpoint.DestinationForIdentity(identityKey); ok {

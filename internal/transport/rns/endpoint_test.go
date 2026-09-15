@@ -256,11 +256,11 @@ func newTestEndpointWithCluster(t *testing.T, storage string, listenPort, target
 		},
 	}
 	endpoint, err := New(Config{
-		Reticulum:    config,
-		IdentityPath: filepath.Join(storage, "r1sd.identity"),
-		ClusterKey:   key,
-		Capacity:     capacity,
-		NetworkWait:  8 * time.Second,
+		Reticulum:      config,
+		IdentitySource: filepath.Join(storage, "r1sd.identity"),
+		ClusterKey:     key,
+		Capacity:       capacity,
+		NetworkWait:    8 * time.Second,
 	}, handler)
 	if err != nil {
 		t.Fatal(err)

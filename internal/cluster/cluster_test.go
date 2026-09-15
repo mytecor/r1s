@@ -57,6 +57,76 @@ func TestGenerateProducesKeySizedRandomMaterial(t *testing.T) {
 	}
 }
 
+func TestDefaultPathUsesCurrentUserConfigDirectory(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(home, DefaultRelPath)
+	if path != want {
+		t.Fatalf("DefaultPath() = %q, want %q", path, want)
+	}
+}
+
+func TestLoadSourceAcceptsInlineTokenOrStateFile(t *testing.T) {
+	key := bytes.Repeat([]byte{0x24}, KeySize)
+	token, err := Token(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inline, err := LoadSource(token)
+	if err != nil || !bytes.Equal(inline, key) {
+		t.Fatalf("LoadSource(token) = %x, %v", inline, err)
+	}
+	if SourceLabel(token) != "inline join token" {
+		t.Fatal("inline token was exposed in its label")
+	}
+
+	path := filepath.Join(t.TempDir(), "cluster")
+	if err := SaveNew(path, key); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := LoadSource(path)
+	if err != nil || !bytes.Equal(stored, key) {
+		t.Fatalf("LoadSource(path) = %x, %v", stored, err)
+	}
+	if SourceLabel(path) != path {
+		t.Fatal("state file path was classified as inline")
+	}
+
+	if _, err := LoadSource("r1s1:not-base64"); !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("token-shaped source error = %v, want ErrInvalidToken", err)
+	}
+}
+
+func TestLoadSourcePrefersExistingFileOverInlineToken(t *testing.T) {
+	inlineKey := bytes.Repeat([]byte{0x31}, KeySize)
+	tokenShapedPath, err := Token(inlineKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedKey := bytes.Repeat([]byte{0x32}, KeySize)
+	t.Chdir(t.TempDir())
+	if err := SaveNew(tokenShapedPath, storedKey); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadSource(tokenShapedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(loaded, storedKey) || bytes.Equal(loaded, inlineKey) {
+		t.Fatalf("LoadSource() = %x, want stored file key %x", loaded, storedKey)
+	}
+	if SourceLabel(tokenShapedPath) != tokenShapedPath {
+		t.Fatal("existing token-shaped file was classified as inline")
+	}
+}
+
 func TestStateCannotBeSilentlyReplaced(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cluster")
 	first := bytes.Repeat([]byte{1}, KeySize)

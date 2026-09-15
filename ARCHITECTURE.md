@@ -89,11 +89,15 @@ capacity or report local runtime state.
 The RNS adapter must populate `Envelope.sender` from the authenticated link identity. A remote peer
 must not be allowed to assert an arbitrary sender by serializing different bytes in the envelope.
 
-Cluster membership is a separate transport-boundary authorization step. A participant stores a
-random 256-bit `ClusterKey` locally and derives the public identifier as
-`SHA-256("r1s-cluster-id-v1" || ClusterKey)`. Allocators publish only that `ClusterID` in announce
-app data, and clients ignore descriptors for other cluster IDs. The key and join token are never
-announced or placed in protobuf envelopes.
+Cluster membership is a separate transport-boundary authorization step. A participant loads a
+random 256-bit `ClusterKey` from a local state file or an inline join token and derives the public
+identifier as `SHA-256("r1s-cluster-id-v1" || ClusterKey)`. Allocators publish only that `ClusterID`
+in announce app data, and clients ignore descriptors for other cluster IDs. The key and join token
+are never announced or placed in protobuf envelopes.
+
+For an explicit `--cluster` source, the value is first loaded as a file. Only a missing file falls
+back to parsing the same value as an inline join token. Cluster management commands always treat
+`--cluster` as their state file path.
 
 After an RNS Link authenticates the peer identities, both sides exchange fresh nonces and prove
 knowledge of the cluster key with
@@ -116,6 +120,26 @@ The initial exchange is:
 3. The client sends `ExecutionAssign` to exactly one allocator.
 4. The allocator starts the workload and publishes `ExecutionState` changes.
 5. The client may send `ExecutionCancel`; the allocator verifies the authenticated sender.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant RNS as RNS fabric
+    participant Allocator
+    participant Runtime as OCI runtime
+
+    Client->>RNS: ExecutionRequest
+    RNS->>Allocator: ExecutionRequest
+    Allocator->>Allocator: Reserve capacity
+    Allocator->>RNS: ExecutionOffer
+    RNS->>Client: ExecutionOffer
+    Client->>RNS: ExecutionAssign
+    RNS->>Allocator: ExecutionAssign
+    Allocator->>Runtime: Start workload
+    Runtime-->>Allocator: Started
+    Allocator->>RNS: ExecutionState
+    RNS->>Client: ExecutionState
+```
 
 After either side restarts, the client may send `ExecutionInspect` to the selected allocator. The
 allocator verifies the authenticated client and returns its latest durable `ExecutionState`. This
@@ -173,6 +197,11 @@ Allocator descriptors also carry the public cluster ID. Foreign-cluster descript
 and direct links still require mutual cluster-key proof before their Channels can carry protobuf
 control envelopes.
 
+An endpoint identity may come from an existing or newly created 64-byte RNS identity file, or from
+private identity bytes encoded as hex, Base32, or Base64 and imported through Reticulum-Go's
+`rnsutil.ImportPrivateIdentity`. Existing files take precedence. Inline identity material is used
+without being written to disk and is never included in diagnostic labels or derived filenames.
+
 ## Runtime boundary
 
 The runtime interface accepts a stable execution ID and requires idempotent start and stop. The
@@ -202,6 +231,11 @@ observed state are stored in a separate identity-bound bbolt snapshot. Assignmen
 timestamps are durable, so retry after a crash replays the same assignment rather than choosing a
 second allocator. Inspect uses a fresh message ID so allocator replay caching cannot return an old
 state.
+
+When an identity comes from a file, the default state database remains beside that file. When it is
+provided inline, the default state and allocator log paths live under `~/.config/r1s` and use the
+public identity hash rather than private identity material. Explicit `--state` and `--logs` paths
+override those defaults.
 
 The gated end-to-end recovery harness runs `r1sd` as a separate process over a loopback RNS UDP
 pair. It disconnects the client, restarts the allocator while the labelled containerd task remains

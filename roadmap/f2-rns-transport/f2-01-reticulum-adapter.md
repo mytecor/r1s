@@ -21,8 +21,9 @@ and add the allocator service entry point under `cmd/r1sd/`.
 - Link identification supplies sender authority; serialized `Envelope.sender` bytes are replaced
   before validation or allocator dispatch.
 - Path and link establishment use callbacks plus context-bounded waits.
-- [`cmd/r1sd`](../../cmd/r1sd/) loads an explicit Reticulum configuration and persistent service
-  identity, wires allocator responses, and shuts down on process cancellation.
+- [`cmd/r1sd`](../../cmd/r1sd/) loads an explicit Reticulum configuration and a service identity
+  from an existing or new file, or through Reticulum-Go's private hex, Base32, or Base64 importer;
+  it wires allocator responses and shuts down on process cancellation.
 - A two-endpoint UDP test covers discovery, authenticated envelope exchange, path expiry, and Link
   re-establishment.
 - Python-reference discovery interoperability: a gated live test

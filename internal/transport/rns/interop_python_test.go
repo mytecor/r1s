@@ -190,12 +190,12 @@ func newGoEndpoint(t *testing.T, pyListen, pyForward int, handler func(context.C
 		handler = func(context.Context, *r1sv1.Envelope) error { return nil }
 	}
 	endpoint, err := New(Config{
-		Reticulum:    &common.ReticulumConfig{},
-		IdentityPath: filepath.Join(t.TempDir(), "r1sd.identity"),
-		ClusterKey:   testClusterKey(),
-		Capacity:     map[string]uint32{"default": 3},
-		NetworkWait:  15 * time.Second,
-		Interfaces:   []interfaces.Interface{dropper},
+		Reticulum:      &common.ReticulumConfig{},
+		IdentitySource: filepath.Join(t.TempDir(), "r1sd.identity"),
+		ClusterKey:     testClusterKey(),
+		Capacity:       map[string]uint32{"default": 3},
+		NetworkWait:    15 * time.Second,
+		Interfaces:     []interfaces.Interface{dropper},
 	}, handler)
 	if err != nil {
 		t.Fatal(err)

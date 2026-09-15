@@ -49,9 +49,9 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	flags := newFlagSet("r1s", stderr)
 	showVersion := flags.Bool("version", false, "print the version and exit")
 	configPath := flags.String("rns-config", "", "path to a Reticulum-Go configuration file")
-	identityPath := flags.String("identity", "", "path to the persistent client identity")
-	statePath := flags.String("state", "", "client state database (defaults beside the identity)")
-	clusterPath := flags.String("cluster", "", "cluster state file (defaults to ~/.config/r1s/cluster)")
+	identitySource := flags.String("identity", "", "private RNS identity (hex, Base32, Base64) or file path")
+	statePath := flags.String("state", "", "client state database (defaults beside the identity file or under ~/.config/r1s)")
+	clusterSource := flags.String("cluster", "", "cluster join token or state file (defaults to ~/.config/r1s/cluster)")
 	networkWait := flags.Duration("network-timeout", 30*time.Second, "RNS path, link, and response timeout")
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -70,7 +70,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	command := commandArguments[0]
 	args := commandArguments[1:]
 	if command == "cluster" {
-		path, err := clientClusterPath(*clusterPath)
+		path, err := clientClusterSource(*clusterSource)
 		if err != nil {
 			return err
 		}
@@ -82,23 +82,27 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	if containsHelp(args) {
 		return dispatch(&application{}, command, args, stderr)
 	}
-	if strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identityPath) == "" {
+	if strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identitySource) == "" {
 		return errors.New("--rns-config and --identity are required")
 	}
-	resolvedClusterPath, err := clientClusterPath(*clusterPath)
+	resolvedClusterSource, err := clientClusterSource(*clusterSource)
 	if err != nil {
 		return err
 	}
-	clusterKey, err := cluster.Load(resolvedClusterPath)
+	clusterKey, err := cluster.LoadSource(resolvedClusterSource)
 	if err != nil {
-		return fmt.Errorf("load cluster membership from %s (run 'r1s cluster init' or 'r1s cluster join <token>'): %w", resolvedClusterPath, err)
+		return fmt.Errorf("load cluster membership from %s (run 'r1s cluster init', 'r1s cluster join <token>', or pass '--cluster r1s1:<secret>'): %w", cluster.SourceLabel(resolvedClusterSource), err)
 	}
 	reticulumConfig, err := reticulumconfig.LoadConfig(*configPath)
 	if err != nil {
 		return fmt.Errorf("load Reticulum config: %w", err)
 	}
 	reticulumConfig.EnableTransport = false
-	reticulumConfig.ConfigPath = filepath.Join(filepath.Dir(*identityPath), "reticulum-client")
+	identityDirectory, err := identityDataDirectory(*identitySource)
+	if err != nil {
+		return err
+	}
+	reticulumConfig.ConfigPath = filepath.Join(identityDirectory, "reticulum-client")
 	events := make(chan *r1sv1.Envelope, 32)
 	var endpoint *rns.Endpoint
 	var clientCore *client.Client
@@ -118,7 +122,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		}
 		return nil
 	}
-	endpoint, err = rns.New(rns.Config{Reticulum: reticulumConfig, IdentityPath: *identityPath, ClusterKey: clusterKey, NetworkWait: *networkWait}, handler)
+	endpoint, err = rns.New(rns.Config{Reticulum: reticulumConfig, IdentitySource: *identitySource, ClusterKey: clusterKey, NetworkWait: *networkWait}, handler)
 	if err != nil {
 		return err
 	}
@@ -128,7 +132,11 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return fmt.Errorf("decode local identity: %w", err)
 	}
 	if strings.TrimSpace(*statePath) == "" {
-		*statePath = *identityPath + ".client.db"
+		if rns.IsInlineIdentitySource(*identitySource) {
+			*statePath = filepath.Join(identityDirectory, endpoint.Name()+".client.db")
+		} else {
+			*statePath = *identitySource + ".client.db"
+		}
 	}
 	store, err := statebolt.Open(*statePath)
 	if err != nil {
@@ -179,11 +187,22 @@ func knownCommand(command string) bool {
 	return command == "logs" || command == "request" || command == "list" || command == "inspect" || command == "cancel" || command == "result"
 }
 
-func clientClusterPath(value string) (string, error) {
+func clientClusterSource(value string) (string, error) {
 	if strings.TrimSpace(value) != "" {
 		return value, nil
 	}
-	return cluster.DefaultClientPath()
+	return cluster.DefaultPath()
+}
+
+func identityDataDirectory(source string) (string, error) {
+	if !rns.IsInlineIdentitySource(source) {
+		return filepath.Dir(source), nil
+	}
+	defaultClusterPath, err := cluster.DefaultPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(defaultClusterPath), nil
 }
 
 func containsHelp(arguments []string) bool {

@@ -10,8 +10,11 @@ control traffic from peers that cannot prove possession of that secret.
 ## Scope
 
 - Add `cluster init`, `cluster join`, and non-secret `cluster show` commands to both binaries.
-- Store one versioned cluster key with owner-only file permissions. Client state defaults to
-  `~/.config/r1s/cluster`; allocator state defaults to `/var/lib/r1s/cluster`.
+- Store one versioned cluster key with owner-only file permissions. Both binaries default to
+  `~/.config/r1s/cluster` for the current OS account and accept a custom path through `--cluster`.
+- Accept an inline `r1s1:<secret>` value through `--cluster` for runtime commands without persisting
+  it; first load the value as a state file, then fall back to token parsing only when the file does
+  not exist. Cluster management commands always treat the option as a state file path.
 - Encode join tokens as `r1s1:<base64url-key>` and derive
   `SHA-256("r1s-cluster-id-v1" || ClusterKey)` as the public cluster ID.
 - Include only the public cluster ID in allocator descriptors and filter foreign descriptors.

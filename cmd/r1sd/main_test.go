@@ -46,3 +46,18 @@ func TestClusterInitDoesNotRequireDaemonFlags(t *testing.T) {
 		t.Fatalf("output = %q", stdout.String())
 	}
 }
+
+func TestInlineClusterTokenErrorIsRedacted(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := run(context.Background(), []string{
+		"--cluster", "r1s1:not-base64",
+		"--rns-config", "unused",
+		"--identity", "unused",
+	}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "inline join token") {
+		t.Fatalf("error = %v, want inline token diagnostic", err)
+	}
+	if strings.Contains(err.Error(), "not-base64") {
+		t.Fatalf("error exposed inline token: %v", err)
+	}
+}
