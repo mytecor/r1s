@@ -2,7 +2,7 @@
 
 Corresponds to the [F7 milestone](../../ROADMAP.md#f7-continuous-verification).
 
-**Status:** 🚧 In progress — CI parity implemented; live regression planned
+**Status:** 🚧 In progress — CI parity (F7-01) complete and green on GitHub Actions (2026-09-15); live Linux regression (F7-02) planned
 
 ## Outcome
 

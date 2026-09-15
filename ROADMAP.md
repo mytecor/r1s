@@ -73,7 +73,7 @@ partition-safe fallback.
 - Every pull request runs the same generated-code, race, and documentation checks as local development.
 - A repeatable Linux job verifies Python RNS interoperability and real containerd partition recovery.
 
-- **Status:** 🚧 in progress; CI parity implemented, first GitHub Actions run pending
+- **Status:** 🚧 in progress; CI parity complete and green on GitHub Actions (2026-09-15), live regression runner pending
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** F1, F2, F3, F5.
 
@@ -130,9 +130,8 @@ partition-safe fallback.
 F12 cluster membership is complete. The F6 live partition-recovery rerun passed on
 `mytecor-homelab` (2026-09-15), and the F9 live
 log-retention-across-restart acceptance (`TestLiveRetainedLogsSurviveRestart`) is now part of the
-partition harness. Dispatch the CI verification in
-[F7](./roadmap/f7-verification/README.md), then finish the remaining live Linux legs F8–F11 still
-need: live duplicate-execution-under-loss confirmation in
+partition harness. F7-01 CI parity is done and green on GitHub Actions (2026-09-15). Finish the
+remaining live Linux legs F8–F11 still need: live duplicate-execution-under-loss confirmation in
 [F8](./roadmap/f8-protocol-feedback/README.md), the live transport-spy zero-log-bytes leg in
 [F9](./roadmap/f9-local-logs/README.md), identity-quota and live resource enforcement in
 [F10](./roadmap/f10-local-admission/README.md), and the storage benchmarks in
