@@ -109,7 +109,7 @@ partition-safe fallback.
 - Finished executions and obsolete offers are collected without allowing old commands to restart work.
 - Persistence remains predictable as execution history grows.
 
-- **Status:** 🚧 in progress; retention and acceptance tests pass; scaling benchmarks pending
+- **Status:** 🚧 in progress; retention and acceptance tests pass; F11-02 storage benchmarks added and measured on 2026-09-15
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** F5, F6, F8.
 
@@ -134,6 +134,8 @@ partition harness. F7-01 CI parity is done and green on GitHub Actions (2026-09-
 remaining live Linux legs F8–F11 still need: live duplicate-execution-under-loss confirmation in
 [F8](./roadmap/f8-protocol-feedback/README.md), the live transport-spy zero-log-bytes leg in
 [F9](./roadmap/f9-local-logs/README.md), identity-quota and live resource enforcement in
-[F10](./roadmap/f10-local-admission/README.md), and the storage benchmarks in
-[F11](./roadmap/f11-state-retention/README.md). Until those finish, F8–F11 stay in progress
-rather than done.
+[F10](./roadmap/f10-local-admission/README.md), and the F11 live crash/store-failure injection during
+`Sweep`. F11-02 storage scaling is done: reproducible benchmarks added and measured, and the
+decision to keep the whole-snapshot bbolt layout is recorded in
+[F11-02](./roadmap/f11-state-retention/f11-02-storage-scaling.md). Until the remaining live legs
+finish, F8–F11 stay in progress rather than done.

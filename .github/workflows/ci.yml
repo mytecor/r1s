@@ -46,6 +46,9 @@ jobs:
 
       - run: make check
 
+      - name: Storage-scaling benchmark smoke
+        run: scripts/storage-bench.sh 1x
+
   build:
     name: cross-compile
     runs-on: ubuntu-latest
