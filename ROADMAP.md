@@ -71,9 +71,10 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 ## [F7. Continuous verification](./roadmap/f7-verification/README.md)
 
 > Every pull request runs the same generated-code, race, and documentation checks as local development, and a
-> repeatable Linux job verifies Python RNS interoperability and real containerd partition recovery.
+> repeatable Linux run verifies Python RNS interoperability and real containerd partition recovery.
 
-- **Status:** 🚧 in progress; CI parity complete and green on GitHub Actions (2026-09-15), live regression runner pending
+- **Status:** ✅ complete; F7-01 CI parity green on GitHub Actions and F7-02 live regression documented,
+  with the full live suite verified on `mytecor-homelab` (2026-09-15)
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** [F1](#f1-protocol-foundation), [F2](#f2-rns-transport), [F3](#f3-oci-runtime), [F5](#f5-partition-recovery).
 
@@ -132,7 +133,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   log-retention-across-restart acceptance (`TestLiveRetainedLogsSurviveRestart`) is now part of the
   partition harness.
 - [F7](#f7-continuous-verification) — F7-01 CI parity is done and green on GitHub
-  Actions (2026-09-15).
+  Actions (2026-09-15); F7-02 live regression is documented as a manual, repeatable run on
+  `mytecor-homelab` (kept out of GitHub Actions) with the full live suite green on
+  2026-09-15. F7 is complete.
 
 The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
 (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live

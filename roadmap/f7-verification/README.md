@@ -2,12 +2,12 @@
 
 Corresponds to the [F7 milestone](../../ROADMAP.md#f7-continuous-verification).
 
-**Status:** 🚧 In progress — CI parity (F7-01) complete and green on GitHub Actions (2026-09-15); live Linux regression (F7-02) planned
+**Status:** ✅ Complete — CI parity (F7-01) green on GitHub Actions (2026-09-15); live Linux regression (F7-02) documented and verified on `mytecor-homelab` (2026-09-15)
 
 ## Outcome
 
 - Every pull request runs the same generated-code, race, and documentation checks as local development.
-- A repeatable Linux job verifies Python RNS interoperability and real containerd partition recovery.
+- A repeatable Linux run (documented, manual — not a hosted CI job) verifies Python RNS interoperability and real containerd partition recovery.
 
 ## Dependencies
 

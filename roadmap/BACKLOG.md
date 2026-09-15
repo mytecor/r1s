@@ -25,9 +25,10 @@ This file records unresolved choices so they do not remain implicit in implement
    defaults and GPU device ownership remain open.
 6. **Live regression environment** — the gated Linux acceptance harness is actively run against
    `mytecor-homelab` (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture),
-   most recently 2026-09-15 under `go test -race` for the full live suite. A pinned, isolated,
-   reproducible runner for [F7-02](./f7-verification/f7-02-live-regression.md) is still to be
-   codified.
+   most recently 2026-09-15 under `go test -race` for the full live suite. The manual, repeatable
+   procedure — including the pinned Python RNS environment, the digest-pinned fixture, and the
+   exact per-gate commands — is recorded in [F7-02](./f7-verification/f7-02-live-regression.md).
+   `mytecor-homelab` is a development host, not a GitHub Actions self-hosted runner.
 7. **Cluster membership rotation and revocation** — define an authenticated `cluster rotate`
    workflow, safe distribution of the replacement join token, transition windows for partitioned
    members, and whether individual member revocation warrants moving beyond the shared-key baseline
@@ -84,6 +85,13 @@ This file records unresolved choices so they do not remain implicit in implement
    random 256-bit key, announces expose only its domain-separated public ID, and authenticated RNS
    peers mutually prove key possession before any control envelope is delivered in
    [F12](./f12-cluster-membership/README.md). Per-identity admission remains allocator-local.
+
+10. **The live regression environment is a documented manual run, not a hosted CI job** —
+    `mytecor-homelab` stays a private development host and is never registered as a GitHub Actions
+    self-hosted runner. Live verification therefore remains an explicit manual step at a known
+    commit, recorded in the roadmap; the automated pipeline continues to cover only the
+    deterministic checks in [F7-01](./f7-verification/f7-01-ci-parity.md) (`make check`, go vet,
+    cross-compile).
 
 ## Deferred
 

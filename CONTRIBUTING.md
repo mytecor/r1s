@@ -35,3 +35,14 @@ require a new package version such as `r1s.v2`.
 Tests should verify protocol validation, authority boundaries, idempotency, capacity accounting,
 state transitions, cancellation, deadlines, and adapter contracts. Avoid assertions that merely
 duplicate configuration constants without checking behavior.
+
+## Live verification
+
+Deterministic checks (`make check`, `go vet`, cross-platform builds) run automatically in GitHub Actions
+([F7-01](./roadmap/f7-verification/f7-01-ci-parity.md)). Live verification against a real containerd host
+runs manually on a Linux development host and is recorded in the roadmap — it is deliberately not a GitHub
+Actions job. Before considering container-runtime or live-acceptance changes complete, run the documented
+procedure in [F7-02](./roadmap/f7-verification/f7-02-live-regression.md): the containerd adapter gates,
+the Python-reference interoperability gates, the full `./internal/acceptance/` live suite with
+`RUN_PARTITION_RECOVERY=1`, then `make check`. A run that skips a live gate (a skipped `RUN_*` test) is not
+a pass.
