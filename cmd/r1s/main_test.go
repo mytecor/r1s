@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -75,5 +76,16 @@ func TestVersionFlagPrintsVersion(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("r1s --version wrote to stderr: %q", stderr.String())
+	}
+}
+
+func TestClusterInitDoesNotRequireNetworkFlags(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	path := filepath.Join(t.TempDir(), "cluster")
+	if err := run(context.Background(), []string{"--cluster", path, "cluster", "init"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "Join token: r1s1:") {
+		t.Fatalf("output = %q", stdout.String())
 	}
 }

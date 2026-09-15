@@ -95,6 +95,7 @@ func startReferencePeer(tb testing.TB, listenPort, forwardPort int, channel bool
 		script,
 		"--configdir", cfgDir,
 		"--capacity", `{"default": 2}`,
+		"--cluster-key", hex.EncodeToString(testClusterKey()),
 		"--no-ratchet", "--announce",
 	}
 	if channel {
@@ -191,6 +192,7 @@ func newGoEndpoint(t *testing.T, pyListen, pyForward int, handler func(context.C
 	endpoint, err := New(Config{
 		Reticulum:    &common.ReticulumConfig{},
 		IdentityPath: filepath.Join(t.TempDir(), "r1sd.identity"),
+		ClusterKey:   testClusterKey(),
 		Capacity:     map[string]uint32{"default": 3},
 		NetworkWait:  15 * time.Second,
 		Interfaces:   []interfaces.Interface{dropper},

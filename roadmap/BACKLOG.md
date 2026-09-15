@@ -20,6 +20,10 @@ This file records unresolved choices so they do not remain implicit in implement
    ownership in [F10](./f10-local-admission/README.md).
 6. **Live regression environment** — choose an isolated Linux runner and pinned fixture/runtime
    versions for [F7](./f7-verification/README.md).
+7. **Cluster membership rotation and revocation** — define an authenticated `cluster rotate`
+   workflow, safe distribution of the replacement join token, transition windows for partitioned
+   members, and whether individual member revocation warrants moving beyond the shared-key baseline
+   established by [F12](./f12-cluster-membership/README.md).
 
 ## Resolved
 
@@ -68,6 +72,10 @@ This file records unresolved choices so they do not remain implicit in implement
    bounded `retain_until`, expired results are explicit, and cleanup sweeps offers, executions, and
    tombstones transactionally in [F11-01](./f11-state-retention/f11-01-retention-contract.md),
    so an old assignment replayed after cleanup cannot start another workload.
+9. **Cluster membership uses one shared secret without a control plane** — `cluster init` creates a
+   random 256-bit key, announces expose only its domain-separated public ID, and authenticated RNS
+   peers mutually prove key possession before any control envelope is delivered in
+   [F12](./f12-cluster-membership/README.md). Per-identity admission remains allocator-local.
 
 ## Deferred
 

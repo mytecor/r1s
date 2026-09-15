@@ -15,6 +15,8 @@ links. r1s supplies workload demand, local allocation, assignment, and execution
 | Workload | Infrastructure-neutral OCI image, command, environment, and policy | Immutable request data |
 | Offer | Bounded reservation proposed by one allocator | Issuing allocator |
 | Execution | One selected, locally running workload instance | Client for commands; allocator for mechanics |
+| Cluster key | Shared 256-bit membership secret distributed as a join token | Every holder is a cluster member |
+| Cluster ID | Public domain-separated hash of the cluster key | Discovery label only; grants no access |
 
 The core deliberately does not define agents, teams, prompts, CI jobs, or application-level event
 hierarchies. Those are workloads or protocols layered on top.
@@ -44,6 +46,7 @@ The source boundaries are:
 api/proto/r1s/v1/       versioned wire schema
 internal/protocol/      message validation and compatibility
 internal/client/         durable requests, offer selection, and observed execution state
+internal/cluster/        cluster key, public ID, join token, and local state
 internal/allocator/     offers, capacity, assignment, authorization
 internal/transport/     transport boundary and RNS adapter
 internal/runtime/       runtime boundary and containerd adapter
@@ -64,8 +67,8 @@ transport, runtime, and client behavior remains in reusable packages.
 
 | Binary | Source | Purpose | Introduced by |
 | --- | --- | --- | --- |
-| `r1sd` | `cmd/r1sd/` | Long-running allocator service connected to RNS and containerd | F2, extended by F3 |
-| `r1s` | `cmd/r1s/` | Client CLI for request, list, inspect, cancel, and result operations | F4 |
+| `r1sd` | `cmd/r1sd/` | Allocator service and cluster bootstrap CLI | F2, F3, F12 |
+| `r1s` | `cmd/r1s/` | Client and cluster bootstrap CLI | F4, F12 |
 
 Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system
 binaries.
@@ -85,6 +88,20 @@ capacity or report local runtime state.
 
 The RNS adapter must populate `Envelope.sender` from the authenticated link identity. A remote peer
 must not be allowed to assert an arbitrary sender by serializing different bytes in the envelope.
+
+Cluster membership is a separate transport-boundary authorization step. A participant stores a
+random 256-bit `ClusterKey` locally and derives the public identifier as
+`SHA-256("r1s-cluster-id-v1" || ClusterKey)`. Allocators publish only that `ClusterID` in announce
+app data, and clients ignore descriptors for other cluster IDs. The key and join token are never
+announced or placed in protobuf envelopes.
+
+After an RNS Link authenticates the peer identities, both sides exchange fresh nonces and prove
+knowledge of the cluster key with
+`HMAC-SHA256(ClusterKey, "r1s-auth-v1" || nonce || challenger_identity || responder_identity)`.
+No control envelope is delivered until the peer's proof succeeds. This makes the verified RNS
+sender authoritative for identity and the cluster proof authoritative for baseline membership.
+Allocator-local admission and quotas from [F10](./roadmap/f10-local-admission/README.md) may further
+restrict individual identities; they never replace transport-authenticated sender authority.
 
 ## Protocol
 
@@ -152,6 +169,9 @@ simulation of routing, cryptography, or link behavior.
 
 Allocator RNS endpoints announce capacity. Client endpoints are passive: they discover those
 announces and establish authenticated Links without advertising fake allocator capacity.
+Allocator descriptors also carry the public cluster ID. Foreign-cluster descriptors are ignored,
+and direct links still require mutual cluster-key proof before their Channels can carry protobuf
+control envelopes.
 
 ## Runtime boundary
 

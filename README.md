@@ -10,7 +10,7 @@ The name follows the same contraction pattern as Kubernetes → k8s: Reticulum N
 ## Status
 
 r1s has completed its transport-independent protocol foundation, RNS transport, OCI runtime,
-initial client workflow, and partition-recovery acceptance. The embedded
+initial client workflow, partition-recovery acceptance, and shared-secret cluster membership. The embedded
 Reticulum-Go adapter, authenticated sender replacement, allocator announces, and `r1sd` entry point
 are covered by a two-node loopback test. Python-reference discovery and reliable Channel envelope
 delivery (including recovery from injected packet loss) are proven by a gated live harness. OCI
@@ -32,6 +32,8 @@ on `mytecor-homelab` on 2026-09-15.
 - **Partition tolerant:** a client disconnect is not a lifecycle event. Assigned work continues until
   completion, explicit cancellation, deadline, or maximum runtime.
 - **Replaceable adapters:** network and runtime implementations sit behind small Go interfaces.
+- **Closed cluster boundary:** discovery exposes only a public cluster ID, while every RNS link must
+  prove possession of the secret join token before carrying control messages.
 
 ## Control flow
 
@@ -104,6 +106,41 @@ cd r1s
 GOBIN="$HOME/.local/bin" go install ./cmd/r1s ./cmd/r1sd
 ```
 
+## Cluster bootstrap
+
+Create a cluster on either kind of participant. The command stores a random 256-bit key locally and
+prints its public ID plus the secret join token exactly once:
+
+```sh
+r1s cluster init
+# Cluster ID: <public SHA-256 identifier>
+# Join token: r1s1:<secret>
+```
+
+Give only the join token to trusted participants:
+
+```sh
+r1s cluster join 'r1s1:<secret>'
+sudo r1sd cluster join 'r1s1:<secret>'
+```
+
+`r1s` defaults to `~/.config/r1s/cluster`; `r1sd` defaults to `/var/lib/r1s/cluster`. Use the global
+`--cluster <path>` flag before `cluster` or another command to select a different state file. The
+non-secret `cluster show` command prints the derived cluster ID and state path, never the token.
+Rejoining the same token is idempotent; an existing different membership is not overwritten.
+
+Allocator announces contain only the public cluster ID. A client ignores another cluster's
+announces, and a direct connection still cannot carry requests until both RNS identities complete a
+mutual HMAC challenge-response with the cluster key. The shared token grants baseline membership;
+an allocator can further restrict member identities and quotas with its local admission policy.
+
+For a source-tree development pair, create the two files used by the examples below:
+
+```sh
+go run ./cmd/r1s --cluster ./client.cluster cluster init
+go run ./cmd/r1sd --cluster ./r1sd.cluster cluster join 'r1s1:<token printed above>'
+```
+
 ## Development
 
 System binaries follow the standard Go command layout. [`cmd/r1sd/`](./cmd/r1sd/) contains the
@@ -116,6 +153,7 @@ identity:
 go run ./cmd/r1sd \
   --rns-config ./reticulum.conf \
   --identity ./r1sd.identity \
+  --cluster ./r1sd.cluster \
   --capacity default=2,gpu=1 \
   --state ./r1sd.state.db \
   --containerd-address /run/containerd/containerd.sock \
@@ -220,6 +258,7 @@ printed by `r1sd`, or omit `--allocator` and collect allocator announces during 
 go run ./cmd/r1s \
   --rns-config ./client-reticulum.conf \
   --identity ./client.identity \
+  --cluster ./client.cluster \
   request \
   --allocator '<allocator-destination-hash>' \
   '{"workload":{"image":"registry.example/image@sha256:..."},"policy":{"maxRuntime":"600s","resultRetention":"86400s"},"resourceClass":"default"}'

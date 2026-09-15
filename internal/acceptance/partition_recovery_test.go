@@ -23,6 +23,7 @@ import (
 	"github.com/containerd/errdefs"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
+	"github.com/mytecor/r1s/internal/cluster"
 	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport/rns"
@@ -32,6 +33,8 @@ import (
 )
 
 const executionLabel = "io.r1s.execution-id"
+
+var acceptanceClusterKey = bytes.Repeat([]byte{0x71}, cluster.KeySize)
 
 func TestPartitionRecovery(t *testing.T) {
 	if os.Getenv("RUN_PARTITION_RECOVERY") != "1" {
@@ -196,7 +199,7 @@ func newAcceptanceClient(t *testing.T, listenPort, targetPort int, identityPath,
 
 	result := &acceptanceClient{}
 	endpoint, err := rns.New(rns.Config{
-		Reticulum: configuration, IdentityPath: identityPath, NetworkWait: 15 * time.Second,
+		Reticulum: configuration, IdentityPath: identityPath, ClusterKey: acceptanceClusterKey, NetworkWait: 15 * time.Second,
 	}, func(handlerContext context.Context, envelope *r1sv1.Envelope) error {
 		identityKey := hex.EncodeToString(envelope.GetSender())
 		if destination, ok := result.endpoint.DestinationForIdentity(identityKey); ok {
@@ -327,9 +330,14 @@ type allocatorProcess struct {
 
 func startAllocator(t *testing.T, ctx context.Context, binary, config, identity, state, address, namespace string, extra ...string) *allocatorProcess {
 	t.Helper()
+	clusterPath := identity + ".cluster"
+	if err := cluster.SaveNew(clusterPath, acceptanceClusterKey); err != nil {
+		t.Fatal(err)
+	}
 	arguments := []string{
 		"--rns-config", config,
 		"--identity", identity,
+		"--cluster", clusterPath,
 		"--state", state,
 		"--capacity", "default=1",
 		"--announce-interval", "500ms",

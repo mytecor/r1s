@@ -13,6 +13,7 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/cluster"
 	"github.com/mytecor/r1s/internal/protocol"
 	coretransport "github.com/mytecor/r1s/internal/transport"
 	"google.golang.org/protobuf/proto"
@@ -41,6 +42,9 @@ var (
 type Config struct {
 	Reticulum    *common.ReticulumConfig
 	IdentityPath string
+	// ClusterKey is the shared 256-bit membership secret. It is used only for
+	// local ID derivation and link challenge-response, and is never announced.
+	ClusterKey []byte
 	// Capacity advertises this endpoint as an allocator. An empty map creates a
 	// passive client endpoint that discovers allocators but does not announce one.
 	Capacity         map[string]uint32
@@ -73,6 +77,8 @@ type Endpoint struct {
 	networkWait time.Duration
 	name        string
 	advertises  bool
+	clusterKey  []byte
+	clusterID   []byte
 
 	started      bool
 	closed       bool
@@ -85,11 +91,18 @@ type Endpoint struct {
 }
 
 type session struct {
-	mu      sync.RWMutex
-	link    *link.Link
-	channel *channel.Channel
-	sender  []byte
-	pending [][]byte
+	mu            sync.RWMutex
+	sendMu        sync.Mutex
+	link          *link.Link
+	channel       *channel.Channel
+	sender        []byte
+	pending       [][]byte
+	pendingAuth   [][]byte
+	challenge     []byte
+	authenticated bool
+	authErr       error
+	authDone      chan struct{}
+	authOnce      sync.Once
 }
 
 type dialAttempt struct {
@@ -105,9 +118,13 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	if config.Reticulum == nil || strings.TrimSpace(config.IdentityPath) == "" || handler == nil {
 		return nil, fmt.Errorf("%w: Reticulum config, identity path, and handler are required", ErrInvalidConfig)
 	}
+	clusterID, err := cluster.ID(config.ClusterKey)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+	}
 	var descriptorData []byte
 	if len(config.Capacity) > 0 {
-		descriptor, err := newDescriptor(config.Capacity)
+		descriptor, err := newDescriptor(clusterID, config.Capacity)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 		}
@@ -154,6 +171,7 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 		stack: rnsStack, identity: localIdentity, destination: localDestination,
 		handler: handler, interval: config.AnnounceInterval, networkWait: config.NetworkWait,
 		name:       hex.EncodeToString(localIdentity.Hash()),
+		clusterKey: bytes.Clone(config.ClusterKey), clusterID: clusterID,
 		advertises: len(descriptorData) > 0,
 		sessions:   make(map[string]*session), dials: make(map[string]*dialAttempt),
 		destinations: make(map[string][]byte), waiters: make(map[string][]chan struct{}), discovered: make(chan Service, 32),
@@ -257,6 +275,9 @@ func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Enve
 			return err
 		}
 	}
+	if err := e.waitAuthenticated(ctx, active); err != nil {
+		return fmt.Errorf("authenticate RNS session: %w", err)
+	}
 
 	cloned := proto.Clone(envelope).(*r1sv1.Envelope)
 	cloned.Sender = bytes.Clone(e.identity.Hash())
@@ -267,7 +288,7 @@ func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Enve
 	if len(data) > active.channel.MDU() {
 		return fmt.Errorf("marshal envelope: %d bytes exceed RNS Channel MDU %d", len(data), active.channel.MDU())
 	}
-	if err := active.channel.Send(&envelopeMessage{data: data}); err != nil {
+	if err := e.sendChannel(ctx, active, &envelopeMessage{data: data}); err != nil {
 		return fmt.Errorf("send RNS Channel message: %w", err)
 	}
 	return nil
@@ -319,6 +340,9 @@ func (e *Endpoint) dial(ctx context.Context, destinationHash []byte) (*session, 
 		active, setupErr := e.newSession(value, remoteIdentity.Hash(), destinationHash)
 		if setupErr == nil {
 			setupErr = value.Identify(e.identity)
+		}
+		if setupErr == nil {
+			e.beginAuthentication(active)
 		}
 		if setupErr != nil {
 			select {
@@ -400,8 +424,17 @@ func (e *Endpoint) acceptLink(value any) {
 		active.sender = bytes.Clone(remote.Hash())
 		pending := active.pending
 		active.pending = nil
+		pendingAuth := active.pendingAuth
+		active.pendingAuth = nil
 		active.mu.Unlock()
 		e.cacheSession(active, remote.Hash(), nil)
+		e.beginAuthentication(active)
+		for _, data := range pendingAuth {
+			var message authMessage
+			if message.Unpack(data) == nil {
+				go e.handleAuthentication(active, &message)
+			}
+		}
 		for _, data := range pending {
 			go e.deliver(active, data)
 		}
@@ -412,14 +445,21 @@ func (e *Endpoint) acceptLink(value any) {
 
 func (e *Endpoint) newSession(rnsLink *link.Link, sender, destinationHash []byte) (*session, error) {
 	rnsChannel := rnsLink.GetChannel()
+	if err := rnsChannel.RegisterMessageType(authMessageType, func() channel.MessageBase { return &authMessage{} }); err != nil {
+		return nil, err
+	}
 	if err := rnsChannel.RegisterMessageType(envelopeMessageType, func() channel.MessageBase { return &envelopeMessage{} }); err != nil {
 		return nil, err
 	}
 	active := &session{
 		link: rnsLink, channel: rnsChannel,
-		sender: bytes.Clone(sender),
+		sender: bytes.Clone(sender), authDone: make(chan struct{}),
 	}
 	rnsChannel.AddMessageHandler(func(message channel.MessageBase) bool {
+		if authentication, ok := message.(*authMessage); ok {
+			go e.handleAuthentication(active, authentication)
+			return true
+		}
 		wire, ok := message.(*envelopeMessage)
 		if !ok {
 			return false
@@ -441,6 +481,13 @@ func (e *Endpoint) deliver(active *session, data []byte) {
 	sender := bytes.Clone(active.sender)
 	if len(sender) == 0 {
 		if len(active.pending) < 8 {
+			active.pending = append(active.pending, bytes.Clone(data))
+		}
+		active.mu.Unlock()
+		return
+	}
+	if !active.authenticated {
+		if active.authErr == nil && len(active.pending) < 8 {
 			active.pending = append(active.pending, bytes.Clone(data))
 		}
 		active.mu.Unlock()
@@ -538,6 +585,10 @@ func (h *announceHandler) ReceivedAnnounce(destinationHash []byte, announced any
 	}
 	descriptor, err := parseDescriptor(appData)
 	if err != nil {
+		return nil
+	}
+	announcedCluster, err := hex.DecodeString(descriptor.ClusterID)
+	if err != nil || !bytes.Equal(announcedCluster, h.endpoint.clusterID) {
 		return nil
 	}
 	announcedIdentity, ok := announced.(*identity.Identity)

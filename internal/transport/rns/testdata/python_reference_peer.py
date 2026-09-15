@@ -33,6 +33,8 @@ service discoverable, so the Go harness's announce-driven discovery is reliable.
 """
 
 import argparse
+import hashlib
+import hmac
 import json
 import os
 import sys
@@ -52,6 +54,32 @@ ASPECT = "allocator"
 PROTOCOL = "r1s.v1"
 MAX_DESCRIPTOR = 256  # must match descriptor.maxDescriptorBytes
 ENVELOPE_MSGTYPE = 0x0101  # must match internal/transport/rns wire.go
+AUTH_MSGTYPE = 0x0100
+AUTH_DOMAIN = b"r1s-auth-v1"
+CLUSTER_ID_DOMAIN = b"r1s-cluster-id-v1"
+AUTH_CHALLENGE = 1
+AUTH_RESPONSE = 2
+
+
+class AuthMessage(ChannelMessageBase):
+    """Carries a cluster-membership challenge or response."""
+
+    MSGTYPE = AUTH_MSGTYPE
+
+    def __init__(self, kind=0, nonce=b"", proof=b""):
+        self.kind = kind
+        self.nonce = bytes(nonce)
+        self.proof = bytes(proof)
+
+    def pack(self):
+        return bytes([self.kind]) + self.nonce + self.proof
+
+    def unpack(self, raw):
+        if len(raw) not in (33, 65):
+            raise ValueError("invalid auth message length")
+        self.kind = raw[0]
+        self.nonce = bytes(raw[1:33])
+        self.proof = bytes(raw[33:])
 
 
 class EnvelopeMessage(ChannelMessageBase):
@@ -75,7 +103,7 @@ class EnvelopeMessage(ChannelMessageBase):
 
 
 class Peer:
-    def __init__(self, configdir, capacity, announce, no_ratchet, dump, channel, verbosity=0):
+    def __init__(self, configdir, capacity, cluster_key, announce, no_ratchet, dump, channel, verbosity=0):
         # Route RNS diagnostics to stderr so the stdout protocol stream stays
         # clean line-based output (READY/hash/LINK_UP/CHANNEL_MSG) regardless
         # of log level.
@@ -87,6 +115,7 @@ class Peer:
         RNS.logcall = to_stderr
         RNS.Reticulum(configdir=configdir, verbosity=int(verbosity), logdest=RNS.LOG_CALLBACK)
         self.identity = RNS.Identity()
+        self.cluster_key = cluster_key
         self.destination = RNS.Destination(
             self.identity,
             RNS.Destination.IN,
@@ -98,7 +127,12 @@ class Peer:
         if no_ratchet:
             self.destination.ratchets = None
         descriptor = json.dumps(
-            {"protocol": PROTOCOL, "capacity": capacity}, separators=(",", ":")
+            {
+                "protocol": PROTOCOL,
+                "cluster_id": hashlib.sha256(CLUSTER_ID_DOMAIN + cluster_key).hexdigest(),
+                "capacity": capacity,
+            },
+            separators=(",", ":"),
         ).encode("utf-8")
         if len(descriptor) > MAX_DESCRIPTOR:
             raise ValueError("descriptor exceeds the %d-byte bound" % MAX_DESCRIPTOR)
@@ -121,22 +155,67 @@ class Peer:
         sys.stderr.flush()
         if self.channel:
             ch = link.get_channel()
+            ch.register_message_type(AuthMessage)
             ch.register_message_type(EnvelopeMessage)
+            state = {"remote": None, "nonce": None, "authenticated": False, "pending": []}
+
+            def proof(nonce, challenger, responder):
+                return hmac.new(
+                    self.cluster_key,
+                    AUTH_DOMAIN + nonce + challenger + responder,
+                    hashlib.sha256,
+                ).digest()
+
+            def handle_envelope(message):
+                print(
+                    "CHANNEL_MSG " + str(len(message.data)) + " " + message.data.hex(),
+                    flush=True,
+                )
+                sys.stderr.write("CHANNEL_MSG " + str(len(message.data)) + "\n")
+                sys.stderr.flush()
+                ch.send(EnvelopeMessage(message.data))
+
+            def identified(_link, remote):
+                state["remote"] = remote.hash
+                state["nonce"] = os.urandom(32)
+                ch.send(AuthMessage(AUTH_CHALLENGE, state["nonce"]))
+
+            link.set_remote_identified_callback(identified)
+            if link.get_remote_identity() is not None:
+                identified(link, link.get_remote_identity())
 
             def on_message(message):
+                if isinstance(message, AuthMessage):
+                    remote = state["remote"]
+                    if remote is None:
+                        return True
+                    if message.kind == AUTH_CHALLENGE and len(message.proof) == 0:
+                        ch.send(
+                            AuthMessage(
+                                AUTH_RESPONSE,
+                                message.nonce,
+                                proof(message.nonce, remote, self.identity.hash),
+                            )
+                        )
+                    elif (
+                        message.kind == AUTH_RESPONSE
+                        and message.nonce == state["nonce"]
+                        and hmac.compare_digest(
+                            message.proof,
+                            proof(message.nonce, self.identity.hash, remote),
+                        )
+                    ):
+                        state["authenticated"] = True
+                        pending = state["pending"]
+                        state["pending"] = []
+                        for envelope in pending:
+                            handle_envelope(envelope)
+                    return True
                 if isinstance(message, EnvelopeMessage):
-                    print(
-                        "CHANNEL_MSG " + str(len(message.data)) + " " + message.data.hex(),
-                        flush=True,
-                    )
-                    sys.stderr.write(
-                        "CHANNEL_MSG " + str(len(message.data)) + "\n"
-                    )
-                    sys.stderr.flush()
-                    # Echo the exact envelope bytes back over the same Channel
-                    # so the Go endpoint can verify bidirectional Channel
-                    # integrity (and that reliable delivery was achieved).
-                    ch.send(EnvelopeMessage(message.data))
+                    if state["authenticated"]:
+                        handle_envelope(message)
+                    elif len(state["pending"]) < 8:
+                        state["pending"].append(message)
                     return True
                 return False
 
@@ -160,6 +239,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--configdir", required=True)
     parser.add_argument("--capacity", default='{"default": 2}')
+    parser.add_argument("--cluster-key", required=True)
     parser.add_argument("--announce", action="store_true")
     parser.add_argument("--no-ratchet", action="store_true")
     parser.add_argument("--dump", action="store_true")
@@ -169,6 +249,7 @@ def main():
     Peer(
         args.configdir,
         json.loads(args.capacity),
+        bytes.fromhex(args.cluster_key),
         args.announce,
         args.no_ratchet,
         args.dump,

@@ -18,6 +18,7 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/allocator"
+	"github.com/mytecor/r1s/internal/cluster"
 	"github.com/mytecor/r1s/internal/logstore"
 	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
@@ -57,12 +58,19 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	maxRecords := flags.Int("max-records", allocator.DefaultMaxRecords, "maximum durable offer/execution/tombstone budget")
 	admissionPath := flags.String("admission-policy", "", "local resource profiles, allowed identities, and quotas JSON")
 	statePath := flags.String("state", "", "allocator state database (defaults beside the identity)")
+	clusterPath := flags.String("cluster", "", "cluster state file (defaults to /var/lib/r1s/cluster)")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
 	if *showVersion {
 		fmt.Fprintln(stdout, version)
 		return nil
+	}
+	if flags.NArg() > 0 {
+		if flags.Arg(0) != "cluster" {
+			return fmt.Errorf("unknown command %q: expected cluster", flags.Arg(0))
+		}
+		return cluster.RunCommand(flags.Args()[1:], allocatorClusterPath(*clusterPath), stdout, stderr)
 	}
 	if strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identityPath) == "" {
 		return errors.New("--rns-config and --identity are required")
@@ -83,6 +91,11 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	admission, err := allocator.ReadAdmission(admissionReader, capacity)
 	if err != nil {
 		return fmt.Errorf("admission policy: %w", err)
+	}
+	resolvedClusterPath := allocatorClusterPath(*clusterPath)
+	clusterKey, err := cluster.Load(resolvedClusterPath)
+	if err != nil {
+		return fmt.Errorf("load cluster membership from %s (run 'r1sd cluster join <token>'): %w", resolvedClusterPath, err)
 	}
 	reticulumConfig, err := reticulumconfig.LoadConfig(*configPath)
 	if err != nil {
@@ -113,6 +126,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	endpoint, err = rns.New(rns.Config{
 		Reticulum:        reticulumConfig,
 		IdentityPath:     *identityPath,
+		ClusterKey:       clusterKey,
 		Capacity:         capacity,
 		AnnounceInterval: *announceInterval,
 	}, handler)
@@ -181,6 +195,13 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		case <-ticker.C:
 		}
 	}
+}
+
+func allocatorClusterPath(value string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return cluster.DefaultAllocatorPath()
 }
 
 func parseCapacity(value string) (map[string]uint32, error) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -29,7 +30,7 @@ func TestDeliverReplacesForgedSenderBeforeValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint.deliver(&session{sender: authenticated}, data)
+	endpoint.deliver(&session{sender: authenticated, authenticated: true}, data)
 
 	select {
 	case delivered := <-received:
@@ -52,7 +53,7 @@ func TestDeliverRejectsUnauthenticatedAndInvalidEnvelopes(t *testing.T) {
 		t.Fatal(err)
 	}
 	endpoint.deliver(&session{}, validData)
-	endpoint.deliver(&session{sender: bytes.Repeat([]byte{1}, 16)}, []byte("not protobuf"))
+	endpoint.deliver(&session{sender: bytes.Repeat([]byte{1}, 16), authenticated: true}, []byte("not protobuf"))
 	select {
 	case <-called:
 		t.Fatal("handler called for unauthenticated or invalid data")
@@ -196,11 +197,52 @@ func TestEndpointsExchangeAuthenticatedEnvelopeOverUDP(t *testing.T) {
 	}
 }
 
+func TestMismatchedClusterIsNotDiscoveredOrAuthorized(t *testing.T) {
+	portA := freeUDPPort(t)
+	portB := freeUDPPort(t)
+	for portB == portA {
+		portB = freeUDPPort(t)
+	}
+	root := t.TempDir()
+	client := newTestEndpointWithCluster(t, filepath.Join(root, "client"), portA, portB, nil, bytes.Repeat([]byte{1}, 32), func(context.Context, *r1sv1.Envelope) error {
+		t.Fatal("unauthorized envelope reached client handler")
+		return nil
+	})
+	allocator := newTestEndpointWithCluster(t, filepath.Join(root, "allocator"), portB, portA, map[string]uint32{"default": 1}, bytes.Repeat([]byte{2}, 32), func(context.Context, *r1sv1.Envelope) error {
+		t.Fatal("unauthorized envelope reached allocator handler")
+		return nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	if err := allocator.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = allocator.Close() })
+	select {
+	case service := <-client.Discoveries():
+		t.Fatalf("foreign cluster discovered: %+v", service)
+	case <-time.After(100 * time.Millisecond):
+	}
+	sendContext, stop := context.WithTimeout(context.Background(), 8*time.Second)
+	defer stop()
+	if err := client.Send(sendContext, allocator.Destination(), validEnvelope()); !errors.Is(err, ErrClusterAuthentication) {
+		t.Fatalf("Send() error = %v, want cluster authentication failure", err)
+	}
+}
+
 func newTestEndpoint(t *testing.T, storage string, listenPort, targetPort int, handler func(context.Context, *r1sv1.Envelope) error) *Endpoint {
 	return newTestEndpointWithCapacity(t, storage, listenPort, targetPort, map[string]uint32{"default": 1}, handler)
 }
 
 func newTestEndpointWithCapacity(t *testing.T, storage string, listenPort, targetPort int, capacity map[string]uint32, handler func(context.Context, *r1sv1.Envelope) error) *Endpoint {
+	return newTestEndpointWithCluster(t, storage, listenPort, targetPort, capacity, testClusterKey(), handler)
+}
+
+func newTestEndpointWithCluster(t *testing.T, storage string, listenPort, targetPort int, capacity map[string]uint32, key []byte, handler func(context.Context, *r1sv1.Envelope) error) *Endpoint {
 	t.Helper()
 	config := common.DefaultConfig()
 	config.EnableTransport = false
@@ -216,6 +258,7 @@ func newTestEndpointWithCapacity(t *testing.T, storage string, listenPort, targe
 	endpoint, err := New(Config{
 		Reticulum:    config,
 		IdentityPath: filepath.Join(storage, "r1sd.identity"),
+		ClusterKey:   key,
 		Capacity:     capacity,
 		NetworkWait:  8 * time.Second,
 	}, handler)
@@ -224,6 +267,8 @@ func newTestEndpointWithCapacity(t *testing.T, storage string, listenPort, targe
 	}
 	return endpoint
 }
+
+func testClusterKey() []byte { return bytes.Repeat([]byte{0x51}, 32) }
 
 func freeUDPPort(t *testing.T) int {
 	t.Helper()

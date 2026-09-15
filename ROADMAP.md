@@ -113,9 +113,22 @@ partition-safe fallback.
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** F5, F6, F8.
 
+## [F12. Shared-secret cluster membership](./roadmap/f12-cluster-membership/README.md)
+
+- Participants bootstrap with one secret join token while announces expose only a derived public
+  cluster ID.
+- RNS links mutually prove cluster membership before any control envelope reaches a client or
+  allocator.
+
+- **Status:** ✅ complete; Go loopback and Python-reference interoperability verified on 2026-09-15
+- **Done when:** foreign-cluster discovery and control traffic are rejected without introducing a
+  central authority.
+- **Depends on:** F2.
+
 ## Current implementation order
 
-The F6 live partition-recovery rerun passed on `mytecor-homelab` (2026-09-15), and the F9 live
+F12 cluster membership is complete. The F6 live partition-recovery rerun passed on
+`mytecor-homelab` (2026-09-15), and the F9 live
 log-retention-across-restart acceptance (`TestLiveRetainedLogsSurviveRestart`) is now part of the
 partition harness. Dispatch the CI verification in
 [F7](./roadmap/f7-verification/README.md), then finish the remaining live Linux legs F8–F11 still

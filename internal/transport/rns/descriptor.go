@@ -2,6 +2,7 @@
 package rns
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,12 +18,16 @@ var ErrInvalidDescriptor = errors.New("invalid RNS service descriptor")
 
 // Descriptor is the small allocator capability record carried in announce app_data.
 type Descriptor struct {
-	Protocol string            `json:"protocol"`
-	Capacity map[string]uint32 `json:"capacity"`
+	Protocol  string            `json:"protocol"`
+	ClusterID string            `json:"cluster_id"`
+	Capacity  map[string]uint32 `json:"capacity"`
 }
 
-func newDescriptor(capacity map[string]uint32) (Descriptor, error) {
-	descriptor := Descriptor{Protocol: protocolVersion, Capacity: make(map[string]uint32, len(capacity))}
+func newDescriptor(clusterID []byte, capacity map[string]uint32) (Descriptor, error) {
+	if len(clusterID) != 32 {
+		return Descriptor{}, fmt.Errorf("%w: cluster ID must be 32 bytes", ErrInvalidDescriptor)
+	}
+	descriptor := Descriptor{Protocol: protocolVersion, ClusterID: hex.EncodeToString(clusterID), Capacity: make(map[string]uint32, len(capacity))}
 	for class, slots := range capacity {
 		if strings.TrimSpace(class) == "" || slots == 0 {
 			return Descriptor{}, fmt.Errorf("%w: capacity entries must have a class and non-zero slots", ErrInvalidDescriptor)
@@ -57,5 +62,9 @@ func parseDescriptor(data []byte) (Descriptor, error) {
 	if descriptor.Protocol != protocolVersion {
 		return Descriptor{}, fmt.Errorf("%w: unsupported protocol %q", ErrInvalidDescriptor, descriptor.Protocol)
 	}
-	return newDescriptor(descriptor.Capacity)
+	clusterID, err := hex.DecodeString(descriptor.ClusterID)
+	if err != nil {
+		return Descriptor{}, fmt.Errorf("%w: cluster ID must be hexadecimal", ErrInvalidDescriptor)
+	}
+	return newDescriptor(clusterID, descriptor.Capacity)
 }

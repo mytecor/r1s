@@ -17,6 +17,7 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
+	"github.com/mytecor/r1s/internal/cluster"
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport/rns"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -50,6 +51,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	configPath := flags.String("rns-config", "", "path to a Reticulum-Go configuration file")
 	identityPath := flags.String("identity", "", "path to the persistent client identity")
 	statePath := flags.String("state", "", "client state database (defaults beside the identity)")
+	clusterPath := flags.String("cluster", "", "cluster state file (defaults to ~/.config/r1s/cluster)")
 	networkWait := flags.Duration("network-timeout", 30*time.Second, "RNS path, link, and response timeout")
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -63,18 +65,33 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return nil
 	}
 	if len(commandArguments) == 0 {
-		return errors.New("command is required: request, list, inspect, cancel, result, or logs")
+		return errors.New("command is required: cluster, request, list, inspect, cancel, result, or logs")
 	}
 	command := commandArguments[0]
 	args := commandArguments[1:]
+	if command == "cluster" {
+		path, err := clientClusterPath(*clusterPath)
+		if err != nil {
+			return err
+		}
+		return cluster.RunCommand(args, path, stdout, stderr)
+	}
 	if !knownCommand(command) {
-		return fmt.Errorf("unknown command %q: expected request, list, inspect, cancel, result, or logs", command)
+		return fmt.Errorf("unknown command %q: expected cluster, request, list, inspect, cancel, result, or logs", command)
 	}
 	if containsHelp(args) {
 		return dispatch(&application{}, command, args, stderr)
 	}
 	if strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identityPath) == "" {
 		return errors.New("--rns-config and --identity are required")
+	}
+	resolvedClusterPath, err := clientClusterPath(*clusterPath)
+	if err != nil {
+		return err
+	}
+	clusterKey, err := cluster.Load(resolvedClusterPath)
+	if err != nil {
+		return fmt.Errorf("load cluster membership from %s (run 'r1s cluster init' or 'r1s cluster join <token>'): %w", resolvedClusterPath, err)
 	}
 	reticulumConfig, err := reticulumconfig.LoadConfig(*configPath)
 	if err != nil {
@@ -101,7 +118,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		}
 		return nil
 	}
-	endpoint, err = rns.New(rns.Config{Reticulum: reticulumConfig, IdentityPath: *identityPath, NetworkWait: *networkWait}, handler)
+	endpoint, err = rns.New(rns.Config{Reticulum: reticulumConfig, IdentityPath: *identityPath, ClusterKey: clusterKey, NetworkWait: *networkWait}, handler)
 	if err != nil {
 		return err
 	}
@@ -160,6 +177,13 @@ func dispatch(app *application, command string, args []string, stderr io.Writer)
 
 func knownCommand(command string) bool {
 	return command == "logs" || command == "request" || command == "list" || command == "inspect" || command == "cancel" || command == "result"
+}
+
+func clientClusterPath(value string) (string, error) {
+	if strings.TrimSpace(value) != "" {
+		return value, nil
+	}
+	return cluster.DefaultClientPath()
 }
 
 func containsHelp(arguments []string) bool {
