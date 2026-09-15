@@ -16,7 +16,8 @@ and add the allocator service entry point under `cmd/r1sd/`.
 ## Implemented
 
 - Reticulum-Go is embedded behind [`internal/transport/rns`](../../internal/transport/rns/) and
-  referenced as a normal pinned Go module.
+  referenced at its canonical `github.com/Quad4-Software/Reticulum-Go` module path, pinned to
+  `v1.2.0` without local replacements, vendoring, copied dependencies, or compatibility shims.
 - Allocator capacity is encoded in bounded `r1s.v1` announce app data.
 - Link identification supplies sender authority; serialized `Envelope.sender` bytes are replaced
   before validation or allocator dispatch.
@@ -36,6 +37,8 @@ and add the allocator service entry point under `cmd/r1sd/`.
   override) injects channel-context packet loss. The Python reference reassembles, echoes the exact
   bytes over the same Channel, and the Go endpoint re-validates them with the authenticated identity;
   the injected drop is confirmed and recovered by Channel retransmission.
+- The canonical `v1.2.0` dependency supplies resolvable first-party modules and the required Channel,
+  Link identity, path-wait, and embedded lifecycle fixes through the standard Go module graph.
 
 ## Follow-on work
 

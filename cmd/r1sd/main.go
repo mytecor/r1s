@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Quad4-Software/Reticulum-Go/pkg/reticulumconfig"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/allocator"
 	"github.com/mytecor/r1s/internal/cluster"
@@ -23,7 +24,6 @@ import (
 	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport/rns"
-	"quad4/reticulum-go/pkg/reticulumconfig"
 )
 
 // version identifies the build. Release binaries set it with

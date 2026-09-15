@@ -3,7 +3,7 @@ package rns
 import (
 	"testing"
 
-	"quad4/reticulum-go/pkg/common"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
 )
 
 func TestNormalizeUDPInterfaceConfig(t *testing.T) {

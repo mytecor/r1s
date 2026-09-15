@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"time"
 
-	"quad4/reticulum-go/pkg/identity"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
 )
 
 func (e *Endpoint) announceLoop(ctx context.Context) {

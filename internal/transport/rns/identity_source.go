@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"quad4/reticulum-go/pkg/identity"
-	"quad4/reticulum-go/pkg/rnsutil"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/rnsutil"
 )
 
 const privateIdentitySize = 64

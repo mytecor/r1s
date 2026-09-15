@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"sync"
 
-	"quad4/reticulum-go/pkg/channel"
-	"quad4/reticulum-go/pkg/link"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/channel"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/link"
 )
 
 type session struct {

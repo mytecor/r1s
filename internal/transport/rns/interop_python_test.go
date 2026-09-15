@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"quad4/reticulum-go/pkg/common"
-	"quad4/reticulum-go/pkg/interfaces"
 )
 
 // pythonReferenceExec resolves an interpreter that can import the upstream

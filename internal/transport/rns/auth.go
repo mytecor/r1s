@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 
-	"quad4/reticulum-go/pkg/channel"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/channel"
 )
 
 const authDomain = "r1s-auth-v1"

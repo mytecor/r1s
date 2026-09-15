@@ -20,9 +20,9 @@ Reticulum-Go without tunnelling gRPC or HTTP/2 over RNS.
 
 ## Implementation
 
-- [`internal/transport/rns`](../../internal/transport/rns/) embeds the canonical Reticulum-Go module,
-  announces bounded allocator descriptors, establishes Links, and overwrites envelope sender data
-  with authenticated identities.
+- [`internal/transport/rns`](../../internal/transport/rns/) embeds canonical Reticulum-Go `v1.2.0`
+  through its externally resolvable GitHub module path, announces bounded allocator descriptors,
+  establishes Links, and overwrites envelope sender data with authenticated identities.
 - [`cmd/r1sd`](../../cmd/r1sd/) wires the adapter to the allocator core while F3 still owns the OCI
   runtime integration.
 - A loopback UDP test exercises announce and path discovery, Link establishment and re-establishment,

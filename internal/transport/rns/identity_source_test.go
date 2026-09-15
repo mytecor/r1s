@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"quad4/reticulum-go/pkg/identity"
-	"quad4/reticulum-go/pkg/rnsutil"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/rnsutil"
 )
 
 func TestLoadOrCreateIdentityAcceptsRNSPrivateKeyEncodings(t *testing.T) {

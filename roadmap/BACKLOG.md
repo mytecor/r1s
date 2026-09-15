@@ -92,6 +92,11 @@ This file records unresolved choices so they do not remain implicit in implement
     commit, recorded in the roadmap; the automated pipeline continues to cover only the
     deterministic checks in [F7-01](./f7-verification/f7-01-ci-parity.md) (`make check`, go vet,
     cross-compile).
+11. **Reticulum-Go is consumed through its canonical GitHub module path** — upstream `v1.2.0`
+    publishes `github.com/Quad4-Software/Reticulum-Go` with externally resolvable first-party
+    dependencies. r1s therefore uses the standard Go module graph without local `replace`
+    directives, vendoring, copied dependencies, or a project-maintained fork; the transport adapter
+    remains behind the interface described in [F2](./f2-rns-transport/README.md).
 
 ## Deferred
 

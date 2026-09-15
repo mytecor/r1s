@@ -10,17 +10,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Quad4-Software/Reticulum-Go/pkg/channel"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/destination"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/link"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/cluster"
 	"github.com/mytecor/r1s/internal/protocol"
 	coretransport "github.com/mytecor/r1s/internal/transport"
 	"google.golang.org/protobuf/proto"
-	"quad4/reticulum-go/pkg/channel"
-	"quad4/reticulum-go/pkg/common"
-	"quad4/reticulum-go/pkg/destination"
-	"quad4/reticulum-go/pkg/identity"
-	"quad4/reticulum-go/pkg/interfaces"
-	"quad4/reticulum-go/pkg/link"
 )
 
 const (
