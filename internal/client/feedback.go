@@ -2,7 +2,6 @@ package client
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
@@ -20,7 +19,7 @@ func (o *Client) handleErrorLocked(e *r1sv1.Envelope) error {
 	id := e.GetCorrelationId()
 	for _, request := range o.requests {
 		if request.messageID == id {
-			_, authorized = o.allocators[hex.EncodeToString(e.GetSender())]
+			_, authorized = o.allocators.lookup(e.GetSender())
 		}
 		for _, offer := range request.offers {
 			if offer.release != nil && offer.release.MessageID == id && bytes.Equal(offer.allocatorID, e.GetSender()) {

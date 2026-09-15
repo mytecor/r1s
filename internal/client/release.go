@@ -3,7 +3,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"fmt"
 	"sort"
 	"time"
@@ -26,7 +25,7 @@ type PendingRelease struct {
 }
 
 func (o *Client) newReleaseLocked(offer *offerRecord) (*releaseIntent, error) {
-	allocator, ok := o.allocators[hex.EncodeToString(offer.allocatorID)]
+	allocator, ok := o.allocators.lookup(offer.allocatorID)
 	if !ok || allocator.Destination == "" {
 		return nil, ErrInvalidAllocator
 	}

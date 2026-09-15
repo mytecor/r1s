@@ -135,17 +135,15 @@ func TestEndpointsExchangeAuthenticatedEnvelopeOverUDP(t *testing.T) {
 		t.Fatal("envelope was not delivered")
 	}
 
-	endpointA.mu.Lock()
-	active := endpointA.sessions[endpointB.Destination()]
-	endpointA.mu.Unlock()
-	if active == nil {
-		t.Fatal("outbound session was not cached")
-	}
-	active.link.Teardown()
 	destinationHash, _, err := parseDestination(endpointB.Destination())
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, _, active := endpointA.connections.resolve(destinationHash, endpointB.Destination())
+	if active == nil {
+		t.Fatal("outbound session was not cached")
+	}
+	active.link.Teardown()
 	endpointA.stack.transport.ExpirePath(destinationHash)
 
 	reconnected := validEnvelope()

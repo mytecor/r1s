@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -86,7 +85,7 @@ func (o *Client) loadLocked(ctx context.Context) error {
 			return fmt.Errorf("%w: invalid durable allocator", ErrStore)
 		}
 		candidate := Allocator{Identity: saved.Identity, Destination: saved.Destination, Hops: saved.Hops, Capacity: saved.Capacity}
-		o.allocators[hex.EncodeToString(saved.Identity)] = cloneAllocator(candidate)
+		o.allocators.put(candidate)
 	}
 	for _, saved := range state.Requests {
 		request := new(r1sv1.ExecutionRequest)
@@ -145,7 +144,7 @@ func (o *Client) persistLocked(ctx context.Context) error {
 		return nil
 	}
 	state := persistedState{Version: stateVersion, Identity: append([]byte(nil), o.identity...)}
-	for _, allocator := range o.allocators {
+	for _, allocator := range o.allocators.all() {
 		state.Allocators = append(state.Allocators, persistedAllocator{Identity: append([]byte(nil), allocator.Identity...), Destination: allocator.Destination, Hops: allocator.Hops, Capacity: allocator.Capacity})
 	}
 	for _, record := range o.requests {

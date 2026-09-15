@@ -41,7 +41,7 @@ func (a *Allocator) handleOfferRelease(envelope *r1sv1.Envelope, release *r1sv1.
 		} else {
 			record.status = offerReleased
 		}
-		a.releaseClassLocked(record.offer.GetResourceClass())
+		a.capacity.release(record.offer.GetResourceClass())
 	}
 	switch record.status {
 	case offerExpired:
@@ -52,7 +52,7 @@ func (a *Allocator) handleOfferRelease(envelope *r1sv1.Envelope, release *r1sv1.
 	if previous != record.status {
 		if err := a.persistLocked(context.Background()); err != nil {
 			record.status = previous
-			a.used[record.offer.GetResourceClass()]++
+			_ = a.capacity.reserve(record.offer.GetResourceClass())
 			return nil, err
 		}
 	}

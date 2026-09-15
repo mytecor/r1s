@@ -82,33 +82,9 @@ type Endpoint struct {
 
 	started      bool
 	closed       bool
-	sessions     map[string]*session
-	destinations map[string][]byte
-	dials        map[string]*dialAttempt
-	waiters      map[string][]chan struct{}
+	connections  *connectionRegistry
 	discovered   chan Service
 	stopAnnounce context.CancelFunc
-}
-
-type session struct {
-	mu            sync.RWMutex
-	sendMu        sync.Mutex
-	link          *link.Link
-	channel       *channel.Channel
-	sender        []byte
-	pending       [][]byte
-	pendingAuth   [][]byte
-	challenge     []byte
-	authenticated bool
-	authErr       error
-	authDone      chan struct{}
-	authOnce      sync.Once
-}
-
-type dialAttempt struct {
-	done    chan struct{}
-	session *session
-	err     error
 }
 
 var _ coretransport.Endpoint = (*Endpoint)(nil)
@@ -172,9 +148,8 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 		handler: handler, interval: config.AnnounceInterval, networkWait: config.NetworkWait,
 		name:       hex.EncodeToString(localIdentity.Hash()),
 		clusterKey: bytes.Clone(config.ClusterKey), clusterID: clusterID,
-		advertises: len(descriptorData) > 0,
-		sessions:   make(map[string]*session), dials: make(map[string]*dialAttempt),
-		destinations: make(map[string][]byte), waiters: make(map[string][]chan struct{}), discovered: make(chan Service, 32),
+		advertises:  len(descriptorData) > 0,
+		connections: newConnectionRegistry(), discovered: make(chan Service, 32),
 	}
 	localDestination.SetLinkEstablishedCallback(endpoint.acceptLink)
 	rnsStack.transport.RegisterAnnounceHandler(&announceHandler{endpoint: endpoint, aspect: config.AppName + "." + config.Aspect})
@@ -232,10 +207,8 @@ func (e *Endpoint) Discoveries() <-chan Service { return e.discovered }
 // learned through an announce or an outbound session.
 func (e *Endpoint) DestinationForIdentity(identityHash string) (string, bool) {
 	key := strings.ToLower(strings.TrimSpace(identityHash))
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	destinationHash := e.destinations[key]
-	if len(destinationHash) != 16 {
+	destinationHash, ok := e.connections.destination(key)
+	if !ok {
 		return "", false
 	}
 	return hex.EncodeToString(destinationHash), true
@@ -263,12 +236,8 @@ func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Enve
 		e.mu.Unlock()
 		return ErrNotStarted
 	}
-	active := e.sessions[key]
-	if mapped := e.destinations[key]; len(mapped) == 16 {
-		destinationHash = bytes.Clone(mapped)
-		key = hex.EncodeToString(destinationHash)
-	}
 	e.mu.Unlock()
+	destinationHash, key, active := e.connections.resolve(destinationHash, key)
 	if active == nil || active.link.GetStatus() != link.StatusActive {
 		active, err = e.connect(ctx, destinationHash, key)
 		if err != nil {
@@ -295,13 +264,11 @@ func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Enve
 }
 
 func (e *Endpoint) connect(ctx context.Context, destinationHash []byte, key string) (*session, error) {
-	e.mu.Lock()
-	if active := e.sessions[key]; active != nil && active.link.GetStatus() == link.StatusActive {
-		e.mu.Unlock()
+	active, attempt, owner := e.connections.beginDial(key)
+	if active != nil {
 		return active, nil
 	}
-	if attempt := e.dials[key]; attempt != nil {
-		e.mu.Unlock()
+	if !owner {
 		select {
 		case <-attempt.done:
 			return attempt.session, attempt.err
@@ -309,16 +276,9 @@ func (e *Endpoint) connect(ctx context.Context, destinationHash []byte, key stri
 			return nil, ctx.Err()
 		}
 	}
-	attempt := &dialAttempt{done: make(chan struct{})}
-	e.dials[key] = attempt
-	e.mu.Unlock()
-
-	attempt.session, attempt.err = e.dial(ctx, destinationHash)
-	e.mu.Lock()
-	delete(e.dials, key)
-	close(attempt.done)
-	e.mu.Unlock()
-	return attempt.session, attempt.err
+	active, err := e.dial(ctx, destinationHash)
+	e.connections.finishDial(key, attempt, active, err)
+	return active, err
 }
 
 func (e *Endpoint) dial(ctx context.Context, destinationHash []byte) (*session, error) {
@@ -382,11 +342,8 @@ func (e *Endpoint) awaitPath(ctx context.Context, destinationHash []byte) error 
 		return nil
 	}
 	key := hex.EncodeToString(destinationHash)
-	waiter := make(chan struct{})
-	e.mu.Lock()
-	e.waiters[key] = append(e.waiters[key], waiter)
-	e.mu.Unlock()
-	defer e.removeWaiter(key, waiter)
+	waiter := e.connections.addWaiter(key)
+	defer e.connections.removeWaiter(key, waiter)
 	if e.stack.transport.HasPath(destinationHash) {
 		return nil
 	}
@@ -427,7 +384,7 @@ func (e *Endpoint) acceptLink(value any) {
 		pendingAuth := active.pendingAuth
 		active.pendingAuth = nil
 		active.mu.Unlock()
-		e.cacheSession(active, remote.Hash(), nil)
+		e.connections.cacheSession(active, remote.Hash(), nil)
 		e.beginAuthentication(active)
 		for _, data := range pendingAuth {
 			var message authMessage
@@ -467,12 +424,8 @@ func (e *Endpoint) newSession(rnsLink *link.Link, sender, destinationHash []byte
 		go e.deliver(active, wire.data)
 		return true
 	})
-	e.cacheSession(active, sender, destinationHash)
-	if len(sender) == 16 && len(destinationHash) == 16 {
-		e.mu.Lock()
-		e.destinations[hex.EncodeToString(sender)] = bytes.Clone(destinationHash)
-		e.mu.Unlock()
-	}
+	e.connections.cacheSession(active, sender, destinationHash)
+	e.connections.rememberDestination(sender, destinationHash)
 	return active, nil
 }
 
@@ -505,46 +458,6 @@ func (e *Endpoint) deliver(active *session, data []byte) {
 	_ = e.handler(context.Background(), &envelope)
 }
 
-func (e *Endpoint) cacheSession(active *session, identities ...[]byte) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	for _, value := range identities {
-		if len(value) == 16 {
-			e.sessions[hex.EncodeToString(value)] = active
-		}
-	}
-}
-
-func (e *Endpoint) removeWaiter(key string, waiter chan struct{}) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	entries := e.waiters[key]
-	for index, entry := range entries {
-		if entry == waiter {
-			entries = append(entries[:index], entries[index+1:]...)
-			break
-		}
-	}
-	if len(entries) == 0 {
-		delete(e.waiters, key)
-	} else {
-		e.waiters[key] = entries
-	}
-}
-
-func (e *Endpoint) announceLoop(ctx context.Context) {
-	ticker := time.NewTicker(e.interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			_ = e.destination.Announce(false, nil, nil)
-		}
-	}
-}
-
 // Close shuts down links and the embedded Reticulum node. It is idempotent.
 func (e *Endpoint) Close() error {
 	e.mu.Lock()
@@ -556,59 +469,11 @@ func (e *Endpoint) Close() error {
 	if e.stopAnnounce != nil {
 		e.stopAnnounce()
 	}
-	seen := make(map[*session]struct{}, len(e.sessions))
-	for _, active := range e.sessions {
-		seen[active] = struct{}{}
-	}
 	e.mu.Unlock()
-	for active := range seen {
+	for _, active := range e.connections.allSessions() {
 		active.link.Teardown()
 	}
 	return e.stack.Close()
-}
-
-type announceHandler struct {
-	endpoint *Endpoint
-	aspect   string
-}
-
-func (h *announceHandler) AspectFilter() []string     { return []string{h.aspect} }
-func (h *announceHandler) ReceivePathResponses() bool { return true }
-func (h *announceHandler) ReceivedAnnounce(destinationHash []byte, announced any, appData []byte, hops uint8) error {
-	key := hex.EncodeToString(destinationHash)
-	h.endpoint.mu.Lock()
-	waiters := h.endpoint.waiters[key]
-	delete(h.endpoint.waiters, key)
-	h.endpoint.mu.Unlock()
-	for _, waiter := range waiters {
-		close(waiter)
-	}
-	descriptor, err := parseDescriptor(appData)
-	if err != nil {
-		return nil
-	}
-	announcedCluster, err := hex.DecodeString(descriptor.ClusterID)
-	if err != nil || !bytes.Equal(announcedCluster, h.endpoint.clusterID) {
-		return nil
-	}
-	announcedIdentity, ok := announced.(*identity.Identity)
-	if !ok || announcedIdentity == nil {
-		return nil
-	}
-	service := Service{
-		Destination: key,
-		Identity:    hex.EncodeToString(announcedIdentity.Hash()),
-		Descriptor:  descriptor,
-		Hops:        hops,
-	}
-	h.endpoint.mu.Lock()
-	h.endpoint.destinations[service.Identity] = bytes.Clone(destinationHash)
-	h.endpoint.mu.Unlock()
-	select {
-	case h.endpoint.discovered <- service:
-	default:
-	}
-	return nil
 }
 
 func parseDestination(value string) ([]byte, string, error) {

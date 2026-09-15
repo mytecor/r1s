@@ -80,7 +80,7 @@ func (a *Allocator) checkFreshness(e *r1sv1.Envelope) error {
 // cleanup survives failures and restart. In-flight transitions are never collected.
 func (a *Allocator) Sweep(ctx context.Context) error {
 	a.mu.Lock()
-	oldOffers, oldExecutions, oldRequests, oldReplay, oldDead, oldUsed, oldClock := a.offers, a.executions, a.requests, a.replay, a.tombstones, a.used, a.highWater
+	oldOffers, oldExecutions, oldRequests, oldReplay, oldDead, oldUsed, oldClock := a.offers, a.executions, a.requests, a.replay, a.tombstones, a.capacity.snapshot(), a.highWater
 	a.offers = maps.Clone(a.offers)
 	for id, record := range a.offers {
 		copy := *record
@@ -88,14 +88,13 @@ func (a *Allocator) Sweep(ctx context.Context) error {
 	}
 	a.executions = maps.Clone(a.executions)
 	a.requests = maps.Clone(a.requests)
-	a.replay = maps.Clone(a.replay)
+	a.replay = a.replay.clone()
 	a.tombstones = maps.Clone(a.tombstones)
-	a.used = maps.Clone(a.used)
 	now := a.effectiveNowLocked()
 	a.expireOffersLocked(now)
-	a.pruneReplayLocked(now)
+	a.replay.prune(now)
 	busy := make(map[string]bool)
-	for _, entry := range a.replay {
+	for _, entry := range a.replay.entries {
 		if !replayDone(entry) {
 			e := entry.envelope
 			if q := e.GetExecutionRequest(); q != nil {
@@ -136,7 +135,7 @@ func (a *Allocator) Sweep(ctx context.Context) error {
 			delete(a.tombstones, id)
 		}
 	}
-	for key, entry := range a.replay {
+	for key, entry := range a.replay.entries {
 		if replayDone(entry) {
 			e := entry.envelope
 			drop := false
@@ -153,12 +152,13 @@ func (a *Allocator) Sweep(ctx context.Context) error {
 				drop = a.executions[q.GetExecutionId()] == nil
 			}
 			if drop {
-				delete(a.replay, key)
+				delete(a.replay.entries, key)
 			}
 		}
 	}
 	if err := a.persistLocked(ctx); err != nil {
-		a.offers, a.executions, a.requests, a.replay, a.tombstones, a.used, a.highWater = oldOffers, oldExecutions, oldRequests, oldReplay, oldDead, oldUsed, oldClock
+		a.offers, a.executions, a.requests, a.replay, a.tombstones, a.highWater = oldOffers, oldExecutions, oldRequests, oldReplay, oldDead, oldClock
+		a.capacity.restore(oldUsed)
 		a.mu.Unlock()
 		return err
 	}

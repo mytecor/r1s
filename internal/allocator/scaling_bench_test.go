@@ -137,7 +137,7 @@ func snapshotSizeLocked(allocator *Allocator) int64 {
 			OccurredAt: record.occurredAt, StartedAt: record.startedAt, Released: record.released, Revision: record.revision, Resources: record.resources, RetainUntil: record.retainUntil,
 		})
 	}
-	for key, entry := range allocator.replay {
+	for key, entry := range allocator.replay.entries {
 		envelope, _ := json.Marshal(entry.envelope)
 		saved := persistedReplay{Key: key, SeenAt: entry.seenAt, Envelope: envelope, Complete: replayDone(entry)}
 		state.Replay = append(state.Replay, saved)

@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -100,7 +99,7 @@ type Client struct {
 	now      func() time.Time
 	newID    func() string
 
-	allocators map[string]Allocator
+	allocators allocatorCatalog
 	requests   map[string]*requestRecord
 	executions map[string]*executionRecord
 }
@@ -118,7 +117,7 @@ func New(config Config) (*Client, error) {
 	}
 	result := &Client{
 		identity: bytes.Clone(config.Identity), store: config.Store, now: config.Now, newID: config.NewID,
-		allocators: make(map[string]Allocator), requests: make(map[string]*requestRecord), executions: make(map[string]*executionRecord),
+		allocators: newAllocatorCatalog(), requests: make(map[string]*requestRecord), executions: make(map[string]*executionRecord),
 	}
 	result.mu.Lock()
 	err := result.loadLocked(context.Background())
@@ -127,34 +126,6 @@ func New(config Config) (*Client, error) {
 		return nil, err
 	}
 	return result, nil
-}
-
-// RegisterAllocator records a verified discovery or authenticated session route.
-func (o *Client) RegisterAllocator(candidate Allocator) error {
-	if len(candidate.Identity) == 0 || strings.TrimSpace(candidate.Destination) == "" {
-		return ErrInvalidAllocator
-	}
-	key := hex.EncodeToString(candidate.Identity)
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	previous, existed := o.allocators[key]
-	if existed {
-		if candidate.Capacity == nil {
-			candidate.Capacity = previous.Capacity
-			candidate.Hops = previous.Hops
-		}
-	}
-	cloned := cloneAllocator(candidate)
-	o.allocators[key] = cloned
-	if err := o.persistLocked(context.Background()); err != nil {
-		if existed {
-			o.allocators[key] = previous
-		} else {
-			delete(o.allocators, key)
-		}
-		return err
-	}
-	return nil
 }
 
 // CreateRequest durably creates a request before it is sent to any allocator.
@@ -224,8 +195,7 @@ func (o *Client) handleOfferLocked(envelope *r1sv1.Envelope, offer *r1sv1.Execut
 	if record.messageID != envelope.GetCorrelationId() || offer.GetResourceClass() != record.request.GetResourceClass() {
 		return ErrConflict
 	}
-	allocatorKey := hex.EncodeToString(envelope.GetSender())
-	if _, ok := o.allocators[allocatorKey]; !ok {
+	if _, ok := o.allocators.lookup(envelope.GetSender()); !ok {
 		return ErrUnauthorized
 	}
 	if existing := record.offers[offer.GetOfferId()]; existing != nil {
@@ -297,78 +267,6 @@ func (o *Client) handleStateLocked(envelope *r1sv1.Envelope, state *r1sv1.Execut
 		return err
 	}
 	return nil
-}
-
-// Select deterministically chooses one non-expired offer and durably records its assignment.
-func (o *Client) Select(requestID string) (string, *r1sv1.Envelope, error) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	record := o.requests[requestID]
-	if record == nil {
-		return "", nil, fmt.Errorf("%w: %q", ErrRequestNotFound, requestID)
-	}
-	if record.executionID != "" {
-		execution := o.executions[record.executionID]
-		return execution.destination, o.assignmentEnvelopeLocked(execution), nil
-	}
-	now := o.now().UTC()
-	candidates := make([]*offerRecord, 0, len(record.offers))
-	for _, offer := range record.offers {
-		allocator, ok := o.allocators[hex.EncodeToString(offer.allocatorID)]
-		if ok && strings.TrimSpace(allocator.Destination) != "" && offer.offer.GetExpiresAt().AsTime().After(now) {
-			candidates = append(candidates, offer)
-		}
-	}
-	if len(candidates) == 0 {
-		return "", nil, ErrNoOffer
-	}
-	sort.Slice(candidates, func(left, right int) bool {
-		leftAllocator := o.allocators[hex.EncodeToString(candidates[left].allocatorID)]
-		rightAllocator := o.allocators[hex.EncodeToString(candidates[right].allocatorID)]
-		if leftAllocator.Hops != rightAllocator.Hops {
-			return leftAllocator.Hops < rightAllocator.Hops
-		}
-		if compared := bytes.Compare(candidates[left].allocatorID, candidates[right].allocatorID); compared != 0 {
-			return compared < 0
-		}
-		return candidates[left].offer.GetOfferId() < candidates[right].offer.GetOfferId()
-	})
-	selected := candidates[0]
-	allocator := o.allocators[hex.EncodeToString(selected.allocatorID)]
-	executionID := o.uniqueExecutionIDLocked()
-	messageID := o.newID()
-	if executionID == "" || messageID == "" {
-		return "", nil, fmt.Errorf("%w: ID generator returned an empty or duplicate ID", ErrInvalidConfig)
-	}
-	execution := &executionRecord{
-		id: executionID, requestID: requestID, offerID: selected.offer.GetOfferId(), allocatorID: bytes.Clone(selected.allocatorID),
-		destination: allocator.Destination, assignmentMessageID: messageID, assignmentSentAt: now,
-	}
-	prepared := make(map[*offerRecord]*releaseIntent)
-	for _, offer := range record.offers {
-		if offer == selected || offer.release != nil {
-			continue
-		}
-		intent, err := o.newReleaseLocked(offer)
-		if err != nil {
-			return "", nil, err
-		}
-		prepared[offer] = intent
-	}
-	for offer, intent := range prepared {
-		offer.release = intent
-	}
-	record.executionID = executionID
-	o.executions[executionID] = execution
-	if err := o.persistLocked(context.Background()); err != nil {
-		for offer := range prepared {
-			offer.release = nil
-		}
-		record.executionID = ""
-		delete(o.executions, executionID)
-		return "", nil, err
-	}
-	return execution.destination, o.assignmentEnvelopeLocked(execution), nil
 }
 
 // Inspect creates a fresh query so allocator replay caching cannot return stale state.
@@ -503,17 +401,6 @@ func snapshotExecution(record *executionRecord) ExecutionSnapshot {
 	}
 	if record.state != nil {
 		result.State = proto.Clone(record.state).(*r1sv1.ExecutionState)
-	}
-	return result
-}
-
-func cloneAllocator(value Allocator) Allocator {
-	result := Allocator{Identity: bytes.Clone(value.Identity), Destination: value.Destination, Hops: value.Hops}
-	if value.Capacity != nil {
-		result.Capacity = make(map[string]uint32, len(value.Capacity))
-		for class, slots := range value.Capacity {
-			result.Capacity[class] = slots
-		}
 	}
 	return result
 }

@@ -169,7 +169,7 @@ func (a *Allocator) loadLocked(ctx context.Context) error {
 			entry.err = restoreError(saved.ErrorCode, saved.Error)
 		}
 		close(entry.done)
-		a.replay[saved.Key] = entry
+		a.replay.entries[saved.Key] = entry
 	}
 
 	a.expireOffersLocked(a.now().UTC())
@@ -181,12 +181,9 @@ func (a *Allocator) loadLocked(ctx context.Context) error {
 			}
 		}
 		if offer.status == offerOutstanding || offer.status == offerAssigned && !a.executions[offer.execution].released {
-			a.used[offer.offer.GetResourceClass()]++
-		}
-	}
-	for class, used := range a.used {
-		if limit := a.capacity[class]; limit == 0 || used > limit {
-			return fmt.Errorf("%w: durable state uses %d slots of class %q with configured capacity %d", ErrInvalidConfig, used, class, limit)
+			if err := a.capacity.reserve(offer.offer.GetResourceClass()); err != nil {
+				return fmt.Errorf("%w: durable state exceeds configured capacity for class %q", ErrInvalidConfig, offer.offer.GetResourceClass())
+			}
 		}
 	}
 	return nil
@@ -219,7 +216,7 @@ func (a *Allocator) persistLocked(ctx context.Context) error {
 			OccurredAt: record.occurredAt, StartedAt: record.startedAt, Released: record.released, Revision: record.revision, Resources: record.resources, RetainUntil: record.retainUntil,
 		})
 	}
-	for key, entry := range a.replay {
+	for key, entry := range a.replay.entries {
 		envelope, err := proto.Marshal(entry.envelope)
 		if err != nil {
 			return errors.Join(ErrStore, err)

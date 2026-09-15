@@ -324,7 +324,7 @@ func TestReplayRetentionIsBounded(t *testing.T) {
 		}
 	}
 	allocator.mu.Lock()
-	entries := len(allocator.replay)
+	entries := len(allocator.replay.entries)
 	allocator.mu.Unlock()
 	if entries > 2 {
 		t.Fatalf("replay entries = %d, want at most 2", entries)

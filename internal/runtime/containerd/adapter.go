@@ -3,22 +3,14 @@ package containerd
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/logstore"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
-	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -118,7 +110,7 @@ func newWithBackend(config Config, implementation backend) *Adapter {
 // Start creates and starts one task. Repeating the same execution ID and
 // specification returns success without creating another container or task.
 func (a *Adapter) Start(ctx context.Context, request r1sruntime.StartRequest, reporter r1sruntime.Reporter) error {
-	fingerprint, err := validateAndFingerprint(request, reporter, a.now())
+	spec, err := prepareExecution(request, reporter, a.now(), false)
 	if err != nil {
 		return err
 	}
@@ -130,7 +122,7 @@ func (a *Adapter) Start(ctx context.Context, request r1sruntime.StartRequest, re
 			return ErrClosed
 		}
 		if current, ok := a.executions[request.ExecutionID]; ok {
-			if current.fingerprint != fingerprint {
+			if current.fingerprint != spec.fingerprint {
 				a.mu.Unlock()
 				return fmt.Errorf("%w: %q", ErrExecutionConflict, request.ExecutionID)
 			}
@@ -145,19 +137,15 @@ func (a *Adapter) Start(ctx context.Context, request r1sruntime.StartRequest, re
 		}
 
 		current := &execution{
-			fingerprint: fingerprint,
+			fingerprint: spec.fingerprint,
 			ready:       make(chan struct{}),
 			done:        make(chan struct{}),
 		}
 		a.executions[request.ExecutionID] = current
 		a.mu.Unlock()
 
-		startContext := ctx
-		cancel := func() {}
-		if deadline := request.Policy.GetDeadline(); deadline != nil {
-			startContext, cancel = context.WithDeadline(ctx, deadline.AsTime())
-		}
-		started, startErr := a.backend.Start(startContext, request, fingerprint)
+		startContext, cancel := spec.startContext(ctx)
+		started, startErr := a.backend.Start(startContext, spec.request, spec.fingerprint)
 		cancel()
 
 		a.mu.Lock()
@@ -171,11 +159,7 @@ func (a *Adapter) Start(ctx context.Context, request r1sruntime.StartRequest, re
 		}
 		a.mu.Unlock()
 
-		startedAt := request.StartedAt
-		if startedAt.IsZero() {
-			startedAt = a.now()
-		}
-		go a.monitor(request, current, reporter, startedAt)
+		go a.monitor(spec.started(a.now()), current, reporter)
 		return nil
 	}
 }
@@ -184,7 +168,7 @@ func (a *Adapter) Start(ctx context.Context, request r1sruntime.StartRequest, re
 // Missing and partially-created runtime objects are reported to the allocator
 // so it can resolve its durable state without duplicating work.
 func (a *Adapter) Recover(ctx context.Context, request r1sruntime.StartRequest, reporter r1sruntime.Reporter) error {
-	fingerprint, err := validateAndFingerprint(request, reporter, a.now(), true)
+	spec, err := prepareExecution(request, reporter, a.now(), true)
 	if err != nil {
 		return err
 	}
@@ -195,7 +179,7 @@ func (a *Adapter) Recover(ctx context.Context, request r1sruntime.StartRequest, 
 		return ErrClosed
 	}
 	if current, exists := a.executions[request.ExecutionID]; exists {
-		if current.fingerprint != fingerprint {
+		if current.fingerprint != spec.fingerprint {
 			a.mu.Unlock()
 			return fmt.Errorf("%w: %q", ErrExecutionConflict, request.ExecutionID)
 		}
@@ -208,11 +192,11 @@ func (a *Adapter) Recover(ctx context.Context, request r1sruntime.StartRequest, 
 			return current.startErr
 		}
 	}
-	current := &execution{fingerprint: fingerprint, ready: make(chan struct{}), done: make(chan struct{})}
+	current := &execution{fingerprint: spec.fingerprint, ready: make(chan struct{}), done: make(chan struct{})}
 	a.executions[request.ExecutionID] = current
 	a.mu.Unlock()
 
-	started, recoverErr := a.backend.Recover(ctx, request, fingerprint)
+	started, recoverErr := a.backend.Recover(ctx, spec.request, spec.fingerprint)
 	a.mu.Lock()
 	current.process = started
 	current.startErr = recoverErr
@@ -224,11 +208,7 @@ func (a *Adapter) Recover(ctx context.Context, request r1sruntime.StartRequest, 
 	}
 	a.mu.Unlock()
 
-	startedAt := request.StartedAt
-	if startedAt.IsZero() {
-		startedAt = a.now()
-	}
-	go a.monitor(request, current, reporter, startedAt)
+	go a.monitor(spec.started(a.now()), current, reporter)
 	return nil
 }
 
@@ -333,10 +313,10 @@ func (a *Adapter) Forget(ctx context.Context, id string) error {
 	return nil
 }
 
-func (a *Adapter) monitor(request r1sruntime.StartRequest, current *execution, reporter r1sruntime.Reporter, startedAt time.Time) {
+func (a *Adapter) monitor(spec executionSpec, current *execution, reporter r1sruntime.Reporter) {
 	var timer <-chan time.Time
 	var deadlineTimer *time.Timer
-	if deadline, ok := executionDeadline(request.Policy, startedAt); ok {
+	if deadline, ok := spec.deadline(); ok {
 		deadlineTimer = time.NewTimer(deadline.Sub(a.now()))
 		timer = deadlineTimer.C
 		defer deadlineTimer.Stop()
@@ -374,7 +354,7 @@ func (a *Adapter) monitor(request r1sruntime.StartRequest, current *execution, r
 	}
 	exitCode := int32(result.code)
 	completion := r1sruntime.Completion{
-		ExecutionID: request.ExecutionID,
+		ExecutionID: spec.request.ExecutionID,
 		Err:         completionErr,
 		Detail:      detail,
 		ExitCode:    &exitCode,
@@ -400,129 +380,6 @@ func (a *Adapter) monitor(request r1sruntime.StartRequest, current *execution, r
 	current.doneErr = errors.Join(cleanupErr, reportErr)
 	close(current.done)
 	a.mu.Unlock()
-}
-
-func validateAndFingerprint(request r1sruntime.StartRequest, reporter r1sruntime.Reporter, now time.Time, allowExpired ...bool) (string, error) {
-	if strings.TrimSpace(request.ExecutionID) == "" {
-		return "", fmt.Errorf("%w: execution ID is required", ErrInvalidRequest)
-	}
-	if reporter == nil {
-		return "", fmt.Errorf("%w: completion reporter is required", ErrInvalidRequest)
-	}
-	if request.Workload == nil || request.Policy == nil {
-		return "", fmt.Errorf("%w: workload and policy are required", ErrInvalidRequest)
-	}
-	if _, err := pinnedDigest(request.Workload.GetImage()); err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidRequest, err)
-	}
-	if deadline := request.Policy.GetDeadline(); deadline != nil {
-		if err := deadline.CheckValid(); err != nil {
-			return "", fmt.Errorf("%w: invalid deadline: %v", ErrInvalidRequest, err)
-		}
-		if !deadline.AsTime().After(now) && (len(allowExpired) == 0 || !allowExpired[0]) {
-			return "", ErrDeadlineExceeded
-		}
-	}
-	if maximum := request.Policy.GetMaxRuntime(); maximum != nil {
-		if err := maximum.CheckValid(); err != nil || maximum.AsDuration() <= 0 {
-			return "", fmt.Errorf("%w: max runtime must be a positive duration", ErrInvalidRequest)
-		}
-	}
-	if request.Policy.GetDeadline() == nil && request.Policy.GetMaxRuntime() == nil {
-		return "", fmt.Errorf("%w: deadline or max runtime is required", ErrInvalidRequest)
-	}
-
-	if err := request.Resources.Validate(); err != nil {
-		return "", err
-	}
-	marshal := proto.MarshalOptions{Deterministic: true}
-	workload, err := marshal.Marshal(request.Workload)
-	if err != nil {
-		return "", fmt.Errorf("%w: marshal workload: %v", ErrInvalidRequest, err)
-	}
-	policy, err := marshal.Marshal(request.Policy)
-	if err != nil {
-		return "", fmt.Errorf("%w: marshal policy: %v", ErrInvalidRequest, err)
-	}
-	hash := sha256.New()
-	writeHashPart(hash, request.Client)
-	writeHashPart(hash, workload)
-	writeHashPart(hash, policy)
-	if request.Resources != (r1sruntime.Resources{}) {
-		resources, _ := json.Marshal(request.Resources)
-		writeHashPart(hash, resources)
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-type hashWriter interface {
-	Write([]byte) (int, error)
-}
-
-func writeHashPart(writer hashWriter, value []byte) {
-	var length [8]byte
-	binary.BigEndian.PutUint64(length[:], uint64(len(value)))
-	_, _ = writer.Write(length[:])
-	_, _ = writer.Write(value)
-}
-
-func executionDeadline(policy *r1sv1.ExecutionPolicy, startedAt time.Time) (time.Time, bool) {
-	var deadline time.Time
-	if policy.GetDeadline() != nil {
-		deadline = policy.GetDeadline().AsTime()
-	}
-	if policy.GetMaxRuntime() != nil {
-		maximum := startedAt.Add(policy.GetMaxRuntime().AsDuration())
-		if deadline.IsZero() || maximum.Before(deadline) {
-			deadline = maximum
-		}
-	}
-	return deadline, !deadline.IsZero()
-}
-
-func environment(workload *r1sv1.Workload) []string {
-	keys := make([]string, 0, len(workload.GetEnvironment()))
-	for key := range workload.GetEnvironment() {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	values := make([]string, 0, len(keys))
-	for _, key := range keys {
-		values = append(values, key+"="+workload.GetEnvironment()[key])
-	}
-	return values
-}
-
-func withDefaults(config Config) Config {
-	if config.Address == "" {
-		config.Address = DefaultAddress
-	}
-	if config.Namespace == "" {
-		config.Namespace = DefaultNamespace
-	}
-	if config.CleanupTimeout == 0 {
-		config.CleanupTimeout = defaultCleanupTimeout
-	}
-	if config.Now == nil {
-		config.Now = time.Now
-	}
-	return config
-}
-
-func validateConfig(config Config) error {
-	if strings.TrimSpace(config.Address) == "" || strings.TrimSpace(config.Namespace) == "" {
-		return fmt.Errorf("%w: address and namespace are required", ErrInvalidConfig)
-	}
-	if config.Namespace == "version" {
-		return fmt.Errorf("%w: namespace %q is reserved", ErrInvalidConfig, config.Namespace)
-	}
-	if config.Logs != nil && !filepath.IsAbs(config.LogBinary) {
-		return fmt.Errorf("%w: log binary must be absolute", ErrInvalidConfig)
-	}
-	if config.CleanupTimeout <= 0 {
-		return fmt.Errorf("%w: cleanup timeout must be positive", ErrInvalidConfig)
-	}
-	return nil
 }
 
 func channelClosed(channel <-chan struct{}) bool {
