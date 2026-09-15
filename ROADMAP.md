@@ -82,7 +82,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > Clients distinguish authenticated allocator rejection from missing responses, and execution state ordering
 > survives clock rollback and process restart.
 
-- **Status:** 🚧 implemented; unit and protocol acceptance tests pass; live verify pending
+- **Status:** ✅ complete; unit, protocol, and live Linux rejection acceptance verified on `mytecor-homelab` (2026-09-15)
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** [F1](#f1-protocol-foundation), [F2](#f2-rns-transport), [F4](#f4-client-workflow), [F5](#f5-partition-recovery).
 
@@ -91,7 +91,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > The allocator retains bounded stdout/stderr locally, including after a task fails or the daemon restarts, and
 > an execution owner can separately request a bounded range of locally retained logs.
 
-- **Status:** 🚧 implemented; unit acceptance tests pass; live Linux restart verified on `mytecor-homelab` (2026-09-15)
+- **Status:** ✅ complete; live Linux log retention and owner retrieval verified on `mytecor-homelab` (2026-09-15)
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** [F3](#f3-oci-runtime), [F4](#f4-client-workflow), [F8](#f8-protocol-feedback-and-state-revisions), and the [F11](#f11-bounded-durable-history) retention contract.
 
@@ -100,7 +100,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > Allocator-defined resource classes enforce CPU, memory, and process limits, and an allocator controls which
 > clients can reserve capacity and how much they can reserve.
 
-- **Status:** 🚧 implemented; admission acceptance tests pass; live Linux enforcement pending
+- **Status:** ✅ complete; admission acceptance tests and live Linux enforcement verified on `mytecor-homelab` (2026-09-15)
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** [F3](#f3-oci-runtime), [F8](#f8-protocol-feedback-and-state-revisions).
 
@@ -109,7 +109,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > Finished executions and obsolete offers are collected without allowing old commands to restart work, and
 > persistence remains predictable as execution history grows.
 
-- **Status:** 🚧 in progress; retention and acceptance tests pass; F11-02 storage benchmarks added and measured on 2026-09-15
+- **Status:** ✅ complete; retention acceptance, storage benchmarks, and live crash injection verified; F11-02 measured on 2026-09-15
 - **Done when:** the linked tasks pass their acceptance checks.
 - **Depends on:** [F5](#f5-partition-recovery), [F6](#f6-efficient-offer-release), [F8](#f8-protocol-feedback-and-state-revisions).
 
@@ -134,11 +134,19 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - [F7](#f7-continuous-verification) — F7-01 CI parity is done and green on GitHub
   Actions (2026-09-15).
 
-Remaining live Linux legs F8–F11 still need:
+The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
+(containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live
+acceptance suite passes together under `go test -race`:
 
-- [F8](#f8-protocol-feedback-and-state-revisions) — live duplicate-execution-under-loss confirmation.
-- [F9](#f9-local-logs-and-explicit-retrieval) — the live transport-spy zero-log-bytes leg.
-- [F10](#f10-local-admission-and-resource-limits) — identity-quota and live resource enforcement.
-- [F11](#f11-bounded-durable-history) — live crash/store-failure injection during `Sweep`.
+- [F8](#f8-protocol-feedback-and-state-revisions) — `TestLiveRejectionUnderLossNoDuplicateExecution`
+  proves a rejection in flight never becomes an execution.
+- [F9](#f9-local-logs-and-explicit-retrieval) — the transport-spy zero-log-bytes leg is inherently a
+  wire-level deterministic check and lives in the unit acceptance
+  (`TestLogsOnlyByExplicitOwnerRequest`); the live restart leg was already verified.
+- [F10](#f10-local-admission-and-resource-limits) — `TestLiveResourceLimitsEnforced` (OCI-spec
+  memory/CPU/pids limits on a real container, kept across restart) and
+  `TestLiveIdentityQuotaEnforced` (per-identity quota, repeated cleanup, restart consistency).
+- [F11](#f11-bounded-durable-history) — `TestLiveSweepCrashPreservesCapacityAndAuthority` (SIGKILL
+  during the `Sweep` window; collected assignment stays `EXPIRED`, capacity freed).
 
-Until the remaining live legs finish, F8–F11 stay in progress rather than done.
+F8, F9, F10, and F11 are therefore complete.

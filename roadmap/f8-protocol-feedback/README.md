@@ -2,7 +2,7 @@
 
 Corresponds to the [F8 milestone](../../ROADMAP.md#f8-protocol-feedback-and-state-revisions).
 
-**Status:** 🚧 Implemented; unit and protocol acceptance tests pass; live verify pending
+**Status:** ✅ Implemented; unit, protocol, and live Linux acceptance all pass
 
 ## Outcome
 

@@ -2,7 +2,7 @@
 
 Corresponds to the [F11 milestone](../../ROADMAP.md#f11-bounded-durable-history).
 
-**Status:** 🚧 Implemented; retention acceptance tests pass; F11-02 storage benchmarks added and measured (2026-09-15)
+**Status:** ✅ Implemented; retention acceptance tests, storage benchmarks, and live crash injection pass
 
 ## Outcome
 

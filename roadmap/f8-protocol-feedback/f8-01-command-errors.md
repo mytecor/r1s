@@ -1,6 +1,6 @@
 # F8-01 — Explicit command errors
 
-**Status:** 🚧 Implemented; unit and protocol acceptance tests pass; live verify pending
+**Status:** ✅ Implemented; unit, protocol, and live Linux acceptance all pass
 
 ## Outcome
 
@@ -33,9 +33,13 @@ Covered by `internal/allocator/acceptance_test.go` (`TestCapacityRejectionReturn
   execution state; workload output never appears in an error detail.
 - The wire validation rejects unknown error codes, missing correlation, and oversized detail.
 
-Still to verify on a live Linux runner: no duplicate execution under injected transport loss while a
-rejection is in flight (the deterministic replay tests cover the allocator side; the CLI aggregates
-rejections without unsafe failover).
+Live verification (2026-09-15, `mytecor-homelab`, containerd 2.3.4 / runc 1.4.3 / Go 1.26.7) is covered by
+`internal/acceptance/live_quota_replay_test.go` (`TestLiveRejectionUnderLossNoDuplicateExecution`):
+with a real workload filling the allocator's only slot, an over-capacity request replayed three times
+under realistic transport loss returns the same correlated `CAPACITY` rejection every time without
+creating an offer or a container, and a forged assignment for the rejected request is refused with
+`NOT_FOUND`; the labelled container count stays exactly one. Duplicate delivery on the allocator side
+remains covered deterministically; this leg proves a rejection in flight never becomes an execution.
 
 
 ## Notes

@@ -1,6 +1,6 @@
 # F11-01 — Retention and replay tombstones
 
-**Status:** 🚧 Implemented; retention acceptance tests pass
+**Status:** ✅ Implemented; retention acceptance tests and live crash injection pass
 
 ## Outcome
 
@@ -31,8 +31,16 @@ Covered by `internal/allocator/acceptance_test.go` (`TestCollectedResultCannotRe
 - Tombstones survive allocator restart, so a restarted allocator still refuses the collected command
   and keeps the slot free.
 
-Still to verify on a live Linux runner: crash and store-failure injection during `Sweep` preserve
-capacity and authority (the store-failure path is exercised locally, not under a real crash).
+Live verification (2026-09-15, `mytecor-homelab`, containerd 2.3.4 / runc 1.4.3 / Go 1.26.7) is covered by
+`internal/acceptance/live_quota_replay_test.go` (`TestLiveSweepCrashPreservesCapacityAndAuthority`),
+which adds a `--sweep-interval` flag to `r1sd` to drive cleanup deterministically: a short-retention
+workload completes, the daemon is SIGKILLed while the terminal execution is still pending collection
+(hard crash inside the bounded-history `Sweep` window), and a restart from the same store reconciles
+without duplicating work, collects the result into a durable tombstone, refuses the replayed
+assignment with `EXPIRED` (never a new container), and admits a fresh request — capacity and
+authority are preserved across a real crash. Store-failure injection during `Sweep` remains
+deterministically covered (rollback to pre-sweep state), since a live bbolt store cannot be failed
+injectively; that limitation is recorded in [BACKLOG.md](../BACKLOG.md).
 
 
 ## Notes

@@ -1,6 +1,6 @@
 # F10-02 — Authenticated admission and quotas
 
-**Status:** 🚧 Implemented; admission acceptance tests pass; live Linux enforcement pending
+**Status:** ✅ Implemented; admission acceptance tests and live Linux enforcement pass
 
 ## Outcome
 
@@ -27,9 +27,15 @@ Covered by `internal/allocator/acceptance_test.go` (`TestAdmissionAllowlistAndId
 - Per-identity offer quotas are enforced; one client's quota cannot be exhausted by another, and
   over-quota requests return an explicit `CAPACITY` error.
 
-Still to verify on a live Linux runner: concurrent requests and repeated cleanup never over-allocate
-or double-release quota across allocator restart, and per-identity execution quotas hold for real
-workloads.
+Live verification (2026-09-15, `mytecor-homelab`, containerd 2.3.4 / runc 1.4.3 / Go 1.26.7) is covered by
+`internal/acceptance/live_quota_replay_test.go` (`TestLiveIdentityQuotaEnforced`): a real `r1sd`
+running a per-identity quota (1 offer / 1 execution at capacity 2) admits the first request, rejects an
+over-quota request with a correlated `CAPACITY` code without starting work, enforces the execution
+quota for a real running workload so a second assignment is refused and never creates a second
+container, and — under repeated cleanup — replays the rejected assignment (still `CAPACITY`, no
+allocation) and an idempotent explicit release (no double-release), then restarts with consistent
+quota accounting and admits a fresh request. Two-client isolation and spoofed-payload authority stay
+deterministically covered by `TestAdmissionAllowlistAndIdentityQuotas`.
 
 
 ## Notes

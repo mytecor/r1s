@@ -1,6 +1,6 @@
 # F10-01 — Allocator resource profiles
 
-**Status:** 🚧 Implemented; admission acceptance tests pass; live Linux enforcement pending
+**Status:** ✅ Implemented; admission acceptance tests and live Linux enforcement pass
 
 ## Outcome
 
@@ -27,9 +27,13 @@ adapter):
 - Invalid profiles fail startup before capacity is advertised.
 - An admitted resource profile is persisted with the offer and execution and restored across restart.
 
-Still to verify on a live Linux runner: an actual workload is subject to its configured memory, CPU,
-and process limits via the containerd OCI spec, and existing executions keep their admitted limits
-after daemon recovery.
+Live verification (2026-09-15, `mytecor-homelab`, containerd 2.3.4 / runc 1.4.3 / Go 1.26.7) is covered by
+`internal/acceptance/live_limits_test.go` (`TestLiveResourceLimitsEnforced`): a workload admitted
+through a bounded 64 MiB / 500 milliCPU / 16-pid profile carries exactly those limits in the running
+container's OCI spec (read back with the containerd observer), and after `r1sd` restarts from the
+same state and log directory, the recovered running execution still carries the same admitted limits.
+The OCI spec is the kernel-enforced cgroup contract runc applies, so this proves a live workload is
+subject to its configured memory, CPU, and process limits.
 
 
 ## Notes

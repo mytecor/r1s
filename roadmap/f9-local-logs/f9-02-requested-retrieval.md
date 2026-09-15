@@ -1,6 +1,6 @@
 # F9-02 — Explicit authenticated log retrieval
 
-**Status:** 🚧 Implemented; unit acceptance tests pass; live Linux restart pending
+**Status:** ✅ Implemented; unit acceptance tests pass; live Linux restart verified on `mytecor-homelab` (2026-09-15)
 
 ## Outcome
 

@@ -13,13 +13,21 @@ This file records unresolved choices so they do not remain implicit in implement
 3. **Identity storage** — define secure creation, persistence, rotation, backup, and per-service
    identity boundaries.
 
-4. **History retention and replay horizon defaults** — tombstone lifetime, replay horizon, clock
-   behavior, and expired-result defaults remain to be pinned before
-   [F11-01](./f11-state-retention/f11-01-retention-contract.md) can be marked complete.
-5. **Admission defaults and device profiles** — define trusted-client defaults, quotas, and GPU device
-   ownership in [F10](./f10-local-admission/README.md).
-6. **Live regression environment** — choose an isolated Linux runner and pinned fixture/runtime
-   versions for [F7](./f7-verification/README.md).
+4. **History retention and replay horizon defaults** — pinned with [F11](./f11-state-retention/README.md)
+   completion: command replay horizon `CommandHorizon` = 7 days, default result retention = 24 hours
+   (`DefaultRetention`, bounded by the horizon), tombstone lifetime = horizon, `defaultReplayTTL` = 10
+   minutes, `defaultReplayCapacity` = 4096 commands, durable record budget
+   `DefaultMaxRecords` = 10000, and a configurable `--sweep-interval` (default 1 minute) driving
+   bounded-history cleanup. Expired results answer an explicit `EXPIRED` error and can never restart
+   work. See [F11-01](./f11-state-retention/f11-01-retention-contract.md).
+5. **Admission defaults and device profiles** — live enforcement of allocator-owned resource profiles
+   and per-identity quotas is verified ([F10](./f10-local-admission/README.md)); trusted-client
+   defaults and GPU device ownership remain open.
+6. **Live regression environment** — the gated Linux acceptance harness is actively run against
+   `mytecor-homelab` (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture),
+   most recently 2026-09-15 under `go test -race` for the full live suite. A pinned, isolated,
+   reproducible runner for [F7-02](./f7-verification/f7-02-live-regression.md) is still to be
+   codified.
 7. **Cluster membership rotation and revocation** — define an authenticated `cluster rotate`
    workflow, safe distribution of the replacement join token, transition windows for partitioned
    members, and whether individual member revocation warrants moving beyond the shared-key baseline
