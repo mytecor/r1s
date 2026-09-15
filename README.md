@@ -22,6 +22,11 @@ the peer identity and proves possession of the cluster key before carrying contr
 Container logs remain local to the allocator and are transferred only after an explicit,
 authenticated `logs` request.
 
+RNS is the resilient, low-bandwidth control plane. Large application inputs, outputs, and other
+artifacts use a separately authorized IP data plane; Yggdrasil is the first planned network for
+that path, not a dependency of the core protocol. OCI images remain ordinary digest-pinned registry
+references fetched by containerd.
+
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for protocol, authority, lifecycle, persistence, and adapter
 boundaries.
 

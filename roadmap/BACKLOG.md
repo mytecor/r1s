@@ -4,9 +4,11 @@ This file records unresolved choices so they do not remain implicit in implement
 
 ## Open decisions
 
-1. **Requested log and artifact transfer mechanism** — local-only stdout/stderr with explicit authenticated
-   retrieval is decided ([F9](./f9-local-logs/README.md)). Still to define: whether requested transfers use
-   RNS Resources or an external artifact plane, byte limits, stream offsets, truncation, and checksum contract.
+1. **External data-plane protocol details** — bulk artifacts use the external plane defined by
+   [F14](./f14-external-data-plane/README.md), while stdout/stderr stays local and requires the explicit
+   owner request established by [F9](./f9-local-logs/README.md). Still to define in F14: URI scheme
+   requirements, capability encoding and revocation, upload/download retry semantics, byte limits,
+   resumability, truncation, and the exact digest contract.
 2. **Speculative image preparation** — decide whether selected workload classes benefit from
    pulling or preparing an image before assignment. An offer itself remains a capacity lease and
    does not authorize workload start.
@@ -22,7 +24,9 @@ This file records unresolved choices so they do not remain implicit in implement
    work. See [F11-01](./f11-state-retention/f11-01-retention-contract.md).
 5. **Admission defaults and device profiles** — live enforcement of allocator-owned resource profiles
    and per-identity quotas is verified ([F10](./f10-local-admission/README.md)); trusted-client
-   defaults and GPU device ownership remain open.
+   defaults remain open, while advertised device capabilities and placement constraints belong to
+   [F16](./f16-node-placement/README.md). GPU ownership and isolation must be defined there before a
+   GPU label can authorize device access.
 6. **Live regression environment** — the gated Linux acceptance harness is actively run against
    `mytecor-homelab` (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture),
    most recently 2026-09-15 under `go test -race` for the full live suite. The manual, repeatable
@@ -97,10 +101,16 @@ This file records unresolved choices so they do not remain implicit in implement
     dependencies. r1s therefore uses the standard Go module graph without local `replace`
     directives, vendoring, copied dependencies, or a project-maintained fork; the transport adapter
     remains behind the interface described in [F2](./f2-rns-transport/README.md).
+12. **Bulk application data uses an external, capability-authorized data plane** — RNS remains the
+    discovery, identity, and control plane; it advertises generic endpoint URIs and issues bounded
+    capabilities, but does not carry artifact bytes. Artifact identity is separate from location,
+    receivers verify content digests, and Yggdrasil is the first planned network implementation
+    rather than a core dependency. OCI image distribution remains containerd plus a standard
+    registry. See [F14](./f14-external-data-plane/README.md) and
+    [F15](./f15-yggdrasil-data-plane/README.md).
 
 ## Deferred
 
-- Local gRPC management API over a Unix socket.
 - VM and microVM runtime adapters.
 - Broader multi-client fairness policy (admission and identity quotas are in [F10](./f10-local-admission/README.md)).
 - Application-level event buses, agent hierarchy, and task decomposition.

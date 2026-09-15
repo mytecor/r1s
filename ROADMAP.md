@@ -124,18 +124,84 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   central authority.
 - **Depends on:** [F2](#f2-rns-transport).
 
+## [F13. Local client API](./roadmap/f13-local-client-api/README.md)
+
+> A persistent, identity-scoped local service exposes the client workflow to applications over a
+> Unix socket and streams execution-state changes without creating a cluster-wide API server.
+
+- **Status:** ⏳ planned
+- **Done when:** applications can request, inspect, cancel, list, retrieve results or logs, and watch
+  executions through the local API while the existing CLI remains usable.
+- **Depends on:** [F4](#f4-client-workflow), [F5](#f5-partition-recovery),
+  [F9](#f9-local-logs-and-explicit-retrieval).
+
+## [F14. External data-plane contract](./roadmap/f14-external-data-plane/README.md)
+
+> RNS advertises transport-neutral data endpoints and issues narrowly scoped capabilities, while a
+> separate IP path transfers content-addressed application inputs and outputs with digest verification.
+
+- **Status:** ⏳ planned
+- **Done when:** the protocol separates artifact identity from location, binds endpoints to
+  authenticated allocators, authorizes bounded transfers, and verifies received content without
+  sending bulk bytes over RNS.
+- **Depends on:** [F8](#f8-protocol-feedback-and-state-revisions),
+  [F12](#f12-shared-secret-cluster-membership).
+
+## [F15. Yggdrasil data plane](./roadmap/f15-yggdrasil-data-plane/README.md)
+
+> An allocator-side HTTP artifact service moves authorized application data over Yggdrasil IPv6
+> while the core remains unaware of Yggdrasil-specific addresses and routing.
+
+- **Status:** ⏳ planned
+- **Done when:** two Yggdrasil-connected peers upload and download verified artifacts using F14
+  capabilities, with no RNS bulk transfer and no custom OCI image transport.
+- **Depends on:** [F14](#f14-external-data-plane-contract).
+
+## [F16. Node capabilities and placement](./roadmap/f16-node-placement/README.md)
+
+> Allocators advertise bounded OS, architecture, runtime, device, and operator labels so clients can
+> request compatible nodes and still make the final placement decision from returned offers.
+
+- **Status:** ⏳ planned
+- **Done when:** incompatible allocators do not offer, compatible offers expose useful placement
+  metadata, and selection remains client-owned without a global scheduler.
+- **Depends on:** [F4](#f4-client-workflow), [F10](#f10-local-admission-and-resource-limits),
+  [F12](#f12-shared-secret-cluster-membership).
+
+## [F17. Workspaces](./roadmap/f17-workspaces/README.md)
+
+> A client-side convenience layer packages a local directory as input artifacts, mounts or unpacks
+> it for an execution, and materializes declared output artifacts back into a local directory.
+
+- **Status:** ⏳ planned
+- **Done when:** one CLI command or local API call can run a workload against a local workspace and
+  retrieve verified outputs without adding repository or shared-filesystem semantics to the core.
+- **Depends on:** [F13](#f13-local-client-api), [F14](#f14-external-data-plane-contract),
+  [F15](#f15-yggdrasil-data-plane).
+
+## [F18. Observability](./roadmap/f18-observability/README.md)
+
+> Local structured logs, metrics, and client inspection commands expose allocator and execution
+> health without introducing global desired state or bundling an observability backend.
+
+- **Status:** ⏳ planned
+- **Done when:** operators can inspect discovered allocators and executions and scrape documented
+  allocator-local metrics without receiving workload stdout/stderr implicitly.
+- **Depends on:** [F13](#f13-local-client-api), [F14](#f14-external-data-plane-contract).
+
 ## Current implementation order
 
-- [F12](#f12-shared-secret-cluster-membership) — cluster membership is complete.
-- [F6](#f6-efficient-offer-release) — the live partition-recovery rerun passed on
-  `mytecor-homelab` (2026-09-15).
-- [F9](#f9-local-logs-and-explicit-retrieval) — the live
-  log-retention-across-restart acceptance (`TestLiveRetainedLogsSurviveRestart`) is now part of the
-  partition harness.
-- [F7](#f7-continuous-verification) — F7-01 CI parity is done and green on GitHub
-  Actions (2026-09-15); F7-02 live regression is documented as a manual, repeatable run on
-  `mytecor-homelab` (kept out of GitHub Actions) with the full live suite green on
-  2026-09-15. F7 is complete.
+- [F13](#f13-local-client-api) is the next vertical: it gives applications a persistent local
+  frontend and a `Watch` stream while preserving client-owned placement and identity.
+- [F14](#f14-external-data-plane-contract) defines artifact identity, endpoint advertisement,
+  capabilities, and integrity before any network-specific data service is built.
+- [F15](#f15-yggdrasil-data-plane) implements that contract over Yggdrasil and ordinary HTTP. OCI
+  images continue to use containerd and standard registries.
+- [F16](#f16-node-capabilities-and-placement) can follow the local API independently of F15, but
+  does not introduce a scheduler or global state.
+- [F17](#f17-workspaces) builds the end-to-end agent, build, and one-shot compute workflow on F13–F15.
+- [F18](#f18-observability) adds standard local export points and inspection after the new client and
+  data-plane surfaces exist.
 
 The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
 (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live

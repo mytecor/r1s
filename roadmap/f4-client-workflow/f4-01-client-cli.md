@@ -34,5 +34,6 @@ Provide the `cmd/r1s/` command-line workflow for request, list, inspect, cancel,
 - On 2026-09-14, the acceptance path passed against two live `r1sd` processes and containerd 2.3.4
   on `mytecor-homelab`. The selected workload returned exit code 31, while only one durable
   assignment was created.
-- The current `result` output is terminal metadata (phase, detail, and exit code); richer output and
-  artifact transfer depend on the open result contract in [BACKLOG.md](../BACKLOG.md).
+- The current `result` output is terminal metadata (phase, detail, and exit code). Bounded logs were
+  added by [F9](../f9-local-logs/README.md), and richer application outputs are planned as artifacts
+  in [F14](../f14-external-data-plane/README.md).
