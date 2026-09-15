@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Quad4-Software/Reticulum-Go/pkg/channel"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/destination"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
@@ -18,7 +17,6 @@ import (
 	"github.com/Quad4-Software/Reticulum-Go/pkg/link"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/cluster"
-	"github.com/mytecor/r1s/internal/protocol"
 	coretransport "github.com/mytecor/r1s/internal/transport"
 	"google.golang.org/protobuf/proto"
 )
@@ -66,7 +64,8 @@ type Service struct {
 	Hops        uint8
 }
 
-// Endpoint is one RNS identity, destination, and set of authenticated links.
+// Endpoint is the public transport facade. Link establishment and Channel
+// delivery live behind it so callers only see discovery and envelope exchange.
 type Endpoint struct {
 	mu          sync.Mutex
 	stack       *stack
@@ -156,44 +155,6 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	return endpoint, nil
 }
 
-// Start starts Reticulum interfaces, publishes the service descriptor, and refreshes it periodically.
-func (e *Endpoint) Start(ctx context.Context) error {
-	e.mu.Lock()
-	if e.closed {
-		e.mu.Unlock()
-		return coretransport.ErrEndpointClosed
-	}
-	if e.started {
-		e.mu.Unlock()
-		return nil
-	}
-	e.started = true
-	e.mu.Unlock()
-	if err := e.stack.Start(); err != nil {
-		e.mu.Lock()
-		e.started = false
-		e.mu.Unlock()
-		return fmt.Errorf("start Reticulum stack: %w", err)
-	}
-	if e.advertises {
-		if err := e.destination.Announce(false, nil, nil); err != nil {
-			_ = e.stack.Close()
-			e.mu.Lock()
-			e.started = false
-			e.mu.Unlock()
-			return fmt.Errorf("announce r1s service: %w", err)
-		}
-	}
-	announceContext, cancel := context.WithCancel(ctx)
-	e.mu.Lock()
-	e.stopAnnounce = cancel
-	e.mu.Unlock()
-	if e.advertises {
-		go e.announceLoop(announceContext)
-	}
-	return nil
-}
-
 // Name is the hex-encoded hash of the persistent RNS identity.
 func (e *Endpoint) Name() string { return e.name }
 
@@ -214,7 +175,7 @@ func (e *Endpoint) DestinationForIdentity(identityHash string) (string, bool) {
 	return hex.EncodeToString(destinationHash), true
 }
 
-// Send serializes an envelope onto an RNS Channel.
+// Send serializes an envelope onto an authenticated RNS Channel.
 func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Envelope) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -263,219 +224,6 @@ func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Enve
 	return nil
 }
 
-func (e *Endpoint) connect(ctx context.Context, destinationHash []byte, key string) (*session, error) {
-	active, attempt, owner := e.connections.beginDial(key)
-	if active != nil {
-		return active, nil
-	}
-	if !owner {
-		select {
-		case <-attempt.done:
-			return attempt.session, attempt.err
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-	active, err := e.dial(ctx, destinationHash)
-	e.connections.finishDial(key, attempt, active, err)
-	return active, err
-}
-
-func (e *Endpoint) dial(ctx context.Context, destinationHash []byte) (*session, error) {
-	if err := e.awaitPath(ctx, destinationHash); err != nil {
-		return nil, fmt.Errorf("discover RNS path: %w", err)
-	}
-	remoteIdentity, err := identity.Recall(destinationHash)
-	if err != nil {
-		return nil, fmt.Errorf("recall announced identity: %w", err)
-	}
-	outbound, err := destination.FromHash(destinationHash, remoteIdentity, destination.Single, e.stack.transport)
-	if err != nil {
-		return nil, fmt.Errorf("construct outbound destination: %w", err)
-	}
-	established := make(chan *session, 1)
-	failed := make(chan struct{}, 1)
-	var outboundLink *link.Link
-	outboundLink = link.NewLink(outbound, e.stack.transport, nil, func(value *link.Link) {
-		active, setupErr := e.newSession(value, remoteIdentity.Hash(), destinationHash)
-		if setupErr == nil {
-			setupErr = value.Identify(e.identity)
-		}
-		if setupErr == nil {
-			e.beginAuthentication(active)
-		}
-		if setupErr != nil {
-			select {
-			case failed <- struct{}{}:
-			default:
-			}
-			return
-		}
-		select {
-		case established <- active:
-		default:
-		}
-	}, func(*link.Link) {
-		select {
-		case failed <- struct{}{}:
-		default:
-		}
-	})
-	if err := outboundLink.Establish(); err != nil {
-		return nil, fmt.Errorf("establish RNS link: %w", err)
-	}
-	wait, cancel := boundedContext(ctx, e.networkWait)
-	defer cancel()
-	select {
-	case active := <-established:
-		return active, nil
-	case <-failed:
-		return nil, errors.New("RNS link closed before establishment")
-	case <-wait.Done():
-		outboundLink.Teardown()
-		return nil, wait.Err()
-	}
-}
-
-func (e *Endpoint) awaitPath(ctx context.Context, destinationHash []byte) error {
-	if e.stack.transport.HasPath(destinationHash) {
-		return nil
-	}
-	key := hex.EncodeToString(destinationHash)
-	waiter := e.connections.addWaiter(key)
-	defer e.connections.removeWaiter(key, waiter)
-	if e.stack.transport.HasPath(destinationHash) {
-		return nil
-	}
-	if err := e.stack.transport.RequestPath(destinationHash, "", nil, false); err != nil {
-		return err
-	}
-	wait, cancel := boundedContext(ctx, e.networkWait)
-	defer cancel()
-	select {
-	case <-waiter:
-		if e.stack.transport.HasPath(destinationHash) {
-			return nil
-		}
-		return errors.New("RNS announce did not install a path")
-	case <-wait.Done():
-		return wait.Err()
-	}
-}
-
-func (e *Endpoint) acceptLink(value any) {
-	inbound, ok := value.(*link.Link)
-	if !ok || inbound == nil {
-		return
-	}
-	active, err := e.newSession(inbound, nil, nil)
-	if err != nil {
-		inbound.Teardown()
-		return
-	}
-	authenticate := func(remote *identity.Identity) {
-		if remote == nil {
-			return
-		}
-		active.mu.Lock()
-		active.sender = bytes.Clone(remote.Hash())
-		pending := active.pending
-		active.pending = nil
-		pendingAuth := active.pendingAuth
-		active.pendingAuth = nil
-		active.mu.Unlock()
-		e.connections.cacheSession(active, remote.Hash(), nil)
-		e.beginAuthentication(active)
-		for _, data := range pendingAuth {
-			var message authMessage
-			if message.Unpack(data) == nil {
-				go e.handleAuthentication(active, &message)
-			}
-		}
-		for _, data := range pending {
-			go e.deliver(active, data)
-		}
-	}
-	inbound.SetRemoteIdentifiedCallback(func(_ *link.Link, remote *identity.Identity) { authenticate(remote) })
-	authenticate(inbound.GetRemoteIdentity())
-}
-
-func (e *Endpoint) newSession(rnsLink *link.Link, sender, destinationHash []byte) (*session, error) {
-	rnsChannel := rnsLink.GetChannel()
-	if err := rnsChannel.RegisterMessageType(authMessageType, func() channel.MessageBase { return &authMessage{} }); err != nil {
-		return nil, err
-	}
-	if err := rnsChannel.RegisterMessageType(envelopeMessageType, func() channel.MessageBase { return &envelopeMessage{} }); err != nil {
-		return nil, err
-	}
-	active := &session{
-		link: rnsLink, channel: rnsChannel,
-		sender: bytes.Clone(sender), authDone: make(chan struct{}),
-	}
-	rnsChannel.AddMessageHandler(func(message channel.MessageBase) bool {
-		if authentication, ok := message.(*authMessage); ok {
-			go e.handleAuthentication(active, authentication)
-			return true
-		}
-		wire, ok := message.(*envelopeMessage)
-		if !ok {
-			return false
-		}
-		go e.deliver(active, wire.data)
-		return true
-	})
-	e.connections.cacheSession(active, sender, destinationHash)
-	e.connections.rememberDestination(sender, destinationHash)
-	return active, nil
-}
-
-func (e *Endpoint) deliver(active *session, data []byte) {
-	active.mu.Lock()
-	sender := bytes.Clone(active.sender)
-	if len(sender) == 0 {
-		if len(active.pending) < 8 {
-			active.pending = append(active.pending, bytes.Clone(data))
-		}
-		active.mu.Unlock()
-		return
-	}
-	if !active.authenticated {
-		if active.authErr == nil && len(active.pending) < 8 {
-			active.pending = append(active.pending, bytes.Clone(data))
-		}
-		active.mu.Unlock()
-		return
-	}
-	active.mu.Unlock()
-	var envelope r1sv1.Envelope
-	if err := proto.Unmarshal(data, &envelope); err != nil {
-		return
-	}
-	envelope.Sender = sender
-	if err := protocol.ValidateEnvelope(&envelope); err != nil {
-		return
-	}
-	_ = e.handler(context.Background(), &envelope)
-}
-
-// Close shuts down links and the embedded Reticulum node. It is idempotent.
-func (e *Endpoint) Close() error {
-	e.mu.Lock()
-	if e.closed {
-		e.mu.Unlock()
-		return nil
-	}
-	e.closed = true
-	if e.stopAnnounce != nil {
-		e.stopAnnounce()
-	}
-	e.mu.Unlock()
-	for _, active := range e.connections.allSessions() {
-		active.link.Teardown()
-	}
-	return e.stack.Close()
-}
-
 func parseDestination(value string) ([]byte, string, error) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	decoded, err := hex.DecodeString(value)
@@ -483,8 +231,4 @@ func parseDestination(value string) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("%w: expected a 32-character hex hash", ErrInvalidDestination)
 	}
 	return decoded, value, nil
-}
-
-func boundedContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(parent, timeout)
 }
