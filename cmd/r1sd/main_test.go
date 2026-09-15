@@ -23,6 +23,16 @@ func TestParseCapacity(t *testing.T) {
 	}
 }
 
+func TestSweepIntervalMustBePositive(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := run(context.Background(), []string{
+		"--rns-config", "unused", "--identity", "unused", "--sweep-interval", "0s",
+	}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "--sweep-interval must be positive") {
+		t.Fatalf("error = %v, want sweep-interval diagnostic", err)
+	}
+}
+
 func TestVersionFlagPrintsVersion(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if err := run(context.Background(), []string{"--version"}, &stdout, &stderr); err != nil {

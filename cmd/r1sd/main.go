@@ -56,6 +56,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	logBytes := flags.Int64("log-bytes", 1<<20, "maximum retained bytes per stream")
 	logBudget := flags.Int64("log-budget", 2<<30, "maximum reserved local log data bytes")
 	maxRecords := flags.Int("max-records", allocator.DefaultMaxRecords, "maximum durable offer/execution/tombstone budget")
+	sweepInterval := flags.Duration("sweep-interval", time.Minute, "bounded-history and offer-expiry cleanup interval")
 	admissionPath := flags.String("admission-policy", "", "local resource profiles, allowed identities, and quotas JSON")
 	statePath := flags.String("state", "", "allocator state database (defaults beside the identity file or under ~/.config/r1s)")
 	clusterSource := flags.String("cluster", "", "cluster join token or state file (defaults to ~/.config/r1s/cluster)")
@@ -78,6 +79,9 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	}
 	if strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identitySource) == "" {
 		return errors.New("--rns-config and --identity are required")
+	}
+	if *sweepInterval <= 0 {
+		return errors.New("--sweep-interval must be positive")
 	}
 	capacity, err := parseCapacity(*capacityValue)
 	if err != nil {
@@ -198,7 +202,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	fmt.Fprintf(stdout, "r1sd ready identity=%s destination=%s\n", endpoint.Name(), endpoint.Destination())
-	ticker := time.NewTicker(time.Minute)
+	ticker := time.NewTicker(*sweepInterval)
 	defer ticker.Stop()
 	for {
 		if err := core.Sweep(ctx); err != nil {

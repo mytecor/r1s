@@ -180,6 +180,9 @@ type acceptanceClient struct {
 	store    *statebolt.Store
 	cancel   context.CancelFunc
 	closed   bool
+	// observed receives every inbound envelope (after core.Handle); a test
+	// that subscribes can inspect CommandError rejections at the wire level.
+	observed chan *r1sv1.Envelope
 }
 
 func newAcceptanceClient(t *testing.T, listenPort, targetPort int, identityPath, statePath string) *acceptanceClient {
@@ -207,7 +210,14 @@ func newAcceptanceClient(t *testing.T, listenPort, targetPort int, identityPath,
 				return registerErr
 			}
 		}
-		return result.core.Handle(handlerContext, envelope)
+		handleErr := result.core.Handle(handlerContext, envelope)
+		if result.observed != nil {
+			select {
+			case result.observed <- envelope:
+			default:
+			}
+		}
+		return handleErr
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -421,6 +431,24 @@ func (p *allocatorProcess) stop(t *testing.T) {
 		<-p.done
 		t.Errorf("r1sd did not stop within 10s\n%s", p.stderr.String())
 	}
+}
+
+// kill simulates a crash: SIGKILL with no graceful shutdown. The exited
+// process is reaped so restart from the same durable state is possible.
+func (p *allocatorProcess) kill(t *testing.T) {
+	t.Helper()
+	if p.stopped {
+		t.Fatal("already stopped allocator cannot be crashed")
+	}
+	if err := p.command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		t.Errorf("kill r1sd: %v", err)
+	}
+	select {
+	case <-p.done:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("r1sd did not die after SIGKILL")
+	}
+	p.stopped = true
 }
 
 func waitForPhase(t *testing.T, core *client.Client, executionID string, phase r1sv1.ExecutionPhase, timeout time.Duration) {
