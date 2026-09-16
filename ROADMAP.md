@@ -135,7 +135,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - **Depends on:** [F4](#f4-client-workflow), [F5](#f5-partition-recovery),
   [F9](#f9-local-logs-and-explicit-retrieval).
 
-## [F14. Direct node access (r1s-linkd)](./roadmap/f14-direct-node-access/README.md)
+## [F14. Direct node access (r1s-tunneld)](./roadmap/f14-direct-node-access/README.md)
 
 > An execution owner opens an authenticated tunnel from their client to a running execution over
 > Yggdrasil and carries arbitrary traffic inside it, independent of any artifact model.
@@ -184,13 +184,13 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 
 - [F13](#f13-local-client-api) is complete: `r1s serve` plus `--socket` give applications a persistent
   local frontend and a `Watch` stream while preserving client-owned placement and identity.
-- [F14](#f14-direct-node-access-r1s-linkd) is the next vertical: `r1s-linkd` gives the authenticated
+- [F14](#f14-direct-node-access-r1s-tunneld) is the next vertical: `r1s-tunneld` gives the authenticated
   execution owner a direct Yggdrasil tunnel to a running execution, independent of artifact
   transfer, without Yggdrasil-specific protocol types or a new global state source.
 - [F15](#f15-deployment-reconciliation) can proceed from [F13](#f13-local-client-api)
   independently of F14: `r1s deploy` persists client-owned desired state and reconciles it through
   the existing execution operations without changing the allocator or RNS protocol.
-- [F16](#f16-node-capabilities-and-placement) can follow [F14](#f14-direct-node-access-r1s-linkd) or
+- [F16](#f16-node-capabilities-and-placement) can follow [F14](#f14-direct-node-access-r1s-tunneld) or
   run independently: allocators advertise bounded capability labels, clients express exact-match
   constraints, and only compatible allocators offer. It does not introduce a scheduler or global state.
 - [F18](#f18-observability) adds standard local export points and inspection surfaces after the

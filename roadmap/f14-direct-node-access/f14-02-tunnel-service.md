@@ -32,4 +32,4 @@ never routed through RNS.
 
 ## Notes
 
-The tunnel carries any protocol the owner chooses; r1s-linkd neither interprets nor constrains it.
+The tunnel carries any protocol the owner chooses; r1s-tunneld neither interprets nor constrains it.

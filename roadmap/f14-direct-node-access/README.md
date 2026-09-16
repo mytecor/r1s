@@ -1,6 +1,6 @@
-# F14. Direct node access (r1s-linkd)
+# F14. Direct node access (r1s-tunneld)
 
-Corresponds to [milestone F14](../../ROADMAP.md#f14-direct-node-access-r1s-linkd).
+Corresponds to [milestone F14](../../ROADMAP.md#f14-direct-node-access-r1s-tunneld).
 
 **Status:** ⏳ Planned
 
@@ -24,7 +24,7 @@ travels over RNS.
 - Advertise a transport-neutral endpoint through the authenticated control data so the client can
   learn where to connect without embedding an address in the immutable workload.
 - Serve an allocator-local tunnel endpoint over Yggdrasil that terminates at the running execution.
-- Carry arbitrary traffic inside the tunnel; r1s-linkd does not parse or restrict the payload.
+- Carry arbitrary traffic inside the tunnel; r1s-tunneld does not parse or restrict the payload.
 - Restrict access to the authenticated execution owner and keep it independent of artifact
   transfer: the tunnel is lifecycle and debugging access, not a data plane.
 - Keep the core mockable: a generic tunnel interface in front of a Yggdrasil/HTTP implementation.
