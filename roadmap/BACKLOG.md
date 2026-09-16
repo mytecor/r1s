@@ -39,6 +39,14 @@ This file records unresolved choices so they do not remain implicit in implement
    workflow, safe distribution of the replacement join token, transition windows for partitioned
    members, and whether individual member revocation warrants moving beyond the shared-key baseline
    established by [F12](./f12-cluster-membership/README.md).
+8. **Execution lease parameters** — the direction is pinned with
+   [F17](./f17-execution-lease/README.md): lifetime moves from the request-time
+   `deadline`/`max_runtime` to a durable, explicitly renewed client-held lease, and unrenewed
+   leases evict locally. Still open: default and bounded lease duration, clock semantics across
+   allocator restart (wall-clock persisted expiry versus monotonic accounting), an eviction grace
+   period after one missed renewal, the terminal-state vocabulary that distinguishes lease expiry
+   from cancellation, and whether `max_runtime` survives as an optional hard backstop against a
+   failed local sweep.
 
 ## Resolved
 

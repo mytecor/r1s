@@ -15,6 +15,8 @@ previous execution, while an unchanged apply performs no execution operation.
 - [F4. Client workflow](../f4-client-workflow/README.md)
 - [F5. Partition recovery](../f5-partition-recovery/README.md)
 - [F13. Local client API](../f13-local-client-api/README.md)
+- [F17. Execution lease](../f17-execution-lease/README.md) — deploy reconcilers renew the leases
+  of the executions they manage.
 
 ## Scope
 

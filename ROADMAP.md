@@ -157,7 +157,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   failed replacements leave the previous execution running, and durable recovery cannot create a
   duplicate execution or cancel the wrong one.
 - **Depends on:** [F4](#f4-client-workflow), [F5](#f5-partition-recovery),
-  [F13](#f13-local-client-api).
+  [F13](#f13-local-client-api), [F17](#f17-execution-lease).
 
 ## [F16. Node capabilities and placement](./roadmap/f16-node-placement/README.md)
 
@@ -169,6 +169,18 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   metadata, and selection remains client-owned without a global scheduler.
 - **Depends on:** [F4](#f4-client-workflow), [F10](#f10-local-admission-and-resource-limits),
   [F12](#f12-shared-secret-cluster-membership).
+
+## [F17. Execution lease](./roadmap/f17-execution-lease/README.md)
+
+> A client keeps its execution alive with an authenticated, durably persisted, renewable lease;
+> a permanently gone client's execution is evicted locally after lease expiry.
+
+- **Status:** ⏳ planned
+- **Done when:** an unrenewed lease leads to local eviction with terminal state distinguishable
+  from cancellation, renewal is owner-only and replay-safe, allocator restart honors persisted
+  leases, and no transport connection state ever determines execution lifetime.
+- **Depends on:** [F2](#f2-rns-transport), [F3](#f3-oci-runtime),
+  [F13](#f13-local-client-api).
 
 ## [F18. Observability](./roadmap/f18-observability/README.md)
 
@@ -187,9 +199,14 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - [F14](#f14-direct-node-access-r1s-tunneld) is the next vertical: `r1s-tunneld` gives the authenticated
   execution owner a direct Yggdrasil tunnel to a running execution, independent of artifact
   transfer, without Yggdrasil-specific protocol types or a new global state source.
+- [F17](#f17-execution-lease) changes execution lifetime from a request-time deadline to a
+  renewable client-held lease and should land before [F15](#f15-deployment-reconciliation), whose
+  reconcilers hold the leases of the executions they manage.
 - [F15](#f15-deployment-reconciliation) can proceed from [F13](#f13-local-client-api)
   independently of F14: `r1s deploy` persists client-owned desired state and reconciles it through
-  the existing execution operations without changing the allocator or RNS protocol.
+  the existing execution operations; deployment state itself stays out of the allocator and the
+  RNS protocol, while lease renewal rides the authenticated execution lease from
+  [F17](#f17-execution-lease).
 - [F16](#f16-node-capabilities-and-placement) can follow [F14](#f14-direct-node-access-r1s-tunneld) or
   run independently: allocators advertise bounded capability labels, clients express exact-match
   constraints, and only compatible allocators offer. It does not introduce a scheduler or global state.

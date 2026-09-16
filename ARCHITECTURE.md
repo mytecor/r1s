@@ -218,6 +218,11 @@ autonomously through a network partition. It ends only when one of these explici
 - its deadline or maximum runtime is reached;
 - a future local policy explicitly rejects or evicts it.
 
+The planned [F17 execution lease](./roadmap/f17-execution-lease/README.md) replaces the
+request-time deadline with a durable, explicitly renewed client-held lease: an unrenewed lease
+then ends the execution locally, while a lease outlives any partition shorter than its duration.
+Connection state still never determines lifetime.
+
 Terminal metadata is durably retained so a client can retrieve it after reconnecting. The
 `result_retention` deadline, replay-safe tombstones, and bounded local log storage are enforced by
 [F11](./roadmap/f11-state-retention/README.md) and [F9](./roadmap/f9-local-logs/README.md).
