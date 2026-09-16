@@ -161,7 +161,14 @@ client identity — it is not a cluster-wide API server and is never reachable o
 
 Direct mode remains the default and is still the way to run `serve` and `cluster`. Passing
 `--socket <path>` routes `request`, `list`, `inspect`, `result`, `cancel`, and `logs` through the
-local service; an unreachable socket is an error, never a silent fallback to a new client identity.
+local service; an unreachable explicit socket is an error, never a silent fallback to a new client
+identity.
+
+Without `--socket`, the CLI transparently discovers a running local service: when the default
+socket (`~/.config/r1s/client.sock`) is already listening, workflow commands route through it
+instead of building a fresh RNS endpoint for the invocation. If no service is running, the command
+falls back to direct mode as before. Explicit `--socket` remains authoritative and never silently
+falls back.
 
 ## Documentation
 

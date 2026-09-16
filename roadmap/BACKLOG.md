@@ -110,10 +110,12 @@ This file records unresolved choices so they do not remain implicit in implement
 13. **Direct mode remains the CLI default; local API is an explicit opt-in** — `r1s` starts in
     direct mode unless `--socket <path>` is passed, and only `r1s serve`/`cluster` run in direct
     mode at all. The compatibility note in
-    [F13-02](./f13-local-client-api/f13-02-cli-integration.md) is therefore resolved: making the
-    local service the default would change output routing, process lifetime, and per-invocation
-    identity semantics, so it stays an explicit switch until a migration story (system-level service
-    supervision, socket discovery, error UX) is defined.
+    [F13-02](./f13-local-client-api/f13-02-cli-integration.md) is therefore resolved: direct mode
+    stays the default and the local service stays an explicit opt-in. Socket discovery is now
+    implemented (the missing migration piece): without `--socket`, a live service at the default
+    `~/.config/r1s/client.sock` is transparently used, otherwise the command runs in direct mode;
+    an explicit `--socket` is authoritative and never silently falls back. Remaining future work
+    (system-level service supervision, finer error UX) is not required for the resolved default.
 
 ## Deferred
 

@@ -29,11 +29,20 @@ must be recorded in [BACKLOG.md](../BACKLOG.md) until resolved.
 - The global `--socket <path>` flag routes `request`, `list`, `inspect`, `result`, `cancel`, and
   `logs` through `internal/localapi` (a thin gRPC client) to a running `r1s serve`. Direct mode
   (no `--socket`) remains the default and the only way to run `serve` or `cluster`.
-- An unreachable socket is a hard error (`local r1s service is not running at <path>`); the CLI
-  never falls back to building a second client identity or creating an assignment it cannot verify.
+- An unreachable explicit socket is a hard error (`local r1s service is not running at <path>`);
+  the CLI never falls back to building a second client identity or creating an assignment it cannot
+  verify.
+- **Socket discovery (BACKLOG #13, resolved):** when `--socket` is omitted, the CLI records the
+  default socket path (same `~/.config/r1s/client.sock` that `serve` uses) and, if a live service
+  is listening there, routes the workflow command through it; otherwise it falls back to direct
+  mode. An explicit `--socket` is authoritative and never silently falls back. Discovery is a
+  lightweight Unix-socket reachability probe (`localAPISocketAlive`), so no second identity or
+  assignment is ever created by the probe itself.
 - Command output and exit semantics are preserved: `localCLI` reuses the same JSON decoder, flag
   parsing, and presentation as direct mode.
 - Acceptance: `TestServiceBackedCLIMatchesDirectWorkflow` in `cmd/r1s` drives the full
   request → list → inspect → cancel workflow through `--socket` against a real
   `client.Client` + `allocator.Allocator` over an in-memory transport served behind a real local API
-  socket, and confirms an unreachable socket errors cleanly.
+  socket, confirms an unreachable socket errors cleanly, and
+  `TestSocketDiscoveryRoutesToLiveServe` proves a workflow command without `--socket` routes
+  through a live default-path socket.

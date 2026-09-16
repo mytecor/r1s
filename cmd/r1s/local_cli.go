@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"strings"
 	"time"
 
@@ -12,6 +13,19 @@ import (
 	"github.com/mytecor/r1s/internal/localapi"
 	"github.com/mytecor/r1s/internal/protocol"
 )
+
+// localAPISocketAlive reports whether the local API service is listening on the
+// given Unix socket. It deliberately checks only socket reachability, not the
+// protocol, so the CLI can transparently discover a running 'r1s serve' without
+// treating an absent service as an error for the default path.
+func localAPISocketAlive(socketPath string) bool {
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
 
 // localCLI routes a CLI workflow through a persistent local r1s service instead
 // of building an RNS endpoint, identity, and state store for the command. It is

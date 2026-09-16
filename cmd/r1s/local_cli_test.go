@@ -222,6 +222,9 @@ func TestServiceBackedCLIMatchesDirectWorkflow(t *testing.T) {
 		t.Fatalf("list output = %q", stdout.String())
 	}
 
+	// uninstrument the run() call in scenario 4 relies on --socket; nothing
+	// socket-discovery specific is asserted here beyond the existing flow.
+
 	// Scenario 4: inspect (direct and service-back should agree). The allocator
 	// reports running after assignment.
 	stdout.Reset()
@@ -239,6 +242,57 @@ func TestServiceBackedCLIMatchesDirectWorkflow(t *testing.T) {
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte("phase=cancelled")) {
 		t.Fatalf("cancel output = %q, want phase=cancelled", stdout.String())
+	}
+}
+
+// TestSocketDiscoveryRoutesToLiveServe proves that, when a user runs 'r1s'
+// without --socket and a local service is already listening at the DEFAULT
+// socket path, the workflow command routes through the service instead of
+// failing. It uses a short /tmp HOME so the default Unix socket path stays
+// under the socket length limit, and never touches the real ~/.config/r1s.
+func TestSocketDiscoveryRoutesToLiveServe(t *testing.T) {
+	backend := newCLIWorkflowBackend(t)
+
+	// Point the default socket path into a SHORT temporary HOME. macOS /var
+	// temp dirs are long and would exceed the Unix socket path limit; a
+	// plain /tmp prefix keeps the bound path valid.
+	home := filepath.Join("/tmp", "r1s-detect-"+t.Name())
+	_ = os.RemoveAll(home)
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	t.Setenv("HOME", home)
+	defaultPath, err := defaultSocketPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	server := localserver.New(backend)
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.ListenAndServe(ctx, defaultPath, 0o600) }()
+	t.Cleanup(cancel)
+	waitSocket(t, defaultPath)
+	select {
+	case err := <-serveErr:
+		t.Fatalf("ListenAndServe returned early: %v", err)
+	default:
+	}
+
+	// No --socket anywhere: the default live socket is discovered and the
+	// request runs through the local service.
+	requestJSON := `{"workload":{"image":"example.test/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"policy":{"maxRuntime":"600s"}}`
+	var stdout, stderr bytes.Buffer
+	t.Setenv("HOME", home) // run() re-reads HOME for the default path
+	if err := run(context.Background(), []string{"request", "--offer-wait", "2s", requestJSON}, &stdout, &stderr); err != nil {
+		t.Fatalf("discovered-socket request: %v", err)
+	}
+	executions := backend.clientCore.Executions()
+	if len(executions) != 1 {
+		t.Fatalf("discovered-socket request produced %d executions, want 1", len(executions))
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("execution="+executions[0].ExecutionID)) {
+		t.Fatalf("discovered-socket output = %q", stdout.String())
 	}
 }
 

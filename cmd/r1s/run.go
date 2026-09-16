@@ -18,6 +18,7 @@ type commandLine struct {
 	statePath      string
 	clusterSource  string
 	socketPath     string
+	socketCandidate string
 	networkWait    time.Duration
 	command        string
 	arguments      []string
@@ -44,6 +45,11 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	}
 
 	// Service-backed mode: every workflow command runs through the local API.
+	// An explicit --socket is authoritative and required to be live (an
+	// unreachable explicit socket is an error, never a fallback). Without an
+	// explicit --socket, a living default socket is discovered so the CLI works
+	// transparently on a host where 'r1s serve' is already running; otherwise
+	// the command falls back to direct mode (BACKLOG #13: socket discovery).
 	if strings.TrimSpace(options.socketPath) != "" {
 		handler, err := openLocalCLI(ctx, options, stdout, stderr)
 		if err != nil {
@@ -51,6 +57,21 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		}
 		defer handler.Close()
 		return dispatch(handler, options.command, options.arguments, stderr)
+	}
+	if options.socketCandidate != "" {
+		candidate, err := defaultSocketPath()
+		if err == nil && candidate == options.socketCandidate && localAPISocketAlive(candidate) {
+			options.socketPath = candidate
+			handler, err := openLocalCLI(ctx, options, stdout, stderr)
+			if err == nil {
+				defer handler.Close()
+				return dispatch(handler, options.command, options.arguments, stderr)
+			}
+		}
+		// No live default service: direct mode needs an identity and cluster.
+		if strings.TrimSpace(options.configPath) == "" || strings.TrimSpace(options.identitySource) == "" {
+			return fmt.Errorf("no local r1s service is running at %s, and --rns-config and --identity are required for direct mode; start 'r1s serve' or pass them explicitly", options.socketCandidate)
+		}
 	}
 
 	app, err := openApplication(ctx, options, stdout)
@@ -75,9 +96,18 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	statePath := flags.String("state", "", "client state database (defaults beside the identity file or under ~/.config/r1s)")
 	clusterSource := flags.String("cluster", "", "cluster join token or state file (defaults to ~/.config/r1s/cluster)")
 	socketPath := flags.String("socket", "", "local API socket; when set, workflows run through a persistent r1s serve service instead of direct mode")
+	socketCandidate := ""
 	networkWait := flags.Duration("network-timeout", 30*time.Second, "RNS path, link, and response timeout")
 	if err := flags.Parse(arguments); err != nil {
 		return commandLine{}, err
+	}
+	if strings.TrimSpace(*socketPath) == "" {
+		// Socket discovery: when no explicit socket is given, remember the
+		// default path so run can transparently use a live local service
+		// without forcing the user to type --socket.
+		if discovered, err := defaultSocketPath(); err == nil {
+			socketCandidate = discovered
+		}
 	}
 	commandArguments := flags.Args()
 	if *showVersion {
@@ -93,18 +123,19 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	if command != "cluster" && !knownCommand(command) {
 		return commandLine{}, fmt.Errorf("unknown command %q: expected cluster, serve, request, list, inspect, cancel, result, or logs", command)
 	}
-	if command != "cluster" && !containsHelp(commandArguments[1:]) && strings.TrimSpace(*socketPath) == "" && (strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identitySource) == "") {
-		return commandLine{}, errors.New("--rns-config and --identity are required (or pass --socket to use a running r1s serve)")
+	if command != "cluster" && !containsHelp(commandArguments[1:]) && strings.TrimSpace(*socketPath) == "" && socketCandidate == "" && (strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identitySource) == "") {
+		return commandLine{}, errors.New("--rns-config and --identity are required (or pass --socket, or start 'r1s serve' so its socket is discovered)")
 	}
 	return commandLine{
-		configPath:     *configPath,
-		identitySource: *identitySource,
-		statePath:      *statePath,
-		clusterSource:  *clusterSource,
-		socketPath:     *socketPath,
-		networkWait:    *networkWait,
-		command:        command,
-		arguments:      commandArguments[1:],
+		configPath:      *configPath,
+		identitySource:  *identitySource,
+		statePath:       *statePath,
+		clusterSource:   *clusterSource,
+		socketPath:      *socketPath,
+		socketCandidate: socketCandidate,
+		networkWait:     *networkWait,
+		command:         command,
+		arguments:       commandArguments[1:],
 	}, nil
 }
 
