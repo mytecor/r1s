@@ -35,5 +35,4 @@ Provide the `cmd/r1s/` command-line workflow for request, list, inspect, cancel,
   on `mytecor-homelab`. The selected workload returned exit code 31, while only one durable
   assignment was created.
 - The current `result` output is terminal metadata (phase, detail, and exit code). Bounded logs were
-  added by [F9](../f9-local-logs/README.md), and richer application outputs are planned as artifacts
-  in [F14](../f14-external-data-plane/README.md).
+  added by [F9](../f9-local-logs/README.md).

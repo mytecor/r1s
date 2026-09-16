@@ -12,13 +12,12 @@ and standard metrics export points without adding a mandatory telemetry backend 
 ## Dependencies
 
 - [F13. Local client API](../f13-local-client-api/README.md)
-- [F14. External data-plane contract](../f14-external-data-plane/README.md)
 
 ## Scope
 
 - Add client views for discovered allocators, executions, recent control events, and local statistics.
 - Add allocator-local Prometheus metrics for requests, offers, running executions, duration, latency,
-  RNS control bytes, and artifact bytes.
+  and RNS control bytes.
 - Standardize structured service logs with stable event names and redaction rules.
 - Keep workload stdout/stderr in the existing explicit authenticated retrieval path.
 - Provide export points only; do not bundle Grafana, OpenTelemetry collectors, or a global database.

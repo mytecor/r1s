@@ -135,28 +135,6 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - **Depends on:** [F4](#f4-client-workflow), [F5](#f5-partition-recovery),
   [F9](#f9-local-logs-and-explicit-retrieval).
 
-## [F14. External data-plane contract](./roadmap/f14-external-data-plane/README.md)
-
-> RNS advertises transport-neutral data endpoints and issues narrowly scoped capabilities, while a
-> separate IP path transfers content-addressed application inputs and outputs with digest verification.
-
-- **Status:** ⏳ planned
-- **Done when:** the protocol separates artifact identity from location, binds endpoints to
-  authenticated allocators, authorizes bounded transfers, and verifies received content without
-  sending bulk bytes over RNS.
-- **Depends on:** [F8](#f8-protocol-feedback-and-state-revisions),
-  [F12](#f12-shared-secret-cluster-membership).
-
-## [F15. Yggdrasil data plane](./roadmap/f15-yggdrasil-data-plane/README.md)
-
-> An allocator-side HTTP artifact service moves authorized application data over Yggdrasil IPv6
-> while the core remains unaware of Yggdrasil-specific addresses and routing.
-
-- **Status:** ⏳ planned
-- **Done when:** two Yggdrasil-connected peers upload and download verified artifacts using F14
-  capabilities, with no RNS bulk transfer and no custom OCI image transport.
-- **Depends on:** [F14](#f14-external-data-plane-contract).
-
 ## [F16. Node capabilities and placement](./roadmap/f16-node-placement/README.md)
 
 > Allocators advertise bounded OS, architecture, runtime, device, and operator labels so clients can
@@ -168,17 +146,6 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - **Depends on:** [F4](#f4-client-workflow), [F10](#f10-local-admission-and-resource-limits),
   [F12](#f12-shared-secret-cluster-membership).
 
-## [F17. Workspaces](./roadmap/f17-workspaces/README.md)
-
-> A client-side convenience layer packages a local directory as input artifacts, mounts or unpacks
-> it for an execution, and materializes declared output artifacts back into a local directory.
-
-- **Status:** ⏳ planned
-- **Done when:** one CLI command or local API call can run a workload against a local workspace and
-  retrieve verified outputs without adding repository or shared-filesystem semantics to the core.
-- **Depends on:** [F13](#f13-local-client-api), [F14](#f14-external-data-plane-contract),
-  [F15](#f15-yggdrasil-data-plane).
-
 ## [F18. Observability](./roadmap/f18-observability/README.md)
 
 > Local structured logs, metrics, and client inspection commands expose allocator and execution
@@ -187,21 +154,17 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - **Status:** ⏳ planned
 - **Done when:** operators can inspect discovered allocators and executions and scrape documented
   allocator-local metrics without receiving workload stdout/stderr implicitly.
-- **Depends on:** [F13](#f13-local-client-api), [F14](#f14-external-data-plane-contract).
+- **Depends on:** [F13](#f13-local-client-api).
 
 ## Current implementation order
 
 - [F13](#f13-local-client-api) is complete: `r1s serve` plus `--socket` give applications a persistent
   local frontend and a `Watch` stream while preserving client-owned placement and identity.
-- [F14](#f14-external-data-plane-contract) is the next vertical: it defines artifact identity, endpoint
-  advertisement, capabilities, and integrity before any network-specific data service is built.
-- [F15](#f15-yggdrasil-data-plane) implements that contract over Yggdrasil and ordinary HTTP. OCI
-  images continue to use containerd and standard registries.
-- [F16](#f16-node-capabilities-and-placement) can follow the local API independently of F15, but
-  does not introduce a scheduler or global state.
-- [F17](#f17-workspaces) builds the end-to-end agent, build, and one-shot compute workflow on F13–F15.
-- [F18](#f18-observability) adds standard local export points and inspection after the new client and
-  data-plane surfaces exist.
+- [F16](#f16-node-capabilities-and-placement) is the next vertical: allocators advertise bounded
+  capability labels, clients express exact-match constraints, and only compatible allocators offer.
+  It follows the local API independently and does not introduce a scheduler or global state.
+- [F18](#f18-observability) adds standard local export points and inspection surfaces after the
+  client and API surfaces exist.
 
 The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
 (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live

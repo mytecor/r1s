@@ -4,11 +4,13 @@ This file records unresolved choices so they do not remain implicit in implement
 
 ## Open decisions
 
-1. **External data-plane protocol details** — bulk artifacts use the external plane defined by
-   [F14](./f14-external-data-plane/README.md), while stdout/stderr stays local and requires the explicit
-   owner request established by [F9](./f9-local-logs/README.md). Still to define in F14: URI scheme
-   requirements, capability encoding and revocation, upload/download retry semantics, byte limits,
-   resumability, truncation, and the exact digest contract.
+1. **External data plane and application artifacts** — whether and how bulk application data is
+   transferred between client and allocator is deliberately undecided and out of scope for now; it
+   may never become part of the system. RNS stays the discovery, identity, and control plane and is
+   not a bulk-transfer path. stdout/stderr stays local and requires the explicit owner request
+   established by [F9](./f9-local-logs/README.md). If a data plane is designed later, it must
+   define URI scheme, authorization, transfer semantics, byte limits, resumability, truncation, and
+   any integrity contract from scratch without assuming an artifact model.
 2. **Speculative image preparation** — decide whether selected workload classes benefit from
    pulling or preparing an image before assignment. An offer itself remains a capacity lease and
    does not authorize workload start.
@@ -101,13 +103,10 @@ This file records unresolved choices so they do not remain implicit in implement
     dependencies. r1s therefore uses the standard Go module graph without local `replace`
     directives, vendoring, copied dependencies, or a project-maintained fork; the transport adapter
     remains behind the interface described in [F2](./f2-rns-transport/README.md).
-12. **Bulk application data uses an external, capability-authorized data plane** — RNS remains the
-    discovery, identity, and control plane; it advertises generic endpoint URIs and issues bounded
-    capabilities, but does not carry artifact bytes. Artifact identity is separate from location,
-    receivers verify content digests, and Yggdrasil is the first planned network implementation
-    rather than a core dependency. OCI image distribution remains containerd plus a standard
-    registry. See [F14](./f14-external-data-plane/README.md) and
-    [F15](./f15-yggdrasil-data-plane/README.md).
+12. **Bulk application data transfer is out of scope** — the earlier plan for an external,
+   capability-authorized data plane (artifact identity, endpoint URIs, Yggdrasil as the first
+   network) was removed from the roadmap as undecided work. OCI image distribution remains
+   containerd plus a standard registry and needs no r1s transport.
 13. **Direct mode remains the CLI default; local API is an explicit opt-in** — `r1s` starts in
     direct mode unless `--socket <path>` is passed, and only `r1s serve`/`cluster` run in direct
     mode at all. The compatibility note in
@@ -121,3 +120,5 @@ This file records unresolved choices so they do not remain implicit in implement
 - VM and microVM runtime adapters.
 - Broader multi-client fairness policy (admission and identity quotas are in [F10](./f10-local-admission/README.md)).
 - Application-level event buses, agent hierarchy, and task decomposition.
+- External data plane for bulk application data — requires a fresh decision on whether it belongs
+  in the system at all (see open decision 1 above).

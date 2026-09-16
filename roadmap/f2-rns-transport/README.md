@@ -36,7 +36,7 @@ Reticulum-Go without tunnelling gRPC or HTTP/2 over RNS.
 
 ## Follow-on work
 
-- The production containerd/OCI runtime, durable allocator persistence, retained terminal metadata,
-  and external artifact plane are owned by later features; they are not F2 completion criteria. See
-  [F3](../f3-oci-runtime/README.md), [F5](../f5-partition-recovery/README.md),
-  [F11](../f11-state-retention/README.md), and [F14](../f14-external-data-plane/README.md).
+- The production containerd/OCI runtime, durable allocator persistence, and retained terminal
+  metadata are owned by later features; they are not F2 completion criteria. See
+  [F3](../f3-oci-runtime/README.md), [F5](../f5-partition-recovery/README.md), and
+  [F11](../f11-state-retention/README.md).

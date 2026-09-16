@@ -15,9 +15,6 @@ links. r1s supplies workload demand, local allocation, assignment, and execution
 | Workload | Infrastructure-neutral OCI image, command, environment, and policy | Immutable request data |
 | Offer | Bounded reservation proposed by one allocator | Issuing allocator |
 | Execution | One selected, locally running workload instance | Client for commands; allocator for mechanics |
-| Artifact | Content-addressed application input or output identified by digest and size | Producer for bytes; digest for integrity |
-| Data endpoint | Transport-neutral URI for bulk artifact transfer | Advertising allocator or artifact service |
-| Capability | Short-lived, narrowly scoped permission issued over the authenticated control plane | Issuing allocator |
 | Cluster key | Shared 256-bit membership secret distributed as a join token | Every holder is a cluster member |
 | Cluster ID | Public domain-separated hash of the cluster key | Discovery label only; grants no access |
 
@@ -34,8 +31,6 @@ flowchart LR
     Allocator[Allocator core]
     Runtime[OCI runtime]
     Containerd[containerd]
-    DataPlane[External IP data plane]
-    ArtifactService[Artifact service]
 
     Protocol -. defines messages .-> Client
     Protocol -. defines messages .-> Allocator
@@ -43,9 +38,6 @@ flowchart LR
     Fabric <--> Allocator
     Allocator --> Runtime
     Runtime --> Containerd
-    Client -. capability-authorized bytes .-> DataPlane
-    Allocator -. capability-authorized bytes .-> DataPlane
-    DataPlane <--> ArtifactService
 ```
 
 The source boundaries are:
@@ -178,8 +170,7 @@ sequenceDiagram
 
 After either side restarts, the client may send `ExecutionInspect` to the selected allocator. The
 allocator verifies the authenticated client and returns its latest durable `ExecutionState`. This
-also supplies the first retained-result contract: terminal phase, detail, and exit code. Stream and
-artifact results remain deferred in [BACKLOG.md](./roadmap/BACKLOG.md).
+also supplies the first retained-result contract: terminal phase, detail, and exit code.
 
 Offers reserve capacity but do not start the workload. This prevents every allocator from pulling
 and starting the same image before the client makes a selection.
@@ -215,15 +206,15 @@ reconnection, `inspect`, and `result` must never automatically send logs or atta
 execution state or error details. A failed container changes lifecycle metadata only; the client
 may separately request its logs when needed. A log request bounds the stream, offset, and byte
 count; disconnection ends that transfer without affecting execution. The same explicit-request
-rule applies when a future external data plane carries the requested range.
+rule stays if a future mechanism ever carries a requested log range outside the client command.
 
 ## Transport boundary
 
 The RNS implementation will use announces only for small discovery descriptors. Protobuf control
 messages will travel over authenticated Links, preferably with Channel semantics for ordered,
-reliable delivery. RNS is not the bulk-transfer path: large application inputs, outputs, and other
-artifacts use the external data plane described below, never announces, control envelopes, or RNS
-Resources.
+reliable delivery. RNS is not the bulk-transfer path: it carries control envelopes and discovery
+descriptors only, never application bytes. Application data transfer outside the workload command
+remains out of scope until separately designed.
 
 An in-memory transport will implement the same interface for deterministic tests; it will not be a
 simulation of routing, cryptography, or link behavior.
@@ -239,37 +230,14 @@ private identity bytes encoded as hex, Base32, or Base64 and imported through Re
 `rnsutil.ImportPrivateIdentity`. Existing files take precedence. Inline identity material is used
 without being written to disk and is never included in diagnostic labels or derived filenames.
 
-## External data-plane boundary
-
-RNS answers who exists, who is authorized, and which execution is being controlled. A separate IP
-data plane moves bulk application bytes after that control decision. Endpoint discovery and access
-authorization remain on authenticated RNS links; the data plane does not discover allocators,
-select placements, or establish cluster membership.
-
-The control protocol describes an artifact by immutable identity such as digest and size, separately
-from one or more transport-neutral `DataEndpoint` URIs. Locations are not embedded in the immutable
-workload identity because the same bytes may be reachable through Yggdrasil, a LAN, or another IP
-path. Receivers verify the declared digest after transfer and reject excess bytes or mismatched
-content.
-
-Access is granted by a short-lived capability returned through the authenticated RNS control
-channel. A capability is bound at least to the execution, transfer direction, artifact digest,
-maximum byte count, and expiry. Possession of a routable data endpoint or Yggdrasil address grants
-no access by itself. Data-plane services are treated as exposed to an untrusted network and require
-application-layer authentication plus operator-controlled network policy.
-
-Yggdrasil is the first planned IP network for this data plane because it supplies ordinary IPv6
-connectivity for an HTTP artifact service. It remains behind the generic endpoint contract: neither
-the core nor its Protobuf fields use Yggdrasil-specific names or types.
-
-OCI image distribution is outside the r1s artifact protocol. A workload continues to name a
+OCI image distribution is outside the r1s protocol. A workload continues to name a
 digest-pinned image, and containerd may fetch it from any standard OCI registry reachable through
-Yggdrasil, a LAN, the Internet, a mirror, or local cache. r1s does not implement an image transport
-or registry protocol.
+the Internet, a LAN, a mirror, or local cache. r1s does not implement an image transport or
+registry protocol.
 
-Container stdout and stderr remain allocator-local even when an external data plane exists. Only an
-explicit request from the authenticated execution owner may mint access for a bounded log transfer;
-completion, failure, inspection, result retrieval, and reconnection never do so implicitly.
+Container stdout and stderr remain allocator-local. Only an explicit request from the authenticated
+execution owner may transfer a bounded range of logs; completion, failure, inspection, result
+retrieval, and reconnection never do so implicitly.
 
 ## Runtime boundary
 

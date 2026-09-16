@@ -40,5 +40,4 @@ inspect state, cancel work, and retrieve a retained result.
   `status=assignment-sent` without waiting for runtime state.
 - A later client process recovered the durable execution and retrieved `completed` with the expected
   exit code. A separate long-running workload was cancelled and reported `cancelled`.
-- Bounded stdout/stderr retrieval was added by [F9](../f9-local-logs/README.md); application artifact
-  transfer is planned in [F14](../f14-external-data-plane/README.md).
+- Bounded stdout/stderr retrieval was added by [F9](../f9-local-logs/README.md).
