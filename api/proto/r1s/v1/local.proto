@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package r1s.v1;
+
+option go_package = "github.com/mytecor/r1s/api/gen/r1s/v1;r1sv1";
+
+import "google/protobuf/duration.proto";
+import "r1s/v1/control.proto";
+
+// The local client API is a versioned frontend for ONE client identity running
+// in a persistent `r1s serve` process over a Unix socket. It is not a cluster
+// API server: it never owns allocator state, performs global scheduling, or
+// becomes a required hop for direct CLI use.
+//
+// Namespace and versioning are shared with the control plane (r1s.v1). The
+// messages here are additive and local-only; they never travel over RNS.
+
+// LocalRequest mirrors `r1s request`: create the request durably, discover
+// allocators, collect offers for offer_wait, select one, and send the
+// assignment. The response is returned after the assignment is sent.
+message LocalRequest {
+  r1s.v1.Workload workload = 1;
+  r1s.v1.ExecutionPolicy policy = 2;
+  string resource_class = 3;
+  google.protobuf.Duration offer_wait = 4;
+  // Explicit allocator destination hashes; the service also delivers the
+  // request to freshly discovered allocators like the direct CLI does.
+  repeated string allocators = 5;
+}
+
+message LocalRequestResponse {
+  string request_id = 1;
+  string execution_id = 2;
+  bytes allocator = 3;
+}
+
+// LocalInspectRequest asks the selected allocator for its latest durable state
+// and returns once a state for the execution is observed or wait elapses.
+message LocalInspectRequest {
+  string execution_id = 1;
+  google.protobuf.Duration wait = 2;
+}
+
+// Result() is Inspect() that additionally requires a terminal phase.
+message LocalResultRequest {
+  string execution_id = 1;
+  google.protobuf.Duration wait = 2;
+}
+
+message LocalStateResponse {
+  r1s.v1.ExecutionState state = 1;
+}
+
+message LocalCancelRequest {
+  string execution_id = 1;
+  string reason = 2;
+  google.protobuf.Duration wait = 3;
+}
+
+message LocalListRequest {}
+
+message LocalListResponse {
+  repeated LocalRequestView requests = 1;
+}
+
+message LocalRequestView {
+  string request_id = 1;
+  string resource_class = 2;
+  uint32 offer_count = 3;
+  string execution_id = 4;
+}
+
+// One explicit request authorizes one bounded log read, identical to the
+// direct CLI's `logs` semantics.
+message LocalLogsRequest {
+  string execution_id = 1;
+  string stream = 2;
+  uint64 offset = 3;
+  uint32 max_bytes = 4;
+  google.protobuf.Duration wait = 5;
+}
+
+message LocalLogsResponse {
+  bytes data = 1;
+  uint64 next_offset = 2;
+  bool eof = 3;
+  bool truncated = 4;
+}
+
+// LocalWatchRequest asks for a durable, revision-ordered stream of client
+// execution-state transitions, resumable from a prior LocalWatchEvent.sequence.
+// after=0 follows transitions from the service's current durable position.
+message LocalWatchRequest {
+  uint64 after = 1;
+}
+
+message LocalWatchEvent {
+  // Durable, monotonically increasing, never reused across service restarts.
+  uint64 sequence = 1;
+  string execution_id = 2;
+  r1s.v1.ExecutionState state = 3;
+  // When true, the watcher's requested position fell off the retained journal
+  // and sequence is the fresh durable position to resume from. No state is
+  // delivered with a resync event.
+  bool resync = 4;
+}
+
+service LocalClient {
+  rpc Request(LocalRequest) returns (LocalRequestResponse);
+  rpc List(LocalListRequest) returns (LocalListResponse);
+  rpc Inspect(LocalInspectRequest) returns (LocalStateResponse);
+  rpc Result(LocalResultRequest) returns (LocalStateResponse);
+  rpc Cancel(LocalCancelRequest) returns (LocalStateResponse);
+  rpc Logs(LocalLogsRequest) returns (LocalLogsResponse);
+  rpc Watch(LocalWatchRequest) returns (stream LocalWatchEvent);
+}

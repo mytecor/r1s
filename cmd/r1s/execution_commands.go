@@ -38,20 +38,14 @@ func (a *application) inspect(arguments []string, stderr io.Writer, resultOnly b
 		return fmt.Errorf("%s: --wait must be positive", name)
 	}
 	executionID := flags.Arg(0)
-	destination, envelope, err := a.client.Inspect(executionID)
+	state, err := a.inspectState(a.ctx, executionID, *wait)
 	if err != nil {
 		return err
 	}
-	if err := a.send(destination, envelope); err != nil {
-		return err
-	}
-	if err := a.waitForState(executionID, envelope.GetMessageId(), *wait); err != nil {
-		return err
+	if resultOnly && !terminal(state.GetPhase()) {
+		return fmt.Errorf("result is not terminal: phase=%s", phaseName(state.GetPhase()))
 	}
 	snapshot, _ := a.client.Execution(executionID)
-	if resultOnly && !terminal(snapshot.State.GetPhase()) {
-		return fmt.Errorf("result is not terminal: phase=%s", phaseName(snapshot.State.GetPhase()))
-	}
 	printState(a.stdout, snapshot)
 	return nil
 }
@@ -70,14 +64,7 @@ func (a *application) cancel(arguments []string, stderr io.Writer) error {
 		return errors.New("cancel: --wait must be positive")
 	}
 	executionID := flags.Arg(0)
-	destination, envelope, err := a.client.Cancel(executionID, *reason)
-	if err != nil {
-		return err
-	}
-	if err := a.send(destination, envelope); err != nil {
-		return err
-	}
-	if err := a.waitForState(executionID, envelope.GetMessageId(), *wait); err != nil {
+	if _, err := a.cancelState(a.ctx, executionID, *reason, *wait); err != nil {
 		return err
 	}
 	snapshot, _ := a.client.Execution(executionID)

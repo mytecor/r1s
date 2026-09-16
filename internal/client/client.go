@@ -98,6 +98,11 @@ type Client struct {
 	allocators allocatorCatalog
 	requests   map[string]*requestRecord
 	executions map[string]*executionRecord
+
+	// watch state
+	watchSequence  uint64
+	watchJournal   watchJournal
+	watchObservers []*watchSubscription
 }
 
 // New restores or constructs client state.

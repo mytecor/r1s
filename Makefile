@@ -1,20 +1,26 @@
 .PHONY: check docs-check generate generate-check protoc-check test race
 
 MODULE := github.com/mytecor/r1s
-PROTO_FILES := api/proto/r1s/v1/control.proto
+PROTO_DIR := api/proto
+PROTO_FILES := r1s/v1/control.proto r1s/v1/local.proto
+PROTOC_INCLUDES := -I$(PROTO_DIR) -I/opt/homebrew/include
 PROTOC_GEN_GO := bin/protoc-gen-go
 PROTOC_GEN_GO_VERSION := v1.36.11
+PROTOC_GEN_GO_GRPC := bin/protoc-gen-go-grpc
+PROTOC_GEN_GO_GRPC_VERSION := v1.5.1
 PROTOC_VERSION := 36.0
 
 check: generate-check race docs-check
 
-generate: protoc-check $(PROTOC_GEN_GO)
-	protoc --plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out=. --go_opt=module=$(MODULE) $(PROTO_FILES)
+generate: protoc-check $(PROTOC_GEN_GO) $(PROTOC_GEN_GO_GRPC)
+	protoc $(PROTOC_INCLUDES) --plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out=. --go_opt=module=$(MODULE) $(PROTO_FILES)
+	protoc $(PROTOC_INCLUDES) --plugin=protoc-gen-go-grpc=$(PROTOC_GEN_GO_GRPC) --go-grpc_out=. --go-grpc_opt=module=$(MODULE) $(PROTO_FILES)
 
-generate-check: protoc-check $(PROTOC_GEN_GO)
+generate-check: protoc-check $(PROTOC_GEN_GO) $(PROTOC_GEN_GO_GRPC)
 	@tmp=$$(mktemp -d); \
 	trap 'rm -rf "$$tmp"' EXIT; \
-	protoc --plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out="$$tmp" --go_opt=module=$(MODULE) $(PROTO_FILES); \
+	protoc $(PROTOC_INCLUDES) --plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out="$$tmp" --go_opt=module=$(MODULE) $(PROTO_FILES); \
+	protoc $(PROTOC_INCLUDES) --plugin=protoc-gen-go-grpc=$(PROTOC_GEN_GO_GRPC) --go-grpc_out="$$tmp" --go-grpc_opt=module=$(MODULE) $(PROTO_FILES); \
 	diff -ru api/gen "$$tmp/api/gen"
 
 protoc-check:
@@ -26,6 +32,10 @@ protoc-check:
 $(PROTOC_GEN_GO): Makefile
 	mkdir -p bin
 	GOBIN=$(CURDIR)/bin go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+
+$(PROTOC_GEN_GO_GRPC): Makefile
+	mkdir -p bin
+	GOBIN=$(CURDIR)/bin go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
 
 test:
 	go test ./...

@@ -2,7 +2,7 @@
 
 Corresponds to [milestone F13](../../ROADMAP.md#f13-local-client-api).
 
-**Status:** ⏳ Planned
+**Status:** ✅ complete; unit, socket-contract, and service-backed CLI acceptance tests pass
 
 ## Outcome
 

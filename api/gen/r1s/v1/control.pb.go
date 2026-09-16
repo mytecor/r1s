@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v7.36.0
-// source: api/proto/r1s/v1/control.proto
+// source: r1s/v1/control.proto
 
 package r1sv1
 
@@ -59,11 +59,11 @@ func (x OfferReleaseOutcome) String() string {
 }
 
 func (OfferReleaseOutcome) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_proto_r1s_v1_control_proto_enumTypes[0].Descriptor()
+	return file_r1s_v1_control_proto_enumTypes[0].Descriptor()
 }
 
 func (OfferReleaseOutcome) Type() protoreflect.EnumType {
-	return &file_api_proto_r1s_v1_control_proto_enumTypes[0]
+	return &file_r1s_v1_control_proto_enumTypes[0]
 }
 
 func (x OfferReleaseOutcome) Number() protoreflect.EnumNumber {
@@ -72,7 +72,7 @@ func (x OfferReleaseOutcome) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use OfferReleaseOutcome.Descriptor instead.
 func (OfferReleaseOutcome) EnumDescriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{0}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{0}
 }
 
 type ExecutionPhase int32
@@ -120,11 +120,11 @@ func (x ExecutionPhase) String() string {
 }
 
 func (ExecutionPhase) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_proto_r1s_v1_control_proto_enumTypes[1].Descriptor()
+	return file_r1s_v1_control_proto_enumTypes[1].Descriptor()
 }
 
 func (ExecutionPhase) Type() protoreflect.EnumType {
-	return &file_api_proto_r1s_v1_control_proto_enumTypes[1]
+	return &file_r1s_v1_control_proto_enumTypes[1]
 }
 
 func (x ExecutionPhase) Number() protoreflect.EnumNumber {
@@ -133,7 +133,7 @@ func (x ExecutionPhase) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ExecutionPhase.Descriptor instead.
 func (ExecutionPhase) EnumDescriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{1}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{1}
 }
 
 // Envelope is the authenticated unit exchanged by transports. Transports MUST
@@ -164,7 +164,7 @@ type Envelope struct {
 
 func (x *Envelope) Reset() {
 	*x = Envelope{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[0]
+	mi := &file_r1s_v1_control_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -176,7 +176,7 @@ func (x *Envelope) String() string {
 func (*Envelope) ProtoMessage() {}
 
 func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[0]
+	mi := &file_r1s_v1_control_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -189,7 +189,7 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
 func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{0}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Envelope) GetMessageId() string {
@@ -410,7 +410,7 @@ type Workload struct {
 
 func (x *Workload) Reset() {
 	*x = Workload{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[1]
+	mi := &file_r1s_v1_control_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -422,7 +422,7 @@ func (x *Workload) String() string {
 func (*Workload) ProtoMessage() {}
 
 func (x *Workload) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[1]
+	mi := &file_r1s_v1_control_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -435,7 +435,7 @@ func (x *Workload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Workload.ProtoReflect.Descriptor instead.
 func (*Workload) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{1}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Workload) GetImage() string {
@@ -486,7 +486,7 @@ type ExecutionPolicy struct {
 
 func (x *ExecutionPolicy) Reset() {
 	*x = ExecutionPolicy{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[2]
+	mi := &file_r1s_v1_control_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -498,7 +498,7 @@ func (x *ExecutionPolicy) String() string {
 func (*ExecutionPolicy) ProtoMessage() {}
 
 func (x *ExecutionPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[2]
+	mi := &file_r1s_v1_control_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -511,7 +511,7 @@ func (x *ExecutionPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionPolicy.ProtoReflect.Descriptor instead.
 func (*ExecutionPolicy) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{2}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ExecutionPolicy) GetDeadline() *timestamppb.Timestamp {
@@ -547,7 +547,7 @@ type ExecutionRequest struct {
 
 func (x *ExecutionRequest) Reset() {
 	*x = ExecutionRequest{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[3]
+	mi := &file_r1s_v1_control_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -559,7 +559,7 @@ func (x *ExecutionRequest) String() string {
 func (*ExecutionRequest) ProtoMessage() {}
 
 func (x *ExecutionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[3]
+	mi := &file_r1s_v1_control_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -572,7 +572,7 @@ func (x *ExecutionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionRequest.ProtoReflect.Descriptor instead.
 func (*ExecutionRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{3}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ExecutionRequest) GetRequestId() string {
@@ -615,7 +615,7 @@ type ExecutionOffer struct {
 
 func (x *ExecutionOffer) Reset() {
 	*x = ExecutionOffer{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[4]
+	mi := &file_r1s_v1_control_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -627,7 +627,7 @@ func (x *ExecutionOffer) String() string {
 func (*ExecutionOffer) ProtoMessage() {}
 
 func (x *ExecutionOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[4]
+	mi := &file_r1s_v1_control_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -640,7 +640,7 @@ func (x *ExecutionOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionOffer.ProtoReflect.Descriptor instead.
 func (*ExecutionOffer) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{4}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ExecutionOffer) GetOfferId() string {
@@ -682,7 +682,7 @@ type ExecutionAssign struct {
 
 func (x *ExecutionAssign) Reset() {
 	*x = ExecutionAssign{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[5]
+	mi := &file_r1s_v1_control_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -694,7 +694,7 @@ func (x *ExecutionAssign) String() string {
 func (*ExecutionAssign) ProtoMessage() {}
 
 func (x *ExecutionAssign) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[5]
+	mi := &file_r1s_v1_control_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -707,7 +707,7 @@ func (x *ExecutionAssign) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionAssign.ProtoReflect.Descriptor instead.
 func (*ExecutionAssign) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{5}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ExecutionAssign) GetRequestId() string {
@@ -743,7 +743,7 @@ type ExecutionOfferRelease struct {
 
 func (x *ExecutionOfferRelease) Reset() {
 	*x = ExecutionOfferRelease{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[6]
+	mi := &file_r1s_v1_control_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -755,7 +755,7 @@ func (x *ExecutionOfferRelease) String() string {
 func (*ExecutionOfferRelease) ProtoMessage() {}
 
 func (x *ExecutionOfferRelease) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[6]
+	mi := &file_r1s_v1_control_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -768,7 +768,7 @@ func (x *ExecutionOfferRelease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionOfferRelease.ProtoReflect.Descriptor instead.
 func (*ExecutionOfferRelease) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{6}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ExecutionOfferRelease) GetRequestId() string {
@@ -796,7 +796,7 @@ type ExecutionOfferReleaseAck struct {
 
 func (x *ExecutionOfferReleaseAck) Reset() {
 	*x = ExecutionOfferReleaseAck{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[7]
+	mi := &file_r1s_v1_control_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -808,7 +808,7 @@ func (x *ExecutionOfferReleaseAck) String() string {
 func (*ExecutionOfferReleaseAck) ProtoMessage() {}
 
 func (x *ExecutionOfferReleaseAck) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[7]
+	mi := &file_r1s_v1_control_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -821,7 +821,7 @@ func (x *ExecutionOfferReleaseAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionOfferReleaseAck.ProtoReflect.Descriptor instead.
 func (*ExecutionOfferReleaseAck) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{7}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ExecutionOfferReleaseAck) GetRequestId() string {
@@ -855,7 +855,7 @@ type ExecutionCancel struct {
 
 func (x *ExecutionCancel) Reset() {
 	*x = ExecutionCancel{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[8]
+	mi := &file_r1s_v1_control_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -867,7 +867,7 @@ func (x *ExecutionCancel) String() string {
 func (*ExecutionCancel) ProtoMessage() {}
 
 func (x *ExecutionCancel) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[8]
+	mi := &file_r1s_v1_control_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -880,7 +880,7 @@ func (x *ExecutionCancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionCancel.ProtoReflect.Descriptor instead.
 func (*ExecutionCancel) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{8}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ExecutionCancel) GetExecutionId() string {
@@ -908,7 +908,7 @@ type ExecutionInspect struct {
 
 func (x *ExecutionInspect) Reset() {
 	*x = ExecutionInspect{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[9]
+	mi := &file_r1s_v1_control_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -920,7 +920,7 @@ func (x *ExecutionInspect) String() string {
 func (*ExecutionInspect) ProtoMessage() {}
 
 func (x *ExecutionInspect) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[9]
+	mi := &file_r1s_v1_control_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -933,7 +933,7 @@ func (x *ExecutionInspect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionInspect.ProtoReflect.Descriptor instead.
 func (*ExecutionInspect) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{9}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ExecutionInspect) GetExecutionId() string {
@@ -958,7 +958,7 @@ type ExecutionState struct {
 
 func (x *ExecutionState) Reset() {
 	*x = ExecutionState{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[10]
+	mi := &file_r1s_v1_control_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -970,7 +970,7 @@ func (x *ExecutionState) String() string {
 func (*ExecutionState) ProtoMessage() {}
 
 func (x *ExecutionState) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[10]
+	mi := &file_r1s_v1_control_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -983,7 +983,7 @@ func (x *ExecutionState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionState.ProtoReflect.Descriptor instead.
 func (*ExecutionState) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{10}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ExecutionState) GetExecutionId() string {
@@ -1041,7 +1041,7 @@ type CommandError struct {
 
 func (x *CommandError) Reset() {
 	*x = CommandError{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[11]
+	mi := &file_r1s_v1_control_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1053,7 +1053,7 @@ func (x *CommandError) String() string {
 func (*CommandError) ProtoMessage() {}
 
 func (x *CommandError) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[11]
+	mi := &file_r1s_v1_control_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1066,7 +1066,7 @@ func (x *CommandError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandError.ProtoReflect.Descriptor instead.
 func (*CommandError) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{11}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CommandError) GetCode() string {
@@ -1103,7 +1103,7 @@ type ExecutionLogsRequest struct {
 
 func (x *ExecutionLogsRequest) Reset() {
 	*x = ExecutionLogsRequest{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[12]
+	mi := &file_r1s_v1_control_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1115,7 +1115,7 @@ func (x *ExecutionLogsRequest) String() string {
 func (*ExecutionLogsRequest) ProtoMessage() {}
 
 func (x *ExecutionLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[12]
+	mi := &file_r1s_v1_control_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1128,7 +1128,7 @@ func (x *ExecutionLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionLogsRequest.ProtoReflect.Descriptor instead.
 func (*ExecutionLogsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{12}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ExecutionLogsRequest) GetExecutionId() string {
@@ -1175,7 +1175,7 @@ type ExecutionLogsResponse struct {
 
 func (x *ExecutionLogsResponse) Reset() {
 	*x = ExecutionLogsResponse{}
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[13]
+	mi := &file_r1s_v1_control_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1187,7 +1187,7 @@ func (x *ExecutionLogsResponse) String() string {
 func (*ExecutionLogsResponse) ProtoMessage() {}
 
 func (x *ExecutionLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_r1s_v1_control_proto_msgTypes[13]
+	mi := &file_r1s_v1_control_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1200,7 +1200,7 @@ func (x *ExecutionLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionLogsResponse.ProtoReflect.Descriptor instead.
 func (*ExecutionLogsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_r1s_v1_control_proto_rawDescGZIP(), []int{13}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ExecutionLogsResponse) GetExecutionId() string {
@@ -1259,11 +1259,11 @@ func (x *ExecutionLogsResponse) GetSha256() []byte {
 	return nil
 }
 
-var File_api_proto_r1s_v1_control_proto protoreflect.FileDescriptor
+var File_r1s_v1_control_proto protoreflect.FileDescriptor
 
-const file_api_proto_r1s_v1_control_proto_rawDesc = "" +
+const file_r1s_v1_control_proto_rawDesc = "" +
 	"\n" +
-	"\x1eapi/proto/r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfa\a\n" +
+	"\x14r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfa\a\n" +
 	"\bEnvelope\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x16\n" +
@@ -1374,20 +1374,20 @@ const file_api_proto_r1s_v1_control_proto_rawDesc = "" +
 	"\x16EXECUTION_PHASE_FAILED\x10\x06B-Z+github.com/mytecor/r1s/api/gen/r1s/v1;r1sv1b\x06proto3"
 
 var (
-	file_api_proto_r1s_v1_control_proto_rawDescOnce sync.Once
-	file_api_proto_r1s_v1_control_proto_rawDescData []byte
+	file_r1s_v1_control_proto_rawDescOnce sync.Once
+	file_r1s_v1_control_proto_rawDescData []byte
 )
 
-func file_api_proto_r1s_v1_control_proto_rawDescGZIP() []byte {
-	file_api_proto_r1s_v1_control_proto_rawDescOnce.Do(func() {
-		file_api_proto_r1s_v1_control_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_api_proto_r1s_v1_control_proto_rawDesc), len(file_api_proto_r1s_v1_control_proto_rawDesc)))
+func file_r1s_v1_control_proto_rawDescGZIP() []byte {
+	file_r1s_v1_control_proto_rawDescOnce.Do(func() {
+		file_r1s_v1_control_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_r1s_v1_control_proto_rawDesc), len(file_r1s_v1_control_proto_rawDesc)))
 	})
-	return file_api_proto_r1s_v1_control_proto_rawDescData
+	return file_r1s_v1_control_proto_rawDescData
 }
 
-var file_api_proto_r1s_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_api_proto_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
-var file_api_proto_r1s_v1_control_proto_goTypes = []any{
+var file_r1s_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_r1s_v1_control_proto_goTypes = []any{
 	(OfferReleaseOutcome)(0),         // 0: r1s.v1.OfferReleaseOutcome
 	(ExecutionPhase)(0),              // 1: r1s.v1.ExecutionPhase
 	(*Envelope)(nil),                 // 2: r1s.v1.Envelope
@@ -1408,7 +1408,7 @@ var file_api_proto_r1s_v1_control_proto_goTypes = []any{
 	(*timestamppb.Timestamp)(nil),    // 17: google.protobuf.Timestamp
 	(*durationpb.Duration)(nil),      // 18: google.protobuf.Duration
 }
-var file_api_proto_r1s_v1_control_proto_depIdxs = []int32{
+var file_r1s_v1_control_proto_depIdxs = []int32{
 	17, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
 	5,  // 1: r1s.v1.Envelope.execution_request:type_name -> r1s.v1.ExecutionRequest
 	6,  // 2: r1s.v1.Envelope.execution_offer:type_name -> r1s.v1.ExecutionOffer
@@ -1438,12 +1438,12 @@ var file_api_proto_r1s_v1_control_proto_depIdxs = []int32{
 	0,  // [0:22] is the sub-list for field type_name
 }
 
-func init() { file_api_proto_r1s_v1_control_proto_init() }
-func file_api_proto_r1s_v1_control_proto_init() {
-	if File_api_proto_r1s_v1_control_proto != nil {
+func init() { file_r1s_v1_control_proto_init() }
+func file_r1s_v1_control_proto_init() {
+	if File_r1s_v1_control_proto != nil {
 		return
 	}
-	file_api_proto_r1s_v1_control_proto_msgTypes[0].OneofWrappers = []any{
+	file_r1s_v1_control_proto_msgTypes[0].OneofWrappers = []any{
 		(*Envelope_ExecutionRequest)(nil),
 		(*Envelope_ExecutionOffer)(nil),
 		(*Envelope_ExecutionAssign)(nil),
@@ -1456,23 +1456,23 @@ func file_api_proto_r1s_v1_control_proto_init() {
 		(*Envelope_ExecutionLogsRequest)(nil),
 		(*Envelope_ExecutionLogsResponse)(nil),
 	}
-	file_api_proto_r1s_v1_control_proto_msgTypes[10].OneofWrappers = []any{}
+	file_r1s_v1_control_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_r1s_v1_control_proto_rawDesc), len(file_api_proto_r1s_v1_control_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_r1s_v1_control_proto_rawDesc), len(file_r1s_v1_control_proto_rawDesc)),
 			NumEnums:      2,
 			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_api_proto_r1s_v1_control_proto_goTypes,
-		DependencyIndexes: file_api_proto_r1s_v1_control_proto_depIdxs,
-		EnumInfos:         file_api_proto_r1s_v1_control_proto_enumTypes,
-		MessageInfos:      file_api_proto_r1s_v1_control_proto_msgTypes,
+		GoTypes:           file_r1s_v1_control_proto_goTypes,
+		DependencyIndexes: file_r1s_v1_control_proto_depIdxs,
+		EnumInfos:         file_r1s_v1_control_proto_enumTypes,
+		MessageInfos:      file_r1s_v1_control_proto_msgTypes,
 	}.Build()
-	File_api_proto_r1s_v1_control_proto = out.File
-	file_api_proto_r1s_v1_control_proto_goTypes = nil
-	file_api_proto_r1s_v1_control_proto_depIdxs = nil
+	File_r1s_v1_control_proto = out.File
+	file_r1s_v1_control_proto_goTypes = nil
+	file_r1s_v1_control_proto_depIdxs = nil
 }

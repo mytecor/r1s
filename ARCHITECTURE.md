@@ -76,10 +76,37 @@ transport, runtime, and client behavior remains in reusable packages.
 | Binary | Source | Purpose | Introduced by |
 | --- | --- | --- | --- |
 | `r1sd` | `cmd/r1sd/` | Allocator service and cluster bootstrap CLI | F2, F3, F12 |
-| `r1s` | `cmd/r1s/` | Client and cluster bootstrap CLI | F4, F12 |
+| `r1s` | `cmd/r1s/` | Client, cluster bootstrap, and local client API CLI | F4, F12, F13 |
+
+The `r1s` binary has two client-facing frontends sharing one durable client engine:
+
+- **Direct mode** (default) builds an RNS endpoint, identity, and state store for the lifetime of a
+  single command. `cluster` and `serve` run only in direct mode.
+- **Service-backed mode** (`r1s --socket <path> …`) forwards `request`, `list`, `inspect`, `result`,
+  `cancel`, and `logs` over a Unix socket to a persistent `r1s serve` process. `r1s serve` is a
+  local, identity-scoped frontend (see the local client API section below), never a cluster API
+  server. An unreachable socket is an error, never a fallback that creates a second identity or
+  assignment.
 
 Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system
 binaries.
+
+## Local client API
+
+The local client API is a versioned gRPC service (`r1s.v1.LocalClient`) served only on a Unix
+socket by `r1s serve`. It fronts exactly one local client identity and shares all of the client's
+authority, persistence, replay, and reconnect behavior; it owns no allocator state and performs no
+global scheduling.
+
+The `Watch` RPC streams durable execution-state transitions. Every accepted transition is assigned
+a monotonic sequence that is persisted with the client snapshot, so a watcher resumes from an exact
+durable position across service restarts without inventing or reordering revisions. The retained
+journal is bounded; a watcher that falls behind is told to re-synchronize (`resync`) rather than
+silently missing an event. Socket permissions default to `0600` and the socket is never exposed
+over RNS, so the service cannot become a remotely reachable cluster-wide control endpoint.
+
+The API surface is defined in `api/proto/r1s/v1/local.proto`; messages are additive and local-only
+and never travel over the RNS control plane.
 
 ## Distributed authority
 

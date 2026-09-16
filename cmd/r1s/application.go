@@ -133,24 +133,25 @@ func (a *application) send(destination string, envelope *r1sv1.Envelope) error {
 	return a.endpoint.Send(ctx, destination, envelope)
 }
 
-func (a *application) waitForState(executionID, correlationID string, timeout time.Duration) error {
+func (a *application) awaitState(executionID, correlationID string, timeout time.Duration) (client.ExecutionSnapshot, error) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	for {
 		select {
 		case <-a.ctx.Done():
-			return a.ctx.Err()
+			return client.ExecutionSnapshot{}, a.ctx.Err()
 		case <-timer.C:
-			return fmt.Errorf("timed out waiting for execution %s state", executionID)
+			return client.ExecutionSnapshot{}, fmt.Errorf("timed out waiting for execution %s state", executionID)
 		case envelope := <-a.events:
 			if envelope.GetCorrelationId() != correlationID {
 				continue
 			}
 			if err := client.RemoteFailure(envelope); err != nil {
-				return err
+				return client.ExecutionSnapshot{}, err
 			}
 			if envelope.GetExecutionState().GetExecutionId() == executionID {
-				return nil
+				snapshot, _ := a.client.Execution(executionID)
+				return snapshot, nil
 			}
 		}
 	}

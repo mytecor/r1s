@@ -129,7 +129,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > A persistent, identity-scoped local service exposes the client workflow to applications over a
 > Unix socket and streams execution-state changes without creating a cluster-wide API server.
 
-- **Status:** ⏳ planned
+- **Status:** ✅ complete; socket-contract and service-backed CLI acceptance tests pass
 - **Done when:** applications can request, inspect, cancel, list, retrieve results or logs, and watch
   executions through the local API while the existing CLI remains usable.
 - **Depends on:** [F4](#f4-client-workflow), [F5](#f5-partition-recovery),
@@ -191,10 +191,10 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 
 ## Current implementation order
 
-- [F13](#f13-local-client-api) is the next vertical: it gives applications a persistent local
-  frontend and a `Watch` stream while preserving client-owned placement and identity.
-- [F14](#f14-external-data-plane-contract) defines artifact identity, endpoint advertisement,
-  capabilities, and integrity before any network-specific data service is built.
+- [F13](#f13-local-client-api) is complete: `r1s serve` plus `--socket` give applications a persistent
+  local frontend and a `Watch` stream while preserving client-owned placement and identity.
+- [F14](#f14-external-data-plane-contract) is the next vertical: it defines artifact identity, endpoint
+  advertisement, capabilities, and integrity before any network-specific data service is built.
 - [F15](#f15-yggdrasil-data-plane) implements that contract over Yggdrasil and ordinary HTTP. OCI
   images continue to use containerd and standard registries.
 - [F16](#f16-node-capabilities-and-placement) can follow the local API independently of F15, but

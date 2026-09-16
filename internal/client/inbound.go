@@ -108,10 +108,16 @@ func (o *Client) handleStateLocked(envelope *r1sv1.Envelope, state *r1sv1.Execut
 		}
 	}
 	previous := record.state
+	savedSeq := o.watchSequence
+	savedJournal := o.watchJournal
 	record.state = proto.Clone(state).(*r1sv1.ExecutionState)
+	event := o.watchAppendLocked(record.id, record.state)
 	if err := o.persistLocked(context.Background()); err != nil {
 		record.state = previous
+		o.watchSequence = savedSeq
+		o.watchJournal = savedJournal
 		return err
 	}
+	o.watchNotifyLocked(event)
 	return nil
 }

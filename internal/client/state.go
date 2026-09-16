@@ -14,11 +14,19 @@ import (
 const stateVersion = 1
 
 type persistedState struct {
-	Version    int                  `json:"version"`
-	Identity   []byte               `json:"identity"`
-	Allocators []persistedAllocator `json:"allocators,omitempty"`
-	Requests   []persistedRequest   `json:"requests,omitempty"`
-	Executions []persistedExecution `json:"executions,omitempty"`
+	Version      int                   `json:"version"`
+	Identity     []byte                `json:"identity"`
+	WatchSeq     uint64                `json:"watch_seq,omitempty"`
+	WatchJournal []persistedWatchEvent `json:"watch_journal,omitempty"`
+	Allocators   []persistedAllocator  `json:"allocators,omitempty"`
+	Requests     []persistedRequest    `json:"requests,omitempty"`
+	Executions   []persistedExecution  `json:"executions,omitempty"`
+}
+
+type persistedWatchEvent struct {
+	Sequence    uint64 `json:"sequence"`
+	ExecutionID string `json:"execution_id"`
+	State       []byte `json:"state"`
 }
 
 type persistedAllocator struct {
@@ -80,6 +88,8 @@ func (o *Client) loadLocked(ctx context.Context) error {
 	if !bytesEqual(state.Identity, o.identity) {
 		return fmt.Errorf("%w: state belongs to a different client identity", ErrStore)
 	}
+	o.watchSequence = state.WatchSeq
+	o.loadWatchJournalLocked(state.WatchJournal)
 	for _, saved := range state.Allocators {
 		if len(saved.Identity) == 0 || saved.Destination == "" {
 			return fmt.Errorf("%w: invalid durable allocator", ErrStore)
@@ -143,7 +153,7 @@ func (o *Client) persistLocked(ctx context.Context) error {
 	if o.store == nil {
 		return nil
 	}
-	state := persistedState{Version: stateVersion, Identity: append([]byte(nil), o.identity...)}
+	state := persistedState{Version: stateVersion, Identity: append([]byte(nil), o.identity...), WatchSeq: o.watchSequence}
 	for _, allocator := range o.allocators.all() {
 		state.Allocators = append(state.Allocators, persistedAllocator{Identity: append([]byte(nil), allocator.Identity...), Destination: allocator.Destination, Hops: allocator.Hops, Capacity: allocator.Capacity})
 	}
@@ -178,6 +188,7 @@ func (o *Client) persistLocked(ctx context.Context) error {
 		}
 		state.Executions = append(state.Executions, saved)
 	}
+	state.WatchJournal = o.watchJournalLocked()
 	data, err := json.Marshal(state)
 	if err != nil {
 		return errors.Join(ErrStore, err)
@@ -186,6 +197,26 @@ func (o *Client) persistLocked(ctx context.Context) error {
 		return errors.Join(ErrStore, err)
 	}
 	return nil
+}
+
+// loadWatchJournalLocked restores the retained journal after a restart. Sequences
+// are authoritative and monotonic; watchers resuming from a durable position
+// observe the same revisions in the same order.
+func (o *Client) loadWatchJournalLocked(events []persistedWatchEvent) {
+	if len(events) == 0 {
+		return
+	}
+	firstSeq := events[0].Sequence
+	o.watchJournal = watchJournal{firstSeq: firstSeq, events: make([]watchEvent, 0, len(events))}
+	eventSeq := firstSeq
+	for _, saved := range events {
+		decoded := new(r1sv1.ExecutionState)
+		if err := proto.Unmarshal(saved.State, decoded); err != nil {
+			continue
+		}
+		o.watchJournal.events = append(o.watchJournal.events, watchEvent{seq: eventSeq, executionID: saved.ExecutionID, state: decoded})
+		eventSeq++
+	}
 }
 
 func bytesEqual(left, right []byte) bool {

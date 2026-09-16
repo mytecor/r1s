@@ -134,6 +134,32 @@ The command returns durable request and execution IDs after assignment. Use the 
 `inspect`, `cancel`, `result`, or `logs`; use `list` to show saved requests. Run `r1s --help` or a
 subcommand with `--help` for all options.
 
+## Local client API
+
+For applications that want a persistent client instead of rebuilding RNS, identity, and durable
+state per command, run the local service once and point workflows at it:
+
+```sh
+r1s serve \
+  --rns-config "$HOME/.config/r1s/reticulum.conf" \
+  --identity "$HOME/.config/r1s/identity" &
+
+r1s --socket "$HOME/.config/r1s/client.sock" \
+  request '{"workload":{"image":"registry.example/image@sha256:..."},"resourceClass":"default"}'
+r1s --socket "$HOME/.config/r1s/client.sock" list
+r1s --socket "$HOME/.config/r1s/client.sock" inspect <execution-id>
+```
+
+`r1s serve` keeps one client identity, state store, and RNS endpoint alive for the service lifetime
+and serves a versioned local gRPC API over a Unix socket (default mode `0600`, `--socket-mode` to
+change, default socket at `~/.config/r1s/client.sock`). It also streams durable execution-state
+changes through `Watch` so applications need not poll. The service is a local frontend for one
+client identity — it is not a cluster-wide API server and is never reachable over RNS.
+
+Direct mode remains the default and is still the way to run `serve` and `cluster`. Passing
+`--socket <path>` routes `request`, `list`, `inspect`, `result`, `cancel`, and `logs` through the
+local service; an unreachable socket is an error, never a silent fallback to a new client identity.
+
 ## Documentation
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — component boundaries, authority, and lifecycle.

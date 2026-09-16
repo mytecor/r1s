@@ -108,6 +108,13 @@ This file records unresolved choices so they do not remain implicit in implement
     rather than a core dependency. OCI image distribution remains containerd plus a standard
     registry. See [F14](./f14-external-data-plane/README.md) and
     [F15](./f15-yggdrasil-data-plane/README.md).
+13. **Direct mode remains the CLI default; local API is an explicit opt-in** — `r1s` starts in
+    direct mode unless `--socket <path>` is passed, and only `r1s serve`/`cluster` run in direct
+    mode at all. The compatibility note in
+    [F13-02](./f13-local-client-api/f13-02-cli-integration.md) is therefore resolved: making the
+    local service the default would change output routing, process lifetime, and per-invocation
+    identity semantics, so it stays an explicit switch until a migration story (system-level service
+    supervision, socket discovery, error UX) is defined.
 
 ## Deferred
 
