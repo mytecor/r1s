@@ -75,10 +75,10 @@ The `r1s` binary has two client-facing frontends sharing one durable client engi
 - **Direct mode** (default) builds an RNS endpoint, identity, and state store for the lifetime of a
   single command. `cluster` and `serve` run only in direct mode.
 - **Service-backed mode** (`r1s --socket <path> …`) forwards `request`, `list`, `inspect`, `result`,
-  `cancel`, and `logs` over a Unix socket to a persistent `r1s serve` process. `r1s serve` is a
-  local, identity-scoped frontend (see the local client API section below), never a cluster API
+  `cancel`, and `logs` over a Unix socket to a persistent `r1s serve` process. `r1s serve`
+  is a local, identity-scoped frontend (see the local client API section below), never a cluster API
   server. An unreachable socket is an error, never a fallback that creates a second identity or
-  assignment.
+  assignment. `r1s serve` is also the only continuous lease-renewal holder.
 
 Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system
 binaries.
@@ -103,8 +103,8 @@ and never travel over the RNS control plane.
 ## Execution and deployment layers
 
 The unit managed by r1s is one immutable execution. `request` creates one execution; `inspect`,
-`result`, `logs`, and `cancel` address that execution explicitly. A request is therefore not a
-deployment declaration.
+`result`, `logs`, and `cancel` address that execution explicitly. A request is
+therefore not a deployment declaration.
 
 The planned [F15 deployment reconciler](./roadmap/f15-deployment-reconciliation/README.md) adds
 `r1s deploy` as a client-side layer over those execution operations. It owns durable deployment
@@ -164,11 +164,13 @@ payload. The package version will be part of the Protobuf namespace and import p
 
 The initial exchange is:
 
-1. A client publishes `ExecutionRequest` with an OCI workload and finite policy.
+1. A client publishes `ExecutionRequest` with an OCI workload and `result_retention` policy.
 2. An allocator with free capacity creates a time-bounded `ExecutionOffer`.
 3. The client sends `ExecutionAssign` to exactly one allocator.
-4. The allocator starts the workload and publishes `ExecutionState` changes.
-5. The client may send `ExecutionCancel`; the allocator verifies the authenticated sender.
+4. The allocator starts the workload under a durable client-held lease and publishes
+   `ExecutionState` changes.
+5. The client renews the lease with `ExecutionLeaseRenew` and may send `ExecutionCancel`; the
+   allocator verifies the authenticated sender either way.
 
 ```mermaid
 sequenceDiagram
@@ -211,17 +213,27 @@ reserved, and unknown fields must remain safe to ignore.
 ## Lifecycle under disconnection
 
 Connection state never determines execution lifetime. After assignment, an execution continues
-autonomously through a network partition. It ends only when one of these explicit conditions occurs:
+autonomously through a network partition. It ends only when one of these explicit conditions
+occurs:
 
 - the workload completes or fails;
 - the authenticated client cancels it;
-- its deadline or maximum runtime is reached;
+- its client-held lease expires without renewal and the allocator's lease sweep evicts it;
 - a future local policy explicitly rejects or evicts it.
 
-The planned [F17 execution lease](./roadmap/f17-execution-lease/README.md) replaces the
-request-time deadline with a durable, explicitly renewed client-held lease: an unrenewed lease
-then ends the execution locally, while a lease outlives any partition shorter than its duration.
-Connection state still never determines lifetime.
+Every running execution carries a durably persisted lease held by the authenticated client. The
+allocator grants an initial lease at assignment (10 minutes by default) and extends it on each
+authenticated `ExecutionLeaseRenew` from the execution owner, bounded locally. Renewal is
+idempotent and replay-safe and returns only the new expiry. A lease outlives any partition shorter
+than its duration: connection state still never determines lifetime.
+
+`r1s request --keep-alive` records a durable lease-holding intent and renews the lease for the
+lifetime of the command: in direct mode the request process itself is the renewal loop and
+re-requests the recorded workload whenever the lease is lost; in service-backed mode the flag is
+forwarded to `r1s serve`, whose renewal loop replays every recorded intent from durable state on
+each tick and performs the same re-request on lease loss. A renewal never attaches logs, results,
+or other payload; it returns only the new expiry. Evicted executions commit terminal state with a
+stable lease-expiry reason that is distinguishable from a client cancellation.
 
 Terminal metadata is durably retained so a client can retrieve it after reconnecting. The
 `result_retention` deadline, replay-safe tombstones, and bounded local log storage are enforced by
@@ -278,15 +290,16 @@ the initial milestone.
 
 The allocator stores one versioned state snapshot in a transactional bbolt database after every
 accepted transition. The snapshot is bound to the allocator's authenticated identity and contains
-offers, assignments, execution state, replay records, and the original start time used for local
-deadline enforcement.
+offers, assignments, execution state, replay records, the durable client-held lease expiry for
+every running execution, and the original start time.
 
 At startup, `r1sd` restores capacity accounting and reconciles non-terminal records with containerd
-before accepting transport messages. Matching running or stopped tasks regain completion and
-deadline monitoring without being restarted. A missing task or mismatched execution/specification
-label becomes a terminal failure; a persisted cancellation is completed idempotently. Terminal
-state is committed before containerd metadata is removed so a store failure leaves a stopped task
-available for the next recovery attempt.
+before accepting transport messages. Matching running or stopped tasks regain completion
+monitoring without being restarted, and an execution whose persisted lease is still valid keeps
+running; one whose lease already expired is evicted instead of revived. A missing task or
+mismatched execution/specification label becomes a terminal failure; a persisted cancellation is
+completed idempotently. Terminal state is committed before containerd metadata is removed so a
+store failure leaves a stopped task available for the next recovery attempt.
 
 Result storage beyond terminal metadata remains open in [BACKLOG.md](./roadmap/BACKLOG.md).
 

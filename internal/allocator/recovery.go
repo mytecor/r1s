@@ -6,13 +6,15 @@ import (
 	"sort"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/protocol"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 )
 
 // Recover reconciles durable non-terminal executions with the runtime. It
 // never creates a missing workload: missing or conflicting runtime metadata is
-// recorded as a terminal failure, while running tasks regain completion and
-// deadline monitoring.
+// recorded as a terminal failure, while running tasks regain completion
+// monitoring. An execution whose client-held lease already expired is evicted
+// instead of being revived; one with a valid lease keeps running.
 func (a *Allocator) Recover(ctx context.Context) error {
 	recoverer, ok := a.runtime.(r1sruntime.Recoverer)
 	if !ok {
@@ -51,12 +53,36 @@ func (a *Allocator) Recover(ctx context.Context) error {
 		if record.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING {
 			reason := record.detail
 			a.mu.Unlock()
-			if err := a.runtime.Stop(ctx, id); err != nil {
+			if err := a.runtime.Stop(ctx, id); err != nil && !errors.Is(err, r1sruntime.ErrExecutionMissing) {
 				return errors.Join(ErrRuntimeStop, err)
 			}
 			a.mu.Lock()
 			if current := a.executions[id]; current != nil && !terminal(current.phase) {
-				a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED, reason, nil, a.now().UTC())
+				phase := r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED
+				if reason == protocol.LeaseExpiredDetail {
+					// An interrupted lease eviction resumes to its distinct
+					// terminal state instead of looking like a cancellation.
+					phase = r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED
+				}
+				a.finishLocked(current, phase, reason, nil, a.now().UTC())
+			}
+			err := a.persistLocked(context.Background())
+			a.mu.Unlock()
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		// A lease that expired while the allocator was down evicts the
+		// execution locally without reviving its runtime task.
+		if !record.leaseUntil.IsZero() && !record.leaseUntil.After(a.now().UTC()) {
+			a.mu.Unlock()
+			if err := a.runtime.Stop(ctx, id); err != nil && !errors.Is(err, r1sruntime.ErrExecutionMissing) {
+				return errors.Join(ErrRuntimeStop, err)
+			}
+			a.mu.Lock()
+			if current := a.executions[id]; current != nil && !terminal(current.phase) {
+				a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED, protocol.LeaseExpiredDetail, nil, a.now().UTC())
 			}
 			err := a.persistLocked(context.Background())
 			a.mu.Unlock()

@@ -25,7 +25,7 @@ func (a *Allocator) errorResponse(command *r1sv1.Envelope, err error) []*r1sv1.E
 		code, detail = "EXPIRED", "reservation or retained result expired"
 	case errors.Is(err, ErrExecutionConflict), errors.Is(err, ErrReplayConflict), errors.Is(err, ErrOfferAlreadyAssigned):
 		code, detail = "CONFLICT", "command conflicts with durable state"
-	case errors.Is(err, protocol.ErrInvalidEnvelope), errors.Is(err, ErrUnsupportedMessage):
+	case errors.Is(err, protocol.ErrInvalidEnvelope), errors.Is(err, ErrUnsupportedMessage), errors.Is(err, ErrLeaseTooLong):
 		code, detail = "INVALID_REQUEST", "invalid or unsupported command"
 	case errors.Is(err, ErrRuntimeStart), errors.Is(err, ErrRuntimeStop):
 		code, detail, retry = "UNAVAILABLE", "runtime operation failed; inspect the same allocator", true

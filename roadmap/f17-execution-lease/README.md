@@ -2,7 +2,8 @@
 
 Corresponds to [milestone F17](../../ROADMAP.md#f17-execution-lease).
 
-**Status:** ⏳ Planned
+**Status:** ✅ complete; deterministic allocator, client, protocol, socket-contract, and
+service-backed CLI tests pass under `go test -race`
 
 ## Outcome
 
@@ -20,25 +21,30 @@ distinguishable from a client cancellation.
 ## Scope
 
 - Add an authenticated, idempotent, replay-safe lease renewal operation to the control protocol,
-  and expose it as `r1s maintain <exec-id>` with a local-API binding.
+  driven from `r1s request --keep-alive` (with a local-API binding through the service).
 - Persist the lease expiry for every running execution in allocator durable state so it survives
   allocator restart.
 - Evict an execution whose lease expires without renewal through the existing runtime stop
   boundary; record terminal state whose cause is distinguishable from client cancellation.
 - Retire `deadline` and `max_runtime` as lifetime bounds: reserve the retired `ExecutionPolicy`
   fields, lift the "at least one required" validation, and move enforcement from the runtime
-  completion monitor to the allocator lease sweep. `result_retention` is unchanged.
+  completion monitor to the allocator lease sweep. `result_retention` is unchanged. (Done: the
+  initial lease is granted by the allocator at assignment and extends on each renewal.)
 - Reword the lifetime rule: connection state still never determines execution lifetime; a lease
   outlives any partition shorter than its duration. Update ARCHITECTURE.md, the AGENTS.md
   invariant wording, and the README flow to match.
 - Renewal never attaches logs, results, or other payload; it returns only the new expiry.
+- When a lease is lost — the execution was evicted before a renewal landed — the durable
+  lease-holding intent converts into a re-request duty: the client engine runs a fresh request with
+  the recorded workload and rebinds the intent to the replacement execution. The keep-alive
+  requester prints the recovery (`status=rerequested`), and the serve renewal loop does the same
+  on its next tick.
 
-`r1s maintain` is a one-shot authenticated renewal primitive, not a loop. The renewal loop lives
-only in the shared durable client engine, expressed as a durable lease-holding intent: `r1s serve`
-renews the leases recorded in its durable state, and the deploy reconciler records the same intent
-instead of implementing its own renewal logic. Direct-mode clients renew themselves by calling
-`r1s maintain` periodically. `maintain` never spawns a background process, and an unreachable
-socket is an error, never a fallback.
+Renewal is an authenticated control-plane primitive, not a loop. The renewal loop lives only in
+the shared durable client engine: `r1s serve` renews the lease-holding intents recorded in its
+durable state (recorded by `r1s request --keep-alive`), and the deploy reconciler records the same
+intent instead of implementing its own renewal logic. Direct-mode callers pass `--keep-alive` so
+the request process itself stays up and renews until the workload terminates.
 
 ## Completion criteria
 

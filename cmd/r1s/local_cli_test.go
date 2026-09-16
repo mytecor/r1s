@@ -31,7 +31,7 @@ type cliWorkflowBackend struct {
 	now        time.Time
 }
 
-func (b *cliWorkflowBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string) (string, string, []byte, error) {
+func (b *cliWorkflowBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (string, string, []byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	requestID, request, err := b.clientCore.CreateRequest(workload, policy, resourceClass)
@@ -62,6 +62,11 @@ func (b *cliWorkflowBackend) RunRequest(ctx context.Context, workload *r1sv1.Wor
 		}
 	}
 	executionID := assignment.GetExecutionAssign().GetExecutionId()
+	if keepAlive > 0 {
+		if err := b.clientCore.RecordLeaseIntent(executionID, keepAlive); err != nil {
+			return "", "", nil, err
+		}
+	}
 	snapshot, _ := b.clientCore.Execution(executionID)
 	return requestID, executionID, snapshot.Allocator, nil
 }
@@ -196,7 +201,7 @@ func TestServiceBackedCLIMatchesDirectWorkflow(t *testing.T) {
 	}
 
 	// Scenario 2: request through the local API.
-	requestJSON := `{"workload":{"image":"example.test/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"policy":{"maxRuntime":"600s"}}`
+	requestJSON := `{"workload":{"image":"example.test/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"policy":{"resultRetention":"86400s"}}`
 	stdout.Reset()
 	stderr.Reset()
 	err = run(context.Background(), []string{"--socket", socket, "request", "--offer-wait", "2s", requestJSON}, &stdout, &stderr)
@@ -245,6 +250,40 @@ func TestServiceBackedCLIMatchesDirectWorkflow(t *testing.T) {
 	}
 }
 
+// TestServiceBackedRequestKeepAlive proves the F17 keep-alive workflow in
+// service-backed mode: request --keep-alive records a durable lease-holding
+// intent in the service engine, so its renewal loop keeps the execution alive
+// and will re-request the workload if the lease is ever lost.
+func TestServiceBackedRequestKeepAliveRecordsIntent(t *testing.T) {
+	backend := newCLIWorkflowBackend(t)
+	_, socket := serveBackend(t, backend)
+
+	requestJSON := `{"workload":{"image":"example.test/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"policy":{"resultRetention":"86400s"}}`
+	var stdout, stderr bytes.Buffer
+	if err := run(context.Background(), []string{"--socket", socket, "request", "--keep-alive", "--lease", "1h", "--offer-wait", "2s", requestJSON}, &stdout, &stderr); err != nil {
+		t.Fatalf("service-backed request --keep-alive: %v", err)
+	}
+	executions := backend.clientCore.Executions()
+	if len(executions) != 1 {
+		t.Fatalf("request produced %d executions, want 1", len(executions))
+	}
+	executionID := executions[0].ExecutionID
+	due := backend.clientCore.DueLeaseRenewals()
+	if len(due) != 1 || due[0] != executionID {
+		t.Fatalf("DueLeaseRenewals() = %v, want [%s]", due, executionID)
+	}
+
+	// --lease without --keep-alive is rejected instead of silently ignored.
+	stdout.Reset()
+	stderr.Reset()
+	if err := run(context.Background(), []string{"--socket", socket, "request", "--lease", "10m", requestJSON}, &stdout, &stderr); err == nil {
+		t.Fatal("--lease without --keep-alive succeeded")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("rejected request wrote to stdout: %q", stdout.String())
+	}
+}
+
 // TestSocketDiscoveryRoutesToLiveServe proves that, when a user runs 'r1s'
 // without --socket and a local service is already listening at the DEFAULT
 // socket path, the workflow command routes through the service instead of
@@ -281,7 +320,7 @@ func TestSocketDiscoveryRoutesToLiveServe(t *testing.T) {
 
 	// No --socket anywhere: the default live socket is discovered and the
 	// request runs through the local service.
-	requestJSON := `{"workload":{"image":"example.test/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"policy":{"maxRuntime":"600s"}}`
+	requestJSON := `{"workload":{"image":"example.test/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"policy":{"resultRetention":"86400s"}}`
 	var stdout, stderr bytes.Buffer
 	t.Setenv("HOME", home) // run() re-reads HOME for the default path
 	if err := run(context.Background(), []string{"request", "--offer-wait", "2s", requestJSON}, &stdout, &stderr); err != nil {

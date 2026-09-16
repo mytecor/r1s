@@ -65,6 +65,9 @@ func (a *Allocator) checkFreshness(e *r1sv1.Envelope) error {
 	if q := e.GetExecutionLogsRequest(); q != nil {
 		id = q.GetExecutionId()
 	}
+	if q := e.GetExecutionLeaseRenew(); q != nil {
+		id = q.GetExecutionId()
+	}
 	if record := a.executions[id]; record != nil && bytes.Equal(record.client, e.GetSender()) && terminal(record.phase) && !record.retainUntil.After(now) {
 		return ErrResultExpired
 	}
@@ -76,9 +79,14 @@ func (a *Allocator) checkFreshness(e *r1sv1.Envelope) error {
 	return nil
 }
 
-// Sweep commits metadata collection before deleting local log files. Pending
+// Sweep evicts executions whose client-held lease expired without renewal,
+// then commits metadata collection before deleting local log files. Pending
 // cleanup survives failures and restart. In-flight transitions are never collected.
 func (a *Allocator) Sweep(ctx context.Context) error {
+	// Lease eviction stops tasks through the runtime boundary and must not run
+	// under the allocator lock, so it precedes the retention collection pass.
+	evictErr := a.EvictExpiredLeases(ctx)
+
 	a.mu.Lock()
 	oldOffers, oldExecutions, oldRequests, oldReplay, oldDead, oldUsed, oldClock := a.offers, a.executions, a.requests, a.replay, a.tombstones, a.capacity.snapshot(), a.highWater
 	a.offers = maps.Clone(a.offers)
@@ -151,6 +159,9 @@ func (a *Allocator) Sweep(ctx context.Context) error {
 			if q := e.GetExecutionInspect(); q != nil {
 				drop = a.executions[q.GetExecutionId()] == nil
 			}
+			if q := e.GetExecutionLeaseRenew(); q != nil {
+				drop = a.executions[q.GetExecutionId()] == nil
+			}
 			if drop {
 				delete(a.replay.entries, key)
 			}
@@ -160,7 +171,7 @@ func (a *Allocator) Sweep(ctx context.Context) error {
 		a.offers, a.executions, a.requests, a.replay, a.tombstones, a.highWater = oldOffers, oldExecutions, oldRequests, oldReplay, oldDead, oldClock
 		a.capacity.restore(oldUsed)
 		a.mu.Unlock()
-		return err
+		return errors.Join(evictErr, err)
 	}
 	var pending []tombstone
 	for _, dead := range a.tombstones {
@@ -192,5 +203,5 @@ func (a *Allocator) Sweep(ctx context.Context) error {
 		}
 		a.mu.Unlock()
 	}
-	return allErr
+	return errors.Join(allErr, evictErr)
 }

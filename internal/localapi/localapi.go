@@ -75,10 +75,14 @@ func (c *Client) socketAlive() bool {
 }
 
 // Request runs the full local request workflow.
-func (c *Client) Request(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string) (requestID, executionID string, allocator []byte, err error) {
+// Request runs the full local request workflow. A positive keepAlive durably
+// records a lease-holding intent for the assigned execution; the service
+// renewal loop then keeps it alive and re-requests the workload if the lease
+// is ever lost.
+func (c *Client) Request(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (requestID, executionID string, allocator []byte, err error) {
 	response, err := c.local.Request(ctx, &r1sv1.LocalRequest{
 		Workload: workload, Policy: policy, ResourceClass: resourceClass,
-		OfferWait: durationpb.New(offerWait), Allocators: allocators,
+		OfferWait: durationpb.New(offerWait), Allocators: allocators, KeepAlive: durationpb.New(keepAlive),
 	})
 	if err != nil {
 		return "", "", nil, err

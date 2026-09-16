@@ -39,7 +39,7 @@ func TestContainerdFixtureLifecycle(t *testing.T) {
 			Command: []string{"/bin/sh", "-c"},
 			Args:    []string{"exit 7"},
 		},
-		Policy: &r1sv1.ExecutionPolicy{MaxRuntime: durationpb.New(time.Minute)},
+		Policy: &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)},
 	}
 	if err := runtime.Start(ctx, request, func(completion r1sruntime.Completion) error {
 		reported <- completion
@@ -114,7 +114,7 @@ func TestContainerdFixtureRecovery(t *testing.T) {
 		Workload: &r1sv1.Workload{
 			Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{"sleep 1; exit 19"},
 		},
-		Policy:    &r1sv1.ExecutionPolicy{MaxRuntime: durationpb.New(time.Minute)},
+		Policy:    &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)},
 		StartedAt: time.Now(),
 	}
 	startDetached(completed)

@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-func testRequest(executionID string, maximum time.Duration) r1sruntime.StartRequest {
+func testRequest(executionID string, _ ...time.Duration) r1sruntime.StartRequest {
 	return r1sruntime.StartRequest{
 		ExecutionID: executionID,
 		Client:      []byte("client"),
@@ -20,7 +20,7 @@ func testRequest(executionID string, maximum time.Duration) r1sruntime.StartRequ
 			Args:        []string{"exit 7"},
 			Environment: map[string]string{"B": "2", "A": "1"},
 		},
-		Policy: &r1sv1.ExecutionPolicy{MaxRuntime: durationpb.New(maximum)},
+		Policy: &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)},
 	}
 }
 

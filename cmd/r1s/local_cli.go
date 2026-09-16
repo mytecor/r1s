@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -68,6 +69,8 @@ func (l *localCLI) serve(args []string, stderr io.Writer) error {
 func (l *localCLI) request(args []string, stderr io.Writer) error {
 	flags := newFlagSet("r1s request [options] '<ExecutionRequest JSON>'", stderr)
 	offerWait := flags.Duration("offer-wait", 10*time.Second, "time to discover allocators and collect offers")
+	holdAlive := flags.Bool("keep-alive", false, "record a durable lease-holding intent for the execution; the service renewal loop keeps it alive and re-requests the workload if the lease is ever lost")
+	lease := flags.Duration("lease", defaultLeaseDuration, "lease duration for --keep-alive renewals")
 	var allocators stringValues
 	flags.Var(&allocators, "allocator", "allocator destination hash; repeat or omit for announce discovery")
 	if err := flags.Parse(args); err != nil {
@@ -79,13 +82,29 @@ func (l *localCLI) request(args []string, stderr io.Writer) error {
 	if *offerWait <= 0 {
 		return errors.New("request: --offer-wait must be positive")
 	}
+	if *lease <= 0 {
+		return errors.New("request: --lease must be positive")
+	}
+	leaseSet := false
+	flags.Visit(func(candidate *flag.Flag) {
+		if candidate.Name == "lease" {
+			leaseSet = true
+		}
+	})
+	if leaseSet && !*holdAlive {
+		return errors.New("request: --lease requires --keep-alive")
+	}
 	request, err := decodeRequestJSON(flags.Arg(0))
 	if err != nil {
 		return err
 	}
+	hold := time.Duration(0)
+	if *holdAlive {
+		hold = *lease
+	}
 	ctx, cancel := context.WithTimeout(l.ctx, *offerWait+30*time.Second)
 	defer cancel()
-	requestID, executionID, allocator, err := l.client.Request(ctx, request.GetWorkload(), request.GetPolicy(), request.GetResourceClass(), *offerWait, allocators)
+	requestID, executionID, allocator, err := l.client.Request(ctx, request.GetWorkload(), request.GetPolicy(), request.GetResourceClass(), *offerWait, allocators, hold)
 	if err != nil {
 		return err
 	}

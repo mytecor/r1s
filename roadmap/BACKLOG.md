@@ -39,14 +39,17 @@ This file records unresolved choices so they do not remain implicit in implement
    workflow, safe distribution of the replacement join token, transition windows for partitioned
    members, and whether individual member revocation warrants moving beyond the shared-key baseline
    established by [F12](./f12-cluster-membership/README.md).
-8. **Execution lease parameters** — the direction is pinned with
-   [F17](./f17-execution-lease/README.md): lifetime moves from the request-time
-   `deadline`/`max_runtime` to a durable, explicitly renewed client-held lease, and unrenewed
-   leases evict locally. Still open: default and bounded lease duration, clock semantics across
-   allocator restart (wall-clock persisted expiry versus monotonic accounting), an eviction grace
-   period after one missed renewal, the terminal-state vocabulary that distinguishes lease expiry
-   from cancellation, and whether `max_runtime` survives as an optional hard backstop against a
-   failed local sweep.
+8. **Execution lease parameters** — the direction landed with
+   [F17](./f17-execution-lease/README.md): lifetime moved from the request-time
+   `deadline`/`max_runtime` (fields now reserved) to a durable, explicitly renewed client-held
+   lease, and unrenewed leases evict locally through the existing runtime stop boundary. Chosen
+   defaults: an allocator-granted initial lease of 10 minutes, a renewal bound of the 7-day command
+   replay horizon, and eviction when the local sweep observes expiry (the sweep interval is the
+   implicit grace period, consistent with lazy offer expiry and retention). The terminal marker is
+   a `FAILED` state with the stable detail `execution lease expired`, distinct from any
+   client-supplied cancellation reason. Still open: clock semantics across allocator restart
+   (wall-clock persisted expiry versus monotonic accounting) and whether a strict eviction grace
+   period after one missed renewal is worth adding over the lazy sweep.
 
 ## Resolved
 

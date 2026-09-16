@@ -19,6 +19,12 @@ const (
 	defaultOfferTTL       = 30 * time.Second
 	defaultReplayTTL      = 10 * time.Minute
 	defaultReplayCapacity = 4096
+	// defaultLeaseTTL is the initial lease granted at assignment. A client
+	// extends it with authenticated ExecutionLeaseRenew messages.
+	defaultLeaseTTL = 10 * time.Minute
+	// maxLeaseTTL bounds a single renewal. It matches the command replay
+	// horizon so a durable lease never outlives the tombstones that guard it.
+	maxLeaseTTL = CommandHorizon
 )
 
 // Config defines local allocator authority and fixed class capacities.
@@ -27,6 +33,7 @@ type Config struct {
 	Identity       []byte
 	Capacity       map[string]uint32
 	OfferTTL       time.Duration
+	LeaseTTL       time.Duration
 	ReplayTTL      time.Duration
 	ReplayCapacity int
 	Now            func() time.Time
@@ -67,8 +74,11 @@ type executionRecord struct {
 	startedAt     time.Time
 	released      bool
 	retainUntil   time.Time
-	revision      uint64
-	resources     r1sruntime.Resources
+	// leaseUntil is the durable client-held lease expiry. It is zero only for
+	// terminal executions, whose lifetime no longer needs a lease.
+	leaseUntil time.Time
+	revision   uint64
+	resources  r1sruntime.Resources
 }
 
 // OfferSnapshot is a read-only view of allocator offer state.
@@ -103,6 +113,7 @@ type Allocator struct {
 	identity  []byte
 	capacity  *capacityLedger
 	offerTTL  time.Duration
+	leaseTTL  time.Duration
 	now       func() time.Time
 	newID     func() string
 	runtime   r1sruntime.Runtime
@@ -137,7 +148,10 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 	if config.ReplayCapacity == 0 {
 		config.ReplayCapacity = defaultReplayCapacity
 	}
-	if config.OfferTTL < 0 || config.ReplayTTL < 0 || config.ReplayCapacity < 0 {
+	if config.LeaseTTL == 0 {
+		config.LeaseTTL = defaultLeaseTTL
+	}
+	if config.OfferTTL < 0 || config.LeaseTTL < 0 || config.ReplayTTL < 0 || config.ReplayCapacity < 0 {
 		return nil, fmt.Errorf("%w: TTLs and replay capacity must be positive", ErrInvalidConfig)
 	}
 	if config.Now == nil {
@@ -164,6 +178,7 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 		identity:   bytes.Clone(config.Identity),
 		capacity:   capacity,
 		offerTTL:   config.OfferTTL,
+		leaseTTL:   config.LeaseTTL,
 		now:        config.Now,
 		newID:      config.NewID,
 		runtime:    runtime,
@@ -197,7 +212,7 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		return a.handleLogs(ctx, envelope)
 	}
 	switch envelope.GetPayload().(type) {
-	case *r1sv1.Envelope_ExecutionRequest, *r1sv1.Envelope_ExecutionAssign, *r1sv1.Envelope_ExecutionCancel, *r1sv1.Envelope_ExecutionInspect, *r1sv1.Envelope_ExecutionOfferRelease:
+	case *r1sv1.Envelope_ExecutionRequest, *r1sv1.Envelope_ExecutionAssign, *r1sv1.Envelope_ExecutionCancel, *r1sv1.Envelope_ExecutionInspect, *r1sv1.Envelope_ExecutionOfferRelease, *r1sv1.Envelope_ExecutionLeaseRenew:
 	default:
 		return nil, ErrUnsupportedMessage
 	}
@@ -229,6 +244,8 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		responses, err = a.handleInspect(envelope, payload.ExecutionInspect)
 	case *r1sv1.Envelope_ExecutionOfferRelease:
 		responses, err = a.handleOfferRelease(envelope, payload.ExecutionOfferRelease)
+	case *r1sv1.Envelope_ExecutionLeaseRenew:
+		responses, err = a.handleLeaseRenew(envelope, payload.ExecutionLeaseRenew)
 	default:
 		panic("payload type checked above")
 	}

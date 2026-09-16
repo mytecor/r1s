@@ -19,7 +19,9 @@ type serveOptions struct {
 // serve runs the persistent local client behind a versioned gRPC API on a Unix
 // socket. Exactly one client identity and state store stays alive for the
 // service lifetime; Watch streams are replayed from the durable journal so a
-// watcher reconnects without inventing or reordering revisions.
+// watcher reconnects without inventing or reordering revisions. The serve
+// process is also the only continuous lease-renewal holder: every recorded
+// lease-holding intent is replayed from durable state on every tick.
 func (a *application) serve(args []string, stderr io.Writer) error {
 	options, err := parseServeOptions(args, stderr)
 	if err != nil {
@@ -31,6 +33,8 @@ func (a *application) serve(args []string, stderr io.Writer) error {
 		return err
 	}
 	defer a.stop(stderr)
+
+	go a.runLeaseMaintainer(a.ctx, stderr)
 
 	fmt.Fprintf(stderr, "serving local client API on %s\n", options.socketPath)
 	return localserver.New(a).ListenAndServe(a.ctx, options.socketPath, localserver.SocketPermission(options.permission))

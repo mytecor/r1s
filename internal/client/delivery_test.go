@@ -23,7 +23,7 @@ func releaseClient(t *testing.T) (*Client, *r1sv1.Envelope) {
 			t.Fatal(err)
 		}
 	}
-	_, request, err := core.CreateRequest(&r1sv1.Workload{Image: "example/image:latest"}, &r1sv1.ExecutionPolicy{MaxRuntime: durationpb.New(time.Minute)}, "default")
+	_, request, err := core.CreateRequest(&r1sv1.Workload{Image: "example/image:latest"}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}

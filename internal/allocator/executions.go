@@ -71,6 +71,7 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 		revision:      1,
 		resources:     offer.resources,
 		startedAt:     now,
+		leaseUntil:    now.Add(a.leaseTTL),
 	}
 	offer.status = offerAssigned
 	offer.execution = record.id

@@ -493,8 +493,7 @@ func requestEnvelope(now time.Time, messageID, client, requestID string) *r1sv1.
 			ResourceClass: "default",
 			Workload:      &r1sv1.Workload{Image: "example.test/image:latest"},
 			Policy: &r1sv1.ExecutionPolicy{
-				Deadline:   timestamppb.New(now.Add(time.Hour)),
-				MaxRuntime: durationpb.New(time.Minute),
+				ResultRetention: durationpb.New(time.Hour),
 			},
 		}},
 	}

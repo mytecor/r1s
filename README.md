@@ -130,12 +130,17 @@ r1s \
   --rns-config "$HOME/.config/r1s/reticulum.conf" \
   --identity "$HOME/.config/r1s/identity" \
   request \
-  '{"workload":{"image":"registry.example/image@sha256:..."},"policy":{"maxRuntime":"600s","resultRetention":"86400s"},"resourceClass":"default"}'
+  '{"workload":{"image":"registry.example/image@sha256:..."},"policy":{"resultRetention":"86400s"},"resourceClass":"default"}'
 ```
 
-The command returns durable request and execution IDs after assignment. Use the execution ID with
-`inspect`, `cancel`, `result`, or `logs`; use `list` to show saved requests. Run `r1s --help` or a
-subcommand with `--help` for all options.
+The command returns durable request and execution IDs after assignment. The execution is then
+bounded by a client-held lease (10 minutes by default). Add `--keep-alive` (optionally `--lease`)
+to keep it running: direct mode blocks, renews the lease, and re-requests the recorded workload if
+the lease is ever lost; `--socket` mode records the duty durably in the service, whose renewal
+loop holds it while `r1s serve` runs. An execution whose lease expires without renewal is evicted
+locally; its terminal metadata stays retrievable within `result_retention`. Use the execution ID
+with `inspect`, `cancel`, `result`, or `logs`; use `list` to show saved requests. Run `r1s --help`
+or a subcommand with `--help` for all options.
 
 ## Local client API
 
@@ -156,13 +161,16 @@ r1s --socket "$HOME/.config/r1s/client.sock" inspect <execution-id>
 `r1s serve` keeps one client identity, state store, and RNS endpoint alive for the service lifetime
 and serves a versioned local gRPC API over a Unix socket (default mode `0600`, `--socket-mode` to
 change, default socket at `~/.config/r1s/client.sock`). It also streams durable execution-state
-changes through `Watch` so applications need not poll. The service is a local frontend for one
-client identity — it is not a cluster-wide API server and is never reachable over RNS.
+changes through `Watch` so applications need not poll. The service is the only continuous
+lease-renewal holder: every lease-holding intent recorded by `request --keep-alive` is replayed from durable
+state on each tick, and a lost lease re-requests the recorded workload. The service is a local
+frontend for one client identity — it is not a cluster-wide API server and is never reachable over
+RNS.
 
 Direct mode remains the default and is still the way to run `serve` and `cluster`. Passing
-`--socket <path>` routes `request`, `list`, `inspect`, `result`, `cancel`, and `logs` through the
-local service; an unreachable explicit socket is an error, never a silent fallback to a new client
-identity.
+`--socket <path>` routes `request`, `list`, `inspect`, `result`, `cancel`, and `logs`
+through the local service; an unreachable explicit socket is an error, never a silent fallback to a
+new client identity.
 
 Without `--socket`, the CLI transparently discovers a running local service: when the default
 socket (`~/.config/r1s/client.sock`) is already listening, workflow commands route through it

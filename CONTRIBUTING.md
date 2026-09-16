@@ -35,7 +35,7 @@ require a new package version such as `r1s.v2`.
 ## Tests
 
 Tests should verify protocol validation, authority boundaries, idempotency, capacity accounting,
-state transitions, cancellation, deadlines, and adapter contracts. Avoid assertions that merely
+state transitions, cancellation, lease expiry, and adapter contracts. Avoid assertions that merely
 duplicate configuration constants without checking behavior.
 
 ## Live verification

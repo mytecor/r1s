@@ -33,7 +33,11 @@ type LocalRequest struct {
 	OfferWait     *durationpb.Duration   `protobuf:"bytes,4,opt,name=offer_wait,json=offerWait,proto3" json:"offer_wait,omitempty"`
 	// Explicit allocator destination hashes; the service also delivers the
 	// request to freshly discovered allocators like the direct CLI does.
-	Allocators    []string `protobuf:"bytes,5,rep,name=allocators,proto3" json:"allocators,omitempty"`
+	Allocators []string `protobuf:"bytes,5,rep,name=allocators,proto3" json:"allocators,omitempty"`
+	// When set, the service durably records a lease-holding intent for the
+	// assigned execution and its renewal loop keeps it alive. Zero means the
+	// execution runs on its initial allocator-granted lease only.
+	KeepAlive     *durationpb.Duration `protobuf:"bytes,6,opt,name=keep_alive,json=keepAlive,proto3" json:"keep_alive,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -99,6 +103,13 @@ func (x *LocalRequest) GetOfferWait() *durationpb.Duration {
 func (x *LocalRequest) GetAllocators() []string {
 	if x != nil {
 		return x.Allocators
+	}
+	return nil
+}
+
+func (x *LocalRequest) GetKeepAlive() *durationpb.Duration {
+	if x != nil {
+		return x.KeepAlive
 	}
 	return nil
 }
@@ -791,7 +802,7 @@ var File_r1s_v1_local_proto protoreflect.FileDescriptor
 
 const file_r1s_v1_local_proto_rawDesc = "" +
 	"\n" +
-	"\x12r1s/v1/local.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x14r1s/v1/control.proto\"\xee\x01\n" +
+	"\x12r1s/v1/local.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x14r1s/v1/control.proto\"\xa8\x02\n" +
 	"\fLocalRequest\x12,\n" +
 	"\bworkload\x18\x01 \x01(\v2\x10.r1s.v1.WorkloadR\bworkload\x12/\n" +
 	"\x06policy\x18\x02 \x01(\v2\x17.r1s.v1.ExecutionPolicyR\x06policy\x12%\n" +
@@ -800,7 +811,9 @@ const file_r1s_v1_local_proto_rawDesc = "" +
 	"offer_wait\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\tofferWait\x12\x1e\n" +
 	"\n" +
 	"allocators\x18\x05 \x03(\tR\n" +
-	"allocators\"v\n" +
+	"allocators\x128\n" +
+	"\n" +
+	"keep_alive\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\tkeepAlive\"v\n" +
 	"\x14LocalRequestResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12!\n" +
@@ -892,32 +905,33 @@ var file_r1s_v1_local_proto_depIdxs = []int32{
 	13, // 0: r1s.v1.LocalRequest.workload:type_name -> r1s.v1.Workload
 	14, // 1: r1s.v1.LocalRequest.policy:type_name -> r1s.v1.ExecutionPolicy
 	15, // 2: r1s.v1.LocalRequest.offer_wait:type_name -> google.protobuf.Duration
-	15, // 3: r1s.v1.LocalInspectRequest.wait:type_name -> google.protobuf.Duration
-	15, // 4: r1s.v1.LocalResultRequest.wait:type_name -> google.protobuf.Duration
-	16, // 5: r1s.v1.LocalStateResponse.state:type_name -> r1s.v1.ExecutionState
-	15, // 6: r1s.v1.LocalCancelRequest.wait:type_name -> google.protobuf.Duration
-	8,  // 7: r1s.v1.LocalListResponse.requests:type_name -> r1s.v1.LocalRequestView
-	15, // 8: r1s.v1.LocalLogsRequest.wait:type_name -> google.protobuf.Duration
-	16, // 9: r1s.v1.LocalWatchEvent.state:type_name -> r1s.v1.ExecutionState
-	0,  // 10: r1s.v1.LocalClient.Request:input_type -> r1s.v1.LocalRequest
-	6,  // 11: r1s.v1.LocalClient.List:input_type -> r1s.v1.LocalListRequest
-	2,  // 12: r1s.v1.LocalClient.Inspect:input_type -> r1s.v1.LocalInspectRequest
-	3,  // 13: r1s.v1.LocalClient.Result:input_type -> r1s.v1.LocalResultRequest
-	5,  // 14: r1s.v1.LocalClient.Cancel:input_type -> r1s.v1.LocalCancelRequest
-	9,  // 15: r1s.v1.LocalClient.Logs:input_type -> r1s.v1.LocalLogsRequest
-	11, // 16: r1s.v1.LocalClient.Watch:input_type -> r1s.v1.LocalWatchRequest
-	1,  // 17: r1s.v1.LocalClient.Request:output_type -> r1s.v1.LocalRequestResponse
-	7,  // 18: r1s.v1.LocalClient.List:output_type -> r1s.v1.LocalListResponse
-	4,  // 19: r1s.v1.LocalClient.Inspect:output_type -> r1s.v1.LocalStateResponse
-	4,  // 20: r1s.v1.LocalClient.Result:output_type -> r1s.v1.LocalStateResponse
-	4,  // 21: r1s.v1.LocalClient.Cancel:output_type -> r1s.v1.LocalStateResponse
-	10, // 22: r1s.v1.LocalClient.Logs:output_type -> r1s.v1.LocalLogsResponse
-	12, // 23: r1s.v1.LocalClient.Watch:output_type -> r1s.v1.LocalWatchEvent
-	17, // [17:24] is the sub-list for method output_type
-	10, // [10:17] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	15, // 3: r1s.v1.LocalRequest.keep_alive:type_name -> google.protobuf.Duration
+	15, // 4: r1s.v1.LocalInspectRequest.wait:type_name -> google.protobuf.Duration
+	15, // 5: r1s.v1.LocalResultRequest.wait:type_name -> google.protobuf.Duration
+	16, // 6: r1s.v1.LocalStateResponse.state:type_name -> r1s.v1.ExecutionState
+	15, // 7: r1s.v1.LocalCancelRequest.wait:type_name -> google.protobuf.Duration
+	8,  // 8: r1s.v1.LocalListResponse.requests:type_name -> r1s.v1.LocalRequestView
+	15, // 9: r1s.v1.LocalLogsRequest.wait:type_name -> google.protobuf.Duration
+	16, // 10: r1s.v1.LocalWatchEvent.state:type_name -> r1s.v1.ExecutionState
+	0,  // 11: r1s.v1.LocalClient.Request:input_type -> r1s.v1.LocalRequest
+	6,  // 12: r1s.v1.LocalClient.List:input_type -> r1s.v1.LocalListRequest
+	2,  // 13: r1s.v1.LocalClient.Inspect:input_type -> r1s.v1.LocalInspectRequest
+	3,  // 14: r1s.v1.LocalClient.Result:input_type -> r1s.v1.LocalResultRequest
+	5,  // 15: r1s.v1.LocalClient.Cancel:input_type -> r1s.v1.LocalCancelRequest
+	9,  // 16: r1s.v1.LocalClient.Logs:input_type -> r1s.v1.LocalLogsRequest
+	11, // 17: r1s.v1.LocalClient.Watch:input_type -> r1s.v1.LocalWatchRequest
+	1,  // 18: r1s.v1.LocalClient.Request:output_type -> r1s.v1.LocalRequestResponse
+	7,  // 19: r1s.v1.LocalClient.List:output_type -> r1s.v1.LocalListResponse
+	4,  // 20: r1s.v1.LocalClient.Inspect:output_type -> r1s.v1.LocalStateResponse
+	4,  // 21: r1s.v1.LocalClient.Result:output_type -> r1s.v1.LocalStateResponse
+	4,  // 22: r1s.v1.LocalClient.Cancel:output_type -> r1s.v1.LocalStateResponse
+	10, // 23: r1s.v1.LocalClient.Logs:output_type -> r1s.v1.LocalLogsResponse
+	12, // 24: r1s.v1.LocalClient.Watch:output_type -> r1s.v1.LocalWatchEvent
+	18, // [18:25] is the sub-list for method output_type
+	11, // [11:18] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_r1s_v1_local_proto_init() }

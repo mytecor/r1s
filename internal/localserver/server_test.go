@@ -27,14 +27,14 @@ type fakeBackend struct {
 	journal    []client.WatchEvent
 	observers  []func(client.WatchEvent)
 
-	runRequest func(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string) (string, string, []byte, error)
+	runRequest func(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (string, string, []byte, error)
 	inspect    func(ctx context.Context, executionID string, wait time.Duration) (*r1sv1.ExecutionState, error)
 	cancel     func(ctx context.Context, executionID, reason string, wait time.Duration) (*r1sv1.ExecutionState, error)
 	logs       func(ctx context.Context, executionID, stream string, offset uint64, maxBytes uint32, wait time.Duration) (*r1sv1.ExecutionLogsResponse, error)
 }
 
-func (f *fakeBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string) (string, string, []byte, error) {
-	return f.runRequest(ctx, workload, policy, resourceClass, offerWait, allocators)
+func (f *fakeBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (string, string, []byte, error) {
+	return f.runRequest(ctx, workload, policy, resourceClass, offerWait, allocators, keepAlive)
 }
 
 func (f *fakeBackend) Inspect(ctx context.Context, executionID string, wait time.Duration) (*r1sv1.ExecutionState, error) {
@@ -113,7 +113,7 @@ func (f *fakeBackend) emit(event client.WatchEvent) {
 func TestLocalAPIContractThroughSocket(t *testing.T) {
 	backend := &fakeBackend{
 		executions: make(map[string]*r1sv1.ExecutionState),
-		runRequest: func(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string) (string, string, []byte, error) {
+		runRequest: func(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (string, string, []byte, error) {
 			return "request-1", "execution-1", []byte("allocator-a"), nil
 		},
 		inspect: func(ctx context.Context, executionID string, wait time.Duration) (*r1sv1.ExecutionState, error) {
@@ -136,7 +136,7 @@ func TestLocalAPIContractThroughSocket(t *testing.T) {
 	// Request
 	reqResp, err := clientConn.Request(ctx, &r1sv1.LocalRequest{
 		Workload:  &r1sv1.Workload{Image: "example.test/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		Policy:    &r1sv1.ExecutionPolicy{MaxRuntime: durationpb.New(time.Minute)},
+		Policy:    &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)},
 		OfferWait: durationpb.New(3 * time.Second),
 	})
 	if err != nil {

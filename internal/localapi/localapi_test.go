@@ -24,9 +24,11 @@ type stubBackend struct {
 	requests    int
 	state       *r1sv1.ExecutionState
 	logsData    []byte
+
+	maintainRerequest bool
 }
 
-func (s *stubBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string) (string, string, []byte, error) {
+func (s *stubBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (string, string, []byte, error) {
 	return s.requestID, s.executionID, s.allocator, nil
 }
 
@@ -79,7 +81,7 @@ func TestLocalAPIClientTalksToServer(t *testing.T) {
 		t.Fatalf("Ping: %v", err)
 	}
 
-	requestID, executionID, allocator, err := client.Request(context.Background(), &r1sv1.Workload{Image: "example.test/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, &r1sv1.ExecutionPolicy{MaxRuntime: durationpb.New(time.Minute)}, "default", 2*time.Second, nil)
+	requestID, executionID, allocator, err := client.Request(context.Background(), &r1sv1.Workload{Image: "example.test/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}, "default", 2*time.Second, nil, 0)
 	if err != nil {
 		t.Fatalf("Request: %v", err)
 	}

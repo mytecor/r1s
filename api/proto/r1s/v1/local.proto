@@ -26,6 +26,10 @@ message LocalRequest {
   // Explicit allocator destination hashes; the service also delivers the
   // request to freshly discovered allocators like the direct CLI does.
   repeated string allocators = 5;
+  // When set, the service durably records a lease-holding intent for the
+  // assigned execution and its renewal loop keeps it alive. Zero means the
+  // execution runs on its initial allocator-granted lease only.
+  google.protobuf.Duration keep_alive = 6;
 }
 
 message LocalRequestResponse {

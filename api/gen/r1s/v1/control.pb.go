@@ -157,6 +157,8 @@ type Envelope struct {
 	//	*Envelope_CommandError
 	//	*Envelope_ExecutionLogsRequest
 	//	*Envelope_ExecutionLogsResponse
+	//	*Envelope_ExecutionLeaseRenew
+	//	*Envelope_ExecutionLeaseRenewAck
 	Payload       isEnvelope_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -326,6 +328,24 @@ func (x *Envelope) GetExecutionLogsResponse() *ExecutionLogsResponse {
 	return nil
 }
 
+func (x *Envelope) GetExecutionLeaseRenew() *ExecutionLeaseRenew {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_ExecutionLeaseRenew); ok {
+			return x.ExecutionLeaseRenew
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetExecutionLeaseRenewAck() *ExecutionLeaseRenewAck {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_ExecutionLeaseRenewAck); ok {
+			return x.ExecutionLeaseRenewAck
+		}
+	}
+	return nil
+}
+
 type isEnvelope_Payload interface {
 	isEnvelope_Payload()
 }
@@ -374,6 +394,14 @@ type Envelope_ExecutionLogsResponse struct {
 	ExecutionLogsResponse *ExecutionLogsResponse `protobuf:"bytes,20,opt,name=execution_logs_response,json=executionLogsResponse,proto3,oneof"`
 }
 
+type Envelope_ExecutionLeaseRenew struct {
+	ExecutionLeaseRenew *ExecutionLeaseRenew `protobuf:"bytes,21,opt,name=execution_lease_renew,json=executionLeaseRenew,proto3,oneof"`
+}
+
+type Envelope_ExecutionLeaseRenewAck struct {
+	ExecutionLeaseRenewAck *ExecutionLeaseRenewAck `protobuf:"bytes,22,opt,name=execution_lease_renew_ack,json=executionLeaseRenewAck,proto3,oneof"`
+}
+
 func (*Envelope_ExecutionRequest) isEnvelope_Payload() {}
 
 func (*Envelope_ExecutionOffer) isEnvelope_Payload() {}
@@ -395,6 +423,10 @@ func (*Envelope_CommandError) isEnvelope_Payload() {}
 func (*Envelope_ExecutionLogsRequest) isEnvelope_Payload() {}
 
 func (*Envelope_ExecutionLogsResponse) isEnvelope_Payload() {}
+
+func (*Envelope_ExecutionLeaseRenew) isEnvelope_Payload() {}
+
+func (*Envelope_ExecutionLeaseRenewAck) isEnvelope_Payload() {}
 
 // Workload describes an OCI workload without exposing a concrete runtime API.
 type Workload struct {
@@ -474,11 +506,12 @@ func (x *Workload) GetWorkingDirectory() string {
 }
 
 // ExecutionPolicy bounds an execution independently of network connectivity.
-// At least one of deadline and max_runtime must be set.
+// Lifetime is bounded by a durable, explicitly renewed client-held lease
+// (see ExecutionLeaseRenew), never by a request-time deadline: `deadline` and
+// `max_runtime` are retired and their field numbers are reserved, never reused.
+// `result_retention` is unchanged.
 type ExecutionPolicy struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Deadline        *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=deadline,proto3" json:"deadline,omitempty"`
-	MaxRuntime      *durationpb.Duration   `protobuf:"bytes,2,opt,name=max_runtime,json=maxRuntime,proto3" json:"max_runtime,omitempty"`
 	ResultRetention *durationpb.Duration   `protobuf:"bytes,3,opt,name=result_retention,json=resultRetention,proto3" json:"result_retention,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -512,20 +545,6 @@ func (x *ExecutionPolicy) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ExecutionPolicy.ProtoReflect.Descriptor instead.
 func (*ExecutionPolicy) Descriptor() ([]byte, []int) {
 	return file_r1s_v1_control_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *ExecutionPolicy) GetDeadline() *timestamppb.Timestamp {
-	if x != nil {
-		return x.Deadline
-	}
-	return nil
-}
-
-func (x *ExecutionPolicy) GetMaxRuntime() *durationpb.Duration {
-	if x != nil {
-		return x.MaxRuntime
-	}
-	return nil
 }
 
 func (x *ExecutionPolicy) GetResultRetention() *durationpb.Duration {
@@ -1259,11 +1278,122 @@ func (x *ExecutionLogsResponse) GetSha256() []byte {
 	return nil
 }
 
+// ExecutionLeaseRenew renews the client-held lease that bounds an execution's
+// lifetime. It is authenticated against the execution owner, idempotent under
+// replay (the same message ID returns the same ack without mutation), and
+// carries no payload beyond the requested lease duration: renewal never
+// attaches logs, results, or other data. The allocator bounds the accepted
+// duration locally.
+type ExecutionLeaseRenew struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	LeaseDuration *durationpb.Duration   `protobuf:"bytes,2,opt,name=lease_duration,json=leaseDuration,proto3" json:"lease_duration,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecutionLeaseRenew) Reset() {
+	*x = ExecutionLeaseRenew{}
+	mi := &file_r1s_v1_control_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionLeaseRenew) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionLeaseRenew) ProtoMessage() {}
+
+func (x *ExecutionLeaseRenew) ProtoReflect() protoreflect.Message {
+	mi := &file_r1s_v1_control_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutionLeaseRenew.ProtoReflect.Descriptor instead.
+func (*ExecutionLeaseRenew) Descriptor() ([]byte, []int) {
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ExecutionLeaseRenew) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *ExecutionLeaseRenew) GetLeaseDuration() *durationpb.Duration {
+	if x != nil {
+		return x.LeaseDuration
+	}
+	return nil
+}
+
+// ExecutionLeaseRenewAck carries only the new lease expiry.
+type ExecutionLeaseRenewAck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecutionLeaseRenewAck) Reset() {
+	*x = ExecutionLeaseRenewAck{}
+	mi := &file_r1s_v1_control_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionLeaseRenewAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionLeaseRenewAck) ProtoMessage() {}
+
+func (x *ExecutionLeaseRenewAck) ProtoReflect() protoreflect.Message {
+	mi := &file_r1s_v1_control_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutionLeaseRenewAck.ProtoReflect.Descriptor instead.
+func (*ExecutionLeaseRenewAck) Descriptor() ([]byte, []int) {
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ExecutionLeaseRenewAck) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *ExecutionLeaseRenewAck) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
 var File_r1s_v1_control_proto protoreflect.FileDescriptor
 
 const file_r1s_v1_control_proto_rawDesc = "" +
 	"\n" +
-	"\x14r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfa\a\n" +
+	"\x14r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaa\t\n" +
 	"\bEnvelope\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x16\n" +
@@ -1281,7 +1411,9 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"\x1bexecution_offer_release_ack\x18\x11 \x01(\v2 .r1s.v1.ExecutionOfferReleaseAckH\x00R\x18executionOfferReleaseAck\x12;\n" +
 	"\rcommand_error\x18\x12 \x01(\v2\x14.r1s.v1.CommandErrorH\x00R\fcommandError\x12T\n" +
 	"\x16execution_logs_request\x18\x13 \x01(\v2\x1c.r1s.v1.ExecutionLogsRequestH\x00R\x14executionLogsRequest\x12W\n" +
-	"\x17execution_logs_response\x18\x14 \x01(\v2\x1d.r1s.v1.ExecutionLogsResponseH\x00R\x15executionLogsResponseB\t\n" +
+	"\x17execution_logs_response\x18\x14 \x01(\v2\x1d.r1s.v1.ExecutionLogsResponseH\x00R\x15executionLogsResponse\x12Q\n" +
+	"\x15execution_lease_renew\x18\x15 \x01(\v2\x1b.r1s.v1.ExecutionLeaseRenewH\x00R\x13executionLeaseRenew\x12[\n" +
+	"\x19execution_lease_renew_ack\x18\x16 \x01(\v2\x1e.r1s.v1.ExecutionLeaseRenewAckH\x00R\x16executionLeaseRenewAckB\t\n" +
 	"\apayloadJ\x04\b\x05\x10\n" +
 	"\"\x80\x02\n" +
 	"\bWorkload\x12\x14\n" +
@@ -1292,12 +1424,9 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"\x11working_directory\x18\x05 \x01(\tR\x10workingDirectory\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcb\x01\n" +
-	"\x0fExecutionPolicy\x126\n" +
-	"\bdeadline\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\bdeadline\x12:\n" +
-	"\vmax_runtime\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\n" +
-	"maxRuntime\x12D\n" +
-	"\x10result_retention\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x0fresultRetention\"\xb7\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"z\n" +
+	"\x0fExecutionPolicy\x12D\n" +
+	"\x10result_retention\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x0fresultRetentionJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\bdeadlineR\vmax_runtime\"\xb7\x01\n" +
 	"\x10ExecutionRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12,\n" +
@@ -1358,7 +1487,14 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"nextOffset\x12\x10\n" +
 	"\x03eof\x18\x06 \x01(\bR\x03eof\x12\x1c\n" +
 	"\ttruncated\x18\a \x01(\bR\ttruncated\x12\x16\n" +
-	"\x06sha256\x18\b \x01(\fR\x06sha256*\xa7\x01\n" +
+	"\x06sha256\x18\b \x01(\fR\x06sha256\"z\n" +
+	"\x13ExecutionLeaseRenew\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12@\n" +
+	"\x0elease_duration\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\rleaseDuration\"v\n" +
+	"\x16ExecutionLeaseRenewAck\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x129\n" +
+	"\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt*\xa7\x01\n" +
 	"\x13OfferReleaseOutcome\x12%\n" +
 	"!OFFER_RELEASE_OUTCOME_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eOFFER_RELEASE_OUTCOME_RELEASED\x10\x01\x12!\n" +
@@ -1386,7 +1522,7 @@ func file_r1s_v1_control_proto_rawDescGZIP() []byte {
 }
 
 var file_r1s_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_r1s_v1_control_proto_goTypes = []any{
 	(OfferReleaseOutcome)(0),         // 0: r1s.v1.OfferReleaseOutcome
 	(ExecutionPhase)(0),              // 1: r1s.v1.ExecutionPhase
@@ -1404,12 +1540,14 @@ var file_r1s_v1_control_proto_goTypes = []any{
 	(*CommandError)(nil),             // 13: r1s.v1.CommandError
 	(*ExecutionLogsRequest)(nil),     // 14: r1s.v1.ExecutionLogsRequest
 	(*ExecutionLogsResponse)(nil),    // 15: r1s.v1.ExecutionLogsResponse
-	nil,                              // 16: r1s.v1.Workload.EnvironmentEntry
-	(*timestamppb.Timestamp)(nil),    // 17: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),      // 18: google.protobuf.Duration
+	(*ExecutionLeaseRenew)(nil),      // 16: r1s.v1.ExecutionLeaseRenew
+	(*ExecutionLeaseRenewAck)(nil),   // 17: r1s.v1.ExecutionLeaseRenewAck
+	nil,                              // 18: r1s.v1.Workload.EnvironmentEntry
+	(*timestamppb.Timestamp)(nil),    // 19: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),      // 20: google.protobuf.Duration
 }
 var file_r1s_v1_control_proto_depIdxs = []int32{
-	17, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
+	19, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
 	5,  // 1: r1s.v1.Envelope.execution_request:type_name -> r1s.v1.ExecutionRequest
 	6,  // 2: r1s.v1.Envelope.execution_offer:type_name -> r1s.v1.ExecutionOffer
 	7,  // 3: r1s.v1.Envelope.execution_assign:type_name -> r1s.v1.ExecutionAssign
@@ -1421,21 +1559,23 @@ var file_r1s_v1_control_proto_depIdxs = []int32{
 	13, // 9: r1s.v1.Envelope.command_error:type_name -> r1s.v1.CommandError
 	14, // 10: r1s.v1.Envelope.execution_logs_request:type_name -> r1s.v1.ExecutionLogsRequest
 	15, // 11: r1s.v1.Envelope.execution_logs_response:type_name -> r1s.v1.ExecutionLogsResponse
-	16, // 12: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
-	17, // 13: r1s.v1.ExecutionPolicy.deadline:type_name -> google.protobuf.Timestamp
-	18, // 14: r1s.v1.ExecutionPolicy.max_runtime:type_name -> google.protobuf.Duration
-	18, // 15: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
+	16, // 12: r1s.v1.Envelope.execution_lease_renew:type_name -> r1s.v1.ExecutionLeaseRenew
+	17, // 13: r1s.v1.Envelope.execution_lease_renew_ack:type_name -> r1s.v1.ExecutionLeaseRenewAck
+	18, // 14: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
+	20, // 15: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
 	3,  // 16: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
 	4,  // 17: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
-	17, // 18: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
+	19, // 18: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
 	0,  // 19: r1s.v1.ExecutionOfferReleaseAck.outcome:type_name -> r1s.v1.OfferReleaseOutcome
 	1,  // 20: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
-	17, // 21: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
-	22, // [22:22] is the sub-list for method output_type
-	22, // [22:22] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	19, // 21: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
+	20, // 22: r1s.v1.ExecutionLeaseRenew.lease_duration:type_name -> google.protobuf.Duration
+	19, // 23: r1s.v1.ExecutionLeaseRenewAck.expires_at:type_name -> google.protobuf.Timestamp
+	24, // [24:24] is the sub-list for method output_type
+	24, // [24:24] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_r1s_v1_control_proto_init() }
@@ -1455,6 +1595,8 @@ func file_r1s_v1_control_proto_init() {
 		(*Envelope_CommandError)(nil),
 		(*Envelope_ExecutionLogsRequest)(nil),
 		(*Envelope_ExecutionLogsResponse)(nil),
+		(*Envelope_ExecutionLeaseRenew)(nil),
+		(*Envelope_ExecutionLeaseRenewAck)(nil),
 	}
 	file_r1s_v1_control_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
@@ -1463,7 +1605,7 @@ func file_r1s_v1_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_r1s_v1_control_proto_rawDesc), len(file_r1s_v1_control_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   15,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

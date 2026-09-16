@@ -64,6 +64,10 @@ func ValidateEnvelope(envelope *r1sv1.Envelope) error {
 		return validateInspect(payload.ExecutionInspect)
 	case *r1sv1.Envelope_ExecutionOfferRelease:
 		return validateOfferRelease(payload.ExecutionOfferRelease)
+	case *r1sv1.Envelope_ExecutionLeaseRenew:
+		return validateLeaseRenew(payload.ExecutionLeaseRenew)
+	case *r1sv1.Envelope_ExecutionLeaseRenewAck:
+		return validateLeaseRenewAck(envelope, payload.ExecutionLeaseRenewAck)
 	case *r1sv1.Envelope_ExecutionOfferReleaseAck:
 		return validateOfferReleaseAck(envelope, payload.ExecutionOfferReleaseAck)
 	case nil:
@@ -99,25 +103,6 @@ func validateRequest(envelope *r1sv1.Envelope, request *r1sv1.ExecutionRequest) 
 	policy := request.GetPolicy()
 	if policy == nil {
 		return invalid("execution_request.policy", "is required")
-	}
-	if policy.GetDeadline() == nil && policy.GetMaxRuntime() == nil {
-		return invalid("execution_request.policy", "deadline or max_runtime is required")
-	}
-	if policy.GetDeadline() != nil {
-		if err := validTimestamp("execution_request.policy.deadline", policy.GetDeadline()); err != nil {
-			return err
-		}
-		if !policy.GetDeadline().AsTime().After(envelope.GetSentAt().AsTime()) {
-			return invalid("execution_request.policy.deadline", "must be after sent_at")
-		}
-	}
-	if policy.GetMaxRuntime() != nil {
-		if err := policy.GetMaxRuntime().CheckValid(); err != nil {
-			return invalid("execution_request.policy.max_runtime", err.Error())
-		}
-		if policy.GetMaxRuntime().AsDuration() <= 0 {
-			return invalid("execution_request.policy.max_runtime", "must be positive")
-		}
 	}
 	if policy.GetResultRetention() != nil {
 		if err := policy.GetResultRetention().CheckValid(); err != nil {
@@ -184,6 +169,38 @@ func validateInspect(inspect *r1sv1.ExecutionInspect) error {
 	}
 	if strings.TrimSpace(inspect.GetExecutionId()) == "" {
 		return invalid("execution_inspect.execution_id", "is required")
+	}
+	return nil
+}
+
+func validateLeaseRenew(renew *r1sv1.ExecutionLeaseRenew) error {
+	if renew == nil {
+		return invalid("execution_lease_renew", "is required")
+	}
+	if strings.TrimSpace(renew.GetExecutionId()) == "" {
+		return invalid("execution_lease_renew.execution_id", "is required")
+	}
+	if renew.GetLeaseDuration() == nil {
+		return invalid("execution_lease_renew.lease_duration", "is required")
+	}
+	if err := renew.GetLeaseDuration().CheckValid(); err != nil {
+		return invalid("execution_lease_renew.lease_duration", err.Error())
+	}
+	if renew.GetLeaseDuration().AsDuration() <= 0 {
+		return invalid("execution_lease_renew.lease_duration", "must be positive")
+	}
+	return nil
+}
+
+func validateLeaseRenewAck(envelope *r1sv1.Envelope, ack *r1sv1.ExecutionLeaseRenewAck) error {
+	if ack == nil {
+		return invalid("execution_lease_renew_ack", "is required")
+	}
+	if strings.TrimSpace(ack.GetExecutionId()) == "" {
+		return invalid("execution_lease_renew_ack.execution_id", "is required")
+	}
+	if err := validTimestamp("execution_lease_renew_ack.expires_at", ack.GetExpiresAt()); err != nil {
+		return err
 	}
 	return nil
 }

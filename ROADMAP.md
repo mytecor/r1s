@@ -175,7 +175,8 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > A client keeps its execution alive with an authenticated, durably persisted, renewable lease;
 > a permanently gone client's execution is evicted locally after lease expiry.
 
-- **Status:** ⏳ planned
+- **Status:** ✅ complete; deterministic allocator, client, protocol, socket-contract, and
+  service-backed CLI tests pass under `go test -race`
 - **Done when:** an unrenewed lease leads to local eviction with terminal state distinguishable
   from cancellation, renewal is owner-only and replay-safe, allocator restart honors persisted
   leases, and no transport connection state ever determines execution lifetime.
@@ -196,17 +197,18 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 
 - [F13](#f13-local-client-api) is complete: `r1s serve` plus `--socket` give applications a persistent
   local frontend and a `Watch` stream while preserving client-owned placement and identity.
+- [F13](#f13-local-client-api) is complete: `r1s serve` plus `--socket` give applications a persistent
+  local frontend and a `Watch` stream while preserving client-owned placement and identity.
+- [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
+  explicitly renewed client-held lease instead of a request-time deadline, and `r1s serve` renews
+  the durable lease-holding intents recorded by `r1s request --keep-alive`.
+- [F15](#f15-deployment-reconciliation) can now proceed from [F13](#f13-local-client-api):
+  `r1s deploy` persists client-owned desired state and reconciles it through the existing execution
+  operations; deployment state itself stays out of the allocator and the RNS protocol, while lease
+  renewal rides the authenticated execution lease from [F17](#f17-execution-lease).
 - [F14](#f14-direct-node-access-r1s-tunneld) is the next vertical: `r1s-tunneld` gives the authenticated
   execution owner a direct Yggdrasil tunnel to a running execution, independent of artifact
   transfer, without Yggdrasil-specific protocol types or a new global state source.
-- [F17](#f17-execution-lease) changes execution lifetime from a request-time deadline to a
-  renewable client-held lease and should land before [F15](#f15-deployment-reconciliation), whose
-  reconcilers hold the leases of the executions they manage.
-- [F15](#f15-deployment-reconciliation) can proceed from [F13](#f13-local-client-api)
-  independently of F14: `r1s deploy` persists client-owned desired state and reconciles it through
-  the existing execution operations; deployment state itself stays out of the allocator and the
-  RNS protocol, while lease renewal rides the authenticated execution lease from
-  [F17](#f17-execution-lease).
 - [F16](#f16-node-capabilities-and-placement) can follow [F14](#f14-direct-node-access-r1s-tunneld) or
   run independently: allocators advertise bounded capability labels, clients express exact-match
   constraints, and only compatible allocators offer. It does not introduce a scheduler or global state.

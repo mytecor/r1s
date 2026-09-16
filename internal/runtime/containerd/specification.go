@@ -38,22 +38,6 @@ func prepareExecution(request r1sruntime.StartRequest, reporter r1sruntime.Repor
 	if _, err := pinnedDigest(request.Workload.GetImage()); err != nil {
 		return executionSpec{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
-	if deadline := request.Policy.GetDeadline(); deadline != nil {
-		if err := deadline.CheckValid(); err != nil {
-			return executionSpec{}, fmt.Errorf("%w: invalid deadline: %v", ErrInvalidRequest, err)
-		}
-		if !deadline.AsTime().After(now) && !allowExpired {
-			return executionSpec{}, ErrDeadlineExceeded
-		}
-	}
-	if maximum := request.Policy.GetMaxRuntime(); maximum != nil {
-		if err := maximum.CheckValid(); err != nil || maximum.AsDuration() <= 0 {
-			return executionSpec{}, fmt.Errorf("%w: max runtime must be a positive duration", ErrInvalidRequest)
-		}
-	}
-	if request.Policy.GetDeadline() == nil && request.Policy.GetMaxRuntime() == nil {
-		return executionSpec{}, fmt.Errorf("%w: deadline or max runtime is required", ErrInvalidRequest)
-	}
 	if err := request.Resources.Validate(); err != nil {
 		return executionSpec{}, err
 	}
@@ -66,14 +50,9 @@ func prepareExecution(request r1sruntime.StartRequest, reporter r1sruntime.Repor
 }
 
 func (s executionSpec) startContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if deadline := s.request.Policy.GetDeadline(); deadline != nil {
-		return context.WithDeadline(parent, deadline.AsTime())
-	}
+	// Execution lifetime is bounded by the allocator's lease sweep, never by a
+	// request-time deadline, so Start runs under the caller's context only.
 	return parent, func() {}
-}
-
-func (s executionSpec) deadline() (time.Time, bool) {
-	return executionDeadline(s.request.Policy, s.startedAt)
 }
 
 func (s executionSpec) started(now time.Time) executionSpec {
@@ -119,20 +98,6 @@ func writeHashPart(writer hashWriter, value []byte) {
 	binary.BigEndian.PutUint64(length[:], uint64(len(value)))
 	_, _ = writer.Write(length[:])
 	_, _ = writer.Write(value)
-}
-
-func executionDeadline(policy *r1sv1.ExecutionPolicy, startedAt time.Time) (time.Time, bool) {
-	var deadline time.Time
-	if policy.GetDeadline() != nil {
-		deadline = policy.GetDeadline().AsTime()
-	}
-	if policy.GetMaxRuntime() != nil {
-		maximum := startedAt.Add(policy.GetMaxRuntime().AsDuration())
-		if deadline.IsZero() || maximum.Before(deadline) {
-			deadline = maximum
-		}
-	}
-	return deadline, !deadline.IsZero()
 }
 
 func environment(workload *r1sv1.Workload) []string {

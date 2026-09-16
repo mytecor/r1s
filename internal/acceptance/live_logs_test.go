@@ -126,7 +126,7 @@ func startWritingExecution(t *testing.T, c *acceptanceClient, destination, image
 	t.Helper()
 	requestID, request, err := c.core.CreateRequest(&r1sv1.Workload{
 		Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{script},
-	}, &r1sv1.ExecutionPolicy{MaxRuntime: durationpb.New(time.Minute), ResultRetention: durationpb.New(time.Hour)}, "default")
+	}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}

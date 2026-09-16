@@ -20,7 +20,6 @@ func TestDecodeRequestJSON(t *testing.T) {
     "workingDirectory": "/work"
   },
   "policy": {
-    "maxRuntime": "600s",
     "resultRetention": "86400s"
   }
 }`)
@@ -30,8 +29,8 @@ func TestDecodeRequestJSON(t *testing.T) {
 	if request.GetRequestId() != "" || request.GetResourceClass() != "default" || request.GetWorkload().GetImage() == "" {
 		t.Fatalf("request = %v", request)
 	}
-	if got := request.GetPolicy().GetMaxRuntime().AsDuration().Seconds(); got != 600 {
-		t.Fatalf("max runtime = %v", got)
+	if got := request.GetPolicy().GetResultRetention().AsDuration().Seconds(); got != 86400 {
+		t.Fatalf("result retention = %v", got)
 	}
 }
 

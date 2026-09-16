@@ -239,7 +239,7 @@ func testWorkload() *r1sv1.Workload {
 }
 
 func testPolicy() *r1sv1.ExecutionPolicy {
-	return &r1sv1.ExecutionPolicy{MaxRuntime: durationpb.New(time.Minute), ResultRetention: durationpb.New(time.Hour)}
+	return &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}
 }
 
 func sequenceIDs(values ...string) func() string {

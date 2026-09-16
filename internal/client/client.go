@@ -64,6 +64,15 @@ type executionRecord struct {
 	cancelSentAt        time.Time
 	cancelReason        string
 	state               *r1sv1.ExecutionState
+	// Lease intent: the client-held duty to keep this execution leased. The
+	// continuous renewal loop lives only in `r1s serve`; it replays this
+	// durable state on every tick. leaseLost marks a lease that expired
+	// before a renewal landed: the recorded workload must be re-requested.
+	leaseDuration       time.Duration
+	leaseLost           bool
+	leaseRenewedAt      time.Time
+	leaseRenewMessageID string
+	leaseExpiresAt      time.Time
 }
 
 // RequestSnapshot is a read-only view of a client request.

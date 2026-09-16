@@ -302,7 +302,7 @@ func startExecution(t *testing.T, c *acceptanceClient, destination, image, scrip
 	requestID, request, err := c.core.CreateRequest(&r1sv1.Workload{
 		Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{script},
 	}, &r1sv1.ExecutionPolicy{
-		MaxRuntime: durationpb.New(time.Minute), ResultRetention: durationpb.New(time.Hour),
+		ResultRetention: durationpb.New(time.Hour),
 	}, "default")
 	if err != nil {
 		t.Fatal(err)

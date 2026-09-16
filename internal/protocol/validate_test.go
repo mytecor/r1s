@@ -39,15 +39,6 @@ func TestValidateEnvelope(t *testing.T) {
 		"missing policy": func(envelope *r1sv1.Envelope) {
 			envelope.GetExecutionRequest().Policy = nil
 		},
-		"unbounded policy": func(envelope *r1sv1.Envelope) {
-			envelope.GetExecutionRequest().Policy = &r1sv1.ExecutionPolicy{}
-		},
-		"non-positive max runtime": func(envelope *r1sv1.Envelope) {
-			envelope.GetExecutionRequest().Policy.MaxRuntime = durationpb.New(0)
-		},
-		"deadline before message": func(envelope *r1sv1.Envelope) {
-			envelope.GetExecutionRequest().Policy.Deadline = timestamppb.New(now)
-		},
 		"negative result retention": func(envelope *r1sv1.Envelope) {
 			envelope.GetExecutionRequest().Policy.ResultRetention = durationpb.New(-time.Second)
 		},
@@ -82,11 +73,44 @@ func TestValidateEveryPayload(t *testing.T) {
 			ExecutionId: "execution", Phase: r1sv1.ExecutionPhase_EXECUTION_PHASE_RUNNING, OccurredAt: timestamppb.New(now),
 		}}),
 		envelope(now, &r1sv1.Envelope_ExecutionInspect{ExecutionInspect: &r1sv1.ExecutionInspect{ExecutionId: "execution"}}),
+		envelope(now, &r1sv1.Envelope_ExecutionLeaseRenew{ExecutionLeaseRenew: &r1sv1.ExecutionLeaseRenew{
+			ExecutionId: "execution", LeaseDuration: durationpb.New(time.Minute),
+		}}),
 	}
 	for _, candidate := range tests {
 		if err := protocol.ValidateEnvelope(candidate); err != nil {
 			t.Errorf("ValidateEnvelope(%T) error = %v", candidate.GetPayload(), err)
 		}
+	}
+}
+
+func TestValidateLeaseRenew(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	valid := envelope(now, &r1sv1.Envelope_ExecutionLeaseRenew{ExecutionLeaseRenew: &r1sv1.ExecutionLeaseRenew{
+		ExecutionId: "execution", LeaseDuration: durationpb.New(time.Minute),
+	}})
+	tests := map[string]func(*r1sv1.Envelope){
+		"missing execution ID": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionLeaseRenew().ExecutionId = ""
+		},
+		"missing lease duration": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionLeaseRenew().LeaseDuration = nil
+		},
+		"non-positive lease duration": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionLeaseRenew().LeaseDuration = durationpb.New(0)
+		},
+	}
+	if err := protocol.ValidateEnvelope(valid); err != nil {
+		t.Fatalf("valid lease renewal rejected: %v", err)
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			candidate := proto.Clone(valid).(*r1sv1.Envelope)
+			mutate(candidate)
+			if err := protocol.ValidateEnvelope(candidate); !errors.Is(err, protocol.ErrInvalidEnvelope) {
+				t.Fatalf("ValidateEnvelope() error = %v, want ErrInvalidEnvelope", err)
+			}
+		})
 	}
 }
 
@@ -99,8 +123,6 @@ func validRequestEnvelope(now time.Time) *r1sv1.Envelope {
 			Environment: map[string]string{"KEY": "value"},
 		},
 		Policy: &r1sv1.ExecutionPolicy{
-			Deadline:        timestamppb.New(now.Add(time.Hour)),
-			MaxRuntime:      durationpb.New(time.Minute),
 			ResultRetention: durationpb.New(time.Minute),
 		},
 	}})
@@ -124,6 +146,8 @@ func envelope(now time.Time, payload any) *r1sv1.Envelope {
 	case *r1sv1.Envelope_ExecutionState:
 		envelope.Payload = payload
 	case *r1sv1.Envelope_ExecutionInspect:
+		envelope.Payload = payload
+	case *r1sv1.Envelope_ExecutionLeaseRenew:
 		envelope.Payload = payload
 	default:
 		panic("unsupported test payload")

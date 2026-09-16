@@ -76,7 +76,8 @@ func TestStartRejectsConflictingExecution(t *testing.T) {
 	if err := runtime.Start(context.Background(), request, func(r1sruntime.Completion) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	conflict := testRequest("execution", 2*time.Minute)
+	conflict := testRequest("execution")
+	conflict.Workload.Args = []string{"exit 9"}
 	if err := runtime.Start(context.Background(), conflict, func(r1sruntime.Completion) error { return nil }); !errors.Is(err, ErrExecutionConflict) {
 		t.Fatalf("conflicting Start() error = %v, want ErrExecutionConflict", err)
 	}
@@ -107,58 +108,6 @@ func TestStopKillsAndCleansWithoutReportingCompletion(t *testing.T) {
 	case completion := <-reported:
 		t.Fatalf("cancellation reported ordinary completion: %+v", completion)
 	default:
-	}
-}
-
-func TestMaximumRuntimeIsEnforcedLocally(t *testing.T) {
-	implementation := newFakeBackend()
-	runtime := newWithBackend(Config{CleanupTimeout: time.Second}, implementation)
-	reported := make(chan r1sruntime.Completion, 1)
-	if err := runtime.Start(context.Background(), testRequest("execution", 10*time.Millisecond), func(completion r1sruntime.Completion) error {
-		reported <- completion
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case completion := <-reported:
-		if !errors.Is(completion.Err, ErrDeadlineExceeded) {
-			t.Fatalf("completion error = %v, want ErrDeadlineExceeded", completion.Err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("maximum runtime was not enforced")
-	}
-	if implementation.process.killCount() != 1 || implementation.process.cleanupCount() != 1 {
-		t.Fatalf("kills=%d cleanups=%d, want 1 each", implementation.process.killCount(), implementation.process.cleanupCount())
-	}
-}
-
-func TestRecoverReattachesWithoutStartingAndUsesDurableStartTime(t *testing.T) {
-	implementation := newFakeBackend()
-	now := time.Now()
-	runtime := newWithBackend(Config{CleanupTimeout: time.Second, Now: func() time.Time { return now }}, implementation)
-	reported := make(chan r1sruntime.Completion, 1)
-	request := testRequest("execution", time.Minute)
-	request.StartedAt = now.Add(-2 * time.Minute)
-	if err := runtime.Recover(context.Background(), request, func(completion r1sruntime.Completion) error {
-		reported <- completion
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case completion := <-reported:
-		if !errors.Is(completion.Err, ErrDeadlineExceeded) {
-			t.Fatalf("completion error = %v, want ErrDeadlineExceeded", completion.Err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("recovered deadline was not enforced")
-	}
-	implementation.mu.Lock()
-	starts, recovers := implementation.starts, implementation.recovers
-	implementation.mu.Unlock()
-	if starts != 0 || recovers != 1 {
-		t.Fatalf("starts=%d recovers=%d, want 0 and 1", starts, recovers)
 	}
 }
 

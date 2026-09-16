@@ -43,6 +43,7 @@ type persistedOffer struct {
 
 type persistedExecution struct {
 	RetainUntil   time.Time            `json:"retain_until,omitempty"`
+	LeaseUntil    time.Time            `json:"lease_until,omitempty"`
 	Resources     r1sruntime.Resources `json:"resources,omitzero"`
 	ID            string               `json:"id"`
 	OfferID       string               `json:"offer_id"`
@@ -143,9 +144,15 @@ func (a *Allocator) loadLocked(ctx context.Context) error {
 			id: saved.ID, offerID: saved.OfferID, client: cloneBytes(firstBytes(saved.Client, saved.LegacySender)), resourceClass: saved.ResourceClass,
 			request: request, phase: saved.Phase, detail: saved.Detail, exitCode: cloneInt32(saved.ExitCode),
 			occurredAt: saved.OccurredAt, startedAt: saved.StartedAt, released: saved.Released, revision: max(1, saved.Revision), resources: saved.Resources, retainUntil: saved.RetainUntil,
+			leaseUntil: saved.LeaseUntil,
 		}
 		if terminal(saved.Phase) && saved.RetainUntil.IsZero() {
 			a.executions[saved.ID].retainUntil = saved.OccurredAt.Add(retention(request.GetPolicy()))
+		}
+		// A pre-lease snapshot grants running executions one fresh lease so an
+		// upgrade never evicts work that was alive before the restart.
+		if !terminal(saved.Phase) && saved.LeaseUntil.IsZero() {
+			a.executions[saved.ID].leaseUntil = a.now().UTC().Add(a.leaseTTL)
 		}
 	}
 
@@ -214,6 +221,7 @@ func (a *Allocator) persistLocked(ctx context.Context) error {
 			ID: record.id, OfferID: record.offerID, Client: cloneBytes(record.client), ResourceClass: record.resourceClass,
 			Request: request, Phase: record.phase, Detail: record.detail, ExitCode: cloneInt32(record.exitCode),
 			OccurredAt: record.occurredAt, StartedAt: record.startedAt, Released: record.released, Revision: record.revision, Resources: record.resources, RetainUntil: record.retainUntil,
+			LeaseUntil: record.leaseUntil,
 		})
 	}
 	for key, entry := range a.replay.entries {

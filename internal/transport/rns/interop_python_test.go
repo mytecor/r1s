@@ -406,7 +406,7 @@ func validInteropRequest() *r1sv1.Envelope {
 				RequestId:     "interop-request",
 				ResourceClass: "default",
 				Workload:      &r1sv1.Workload{Image: "example.test/image:latest"},
-				Policy:        &r1sv1.ExecutionPolicy{MaxRuntime: durationpb.New(30 * time.Second)},
+				Policy:        &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)},
 			},
 		},
 	}

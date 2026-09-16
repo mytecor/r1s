@@ -24,7 +24,6 @@ var (
 	ErrInvalidRequest    = errors.New("invalid containerd start request")
 	ErrExecutionConflict = r1sruntime.ErrExecutionConflict
 	ErrExecutionMissing  = r1sruntime.ErrExecutionMissing
-	ErrDeadlineExceeded  = errors.New("execution policy deadline exceeded")
 	ErrClosed            = errors.New("containerd runtime is closed")
 )
 

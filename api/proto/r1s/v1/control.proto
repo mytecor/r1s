@@ -29,6 +29,8 @@ message Envelope {
     CommandError command_error = 18;
     ExecutionLogsRequest execution_logs_request = 19;
     ExecutionLogsResponse execution_logs_response = 20;
+    ExecutionLeaseRenew execution_lease_renew = 21;
+    ExecutionLeaseRenewAck execution_lease_renew_ack = 22;
   }
 }
 
@@ -42,10 +44,14 @@ message Workload {
 }
 
 // ExecutionPolicy bounds an execution independently of network connectivity.
-// At least one of deadline and max_runtime must be set.
+// Lifetime is bounded by a durable, explicitly renewed client-held lease
+// (see ExecutionLeaseRenew), never by a request-time deadline: `deadline` and
+// `max_runtime` are retired and their field numbers are reserved, never reused.
+// `result_retention` is unchanged.
 message ExecutionPolicy {
-  google.protobuf.Timestamp deadline = 1;
-  google.protobuf.Duration max_runtime = 2;
+  reserved 1, 2;
+  reserved "deadline", "max_runtime";
+
   google.protobuf.Duration result_retention = 3;
 }
 
@@ -145,4 +151,21 @@ message ExecutionLogsResponse {
   bool eof = 6;
   bool truncated = 7;
   bytes sha256 = 8;
+}
+
+// ExecutionLeaseRenew renews the client-held lease that bounds an execution's
+// lifetime. It is authenticated against the execution owner, idempotent under
+// replay (the same message ID returns the same ack without mutation), and
+// carries no payload beyond the requested lease duration: renewal never
+// attaches logs, results, or other data. The allocator bounds the accepted
+// duration locally.
+message ExecutionLeaseRenew {
+  string execution_id = 1;
+  google.protobuf.Duration lease_duration = 2;
+}
+
+// ExecutionLeaseRenewAck carries only the new lease expiry.
+message ExecutionLeaseRenewAck {
+  string execution_id = 1;
+  google.protobuf.Timestamp expires_at = 2;
 }

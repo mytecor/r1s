@@ -29,6 +29,8 @@ func (o *Client) Handle(_ context.Context, envelope *r1sv1.Envelope) error {
 		return o.handleStateLocked(envelope, payload.ExecutionState)
 	case *r1sv1.Envelope_ExecutionOfferReleaseAck:
 		return o.handleReleaseAckLocked(envelope, payload.ExecutionOfferReleaseAck)
+	case *r1sv1.Envelope_ExecutionLeaseRenewAck:
+		return o.handleRenewAckLocked(envelope, payload.ExecutionLeaseRenewAck)
 	default:
 		return ErrUnsupportedMessage
 	}
@@ -111,6 +113,12 @@ func (o *Client) handleStateLocked(envelope *r1sv1.Envelope, state *r1sv1.Execut
 	savedSeq := o.watchSequence
 	savedJournal := o.watchJournal
 	record.state = proto.Clone(state).(*r1sv1.ExecutionState)
+	// A terminal eviction for lease expiry converts the intent into a
+	// re-request duty; ordinary completions and cancellations do not.
+	if terminal(record.state.GetPhase()) && isLostLeaseState(record.state) {
+		record.leaseLost = true
+		record.leaseRenewMessageID = ""
+	}
 	event := o.watchAppendLocked(record.id, record.state)
 	if err := o.persistLocked(context.Background()); err != nil {
 		record.state = previous
