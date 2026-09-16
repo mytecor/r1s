@@ -42,8 +42,9 @@ distinguishable from a client cancellation.
 
 Renewal is an authenticated control-plane primitive, not a loop. The renewal loop lives only in
 the shared durable client engine: `r1s serve` renews the lease-holding intents recorded in its
-durable state (recorded by `r1s request --keep-alive`), and the deploy reconciler records the same
-intent instead of implementing its own renewal logic. Direct-mode callers pass `--keep-alive` so
+durable state (recorded by `r1s request --keep-alive`), and a future deploy reconciler (F15,
+closed 2026-09-16 as deferred; see [BACKLOG.md](../BACKLOG.md)) would record the same intent
+instead of implementing its own renewal logic. Direct-mode callers pass `--keep-alive` so
 the request process itself stays up and renews until the workload terminates.
 
 ## Completion criteria

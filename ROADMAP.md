@@ -149,13 +149,15 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 
 ## [F15. Deployment reconciliation](./roadmap/f15-deployment-reconciliation/README.md)
 
-> `r1s deploy` applies client-owned desired workload state by creating changed executions before
-> cancelling the executions they replace.
+> Durable client-owned desired state landed through the F17 keep-alive intent instead of a
+> manifest-driven deploy reconciler.
 
-- **Status:** ⏳ planned
-- **Done when:** repeated apply is idempotent, changed workloads use create-before-destroy,
-  failed replacements leave the previous execution running, and durable recovery cannot create a
-  duplicate execution or cancel the wrong one.
+- **Status:** ✅ closed 2026-09-16 via [F17](#f17-execution-lease): the durable single-execution
+  part is the lease-holding intent recorded by `request --keep-alive`, renewed by the shared client
+  engine, and converted into a re-request of the recorded workload on lease loss. The manifest
+  layer — `r1s deploy apply/status`, named multi-deployment state, revision hashes,
+  create-before-destroy replacement, removal semantics — is deferred; see
+  [BACKLOG.md](./roadmap/BACKLOG.md).
 - **Depends on:** [F4](#f4-client-workflow), [F5](#f5-partition-recovery),
   [F13](#f13-local-client-api), [F17](#f17-execution-lease).
 
@@ -198,10 +200,12 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
   explicitly renewed client-held lease instead of a request-time deadline, and `r1s serve` renews
   the durable lease-holding intents recorded by `r1s request --keep-alive`.
-- [F15](#f15-deployment-reconciliation) can now proceed from [F13](#f13-local-client-api):
-  `r1s deploy` persists client-owned desired state and reconciles it through the existing execution
-  operations; deployment state itself stays out of the allocator and the RNS protocol, while lease
-  renewal rides the authenticated execution lease from [F17](#f17-execution-lease).
+- [F15](#f15-deployment-reconciliation) was closed on 2026-09-16 without building the manifest
+  layer: the durable desired state for one execution already exists as the keep-alive intent from
+  [F17](#f17-execution-lease) — renewed by the client engine, re-requested with its allocator
+  pinning after lease loss. A manifest-driven `r1s deploy` (named multi-deployment state, revision
+  diffing, create-before-destroy replacement, removal) is deferred in
+  [BACKLOG.md](./roadmap/BACKLOG.md).
 - [F14](#f14-direct-node-access-r1s-tunneld) is the next vertical: `r1s-tunneld` gives the authenticated
   execution owner a direct Yggdrasil tunnel to a running execution, independent of artifact
   transfer, without Yggdrasil-specific protocol types or a new global state source.

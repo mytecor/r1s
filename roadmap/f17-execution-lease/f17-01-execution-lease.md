@@ -18,8 +18,9 @@ client holds its execution alive with periodic renewals.
   flag durably records a lease-holding intent at assignment; in direct mode the request process
   itself is the renewal loop (it exits when the workload terminates), and in service-backed mode
   the intent is forwarded to `r1s serve`, whose shared durable client engine replays it on every
-  reconciliation tick. The deploy reconciler records the same intent instead of implementing its
-  own renewal logic. An unreachable socket is an error, never a fallback, and keep-alive never
+  reconciliation tick. A future deploy reconciler (F15, closed 2026-09-16 as deferred; see
+  [BACKLOG.md](../BACKLOG.md)) would record the same intent instead of implementing its own
+  renewal logic. An unreachable socket is an error, never a fallback, and keep-alive never
   spawns a background process. A lost lease — an execution evicted before a renewal landed —
   converts the intent into a re-request of the recorded workload, rebinds it to the replacement
   execution, and surfaces the recovery on stdout.
@@ -33,8 +34,10 @@ client holds its execution alive with periodic renewals.
   from any other identity is rejected with the same authority error as a foreign cancel.
 - Terminal state after eviction records a lease-expiry reason distinct from client cancellation;
   retention, tombstones, and log access rules are unchanged.
-- `r1s deploy` reconcilers (F15) record lease-holding duty in their durable state and renew the
-  active execution as part of every persisted reconciliation transition.
+- A manifest-driven `r1s deploy` reconciler (F15) was planned to record lease-holding duty in its
+  durable state and renew the active execution as part of every persisted reconciliation
+  transition; F15 was closed as deferred instead, so the keep-alive intent machinery above remains
+  the only renewal holder.
 - Update the documentation that pins the current lifetime rule: the ARCHITECTURE.md
   "Lifecycle under disconnection" section (deadline bullet becomes lease expiry; add that a
   partition shorter than the lease never ends an execution), the persistence paragraph that names

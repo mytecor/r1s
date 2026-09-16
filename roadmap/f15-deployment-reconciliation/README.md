@@ -2,7 +2,11 @@
 
 Corresponds to [milestone F15](../../ROADMAP.md#f15-deployment-reconciliation).
 
-**Status:** ⏳ Planned
+**Status:** ✅ closed 2026-09-16 — closed without building `r1s deploy`. The durable desired-state
+need was met by the [F17](../f17-execution-lease/README.md) lease-holding intent:
+`request --keep-alive` records durable state, `r1s serve` renews it, and a lost lease re-requests
+the recorded workload with its allocator pinning. The manifest layer described below is deferred;
+see [BACKLOG.md](../BACKLOG.md) (resolved decision 14, deferred list).
 
 ## Outcome
 

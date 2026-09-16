@@ -127,11 +127,25 @@ This file records unresolved choices so they do not remain implicit in implement
     `~/.config/r1s/client.sock` is transparently used, otherwise the command runs in direct mode;
     an explicit `--socket` is authoritative and never silently falls back. Remaining future work
     (system-level service supervision, finer error UX) is not required for the resolved default.
+14. **Deployment desired state is the keep-alive intent, not a manifest** — [F15](./f15-deployment-reconciliation/README.md)
+    was closed on 2026-09-16 without building `r1s deploy`: the durable, client-owned desired state
+    for one execution is the lease-holding intent recorded by `request --keep-alive` and replayed
+    by the shared client engine ([F17](./f17-execution-lease/README.md)). A lost lease converts the
+    intent into a re-request of the recorded workload with its allocator pinning, which covers
+    create-once, restart recovery, and self-healing. The manifest layer — `r1s deploy apply/status`,
+    multiple named deployments, revision hashes, create-before-destroy replacement, and removal —
+    was never built and moved to the deferred list.
 
 ## Deferred
 
 - VM and microVM runtime adapters.
 - Broader multi-client fairness policy (admission and identity quotas are in [F10](./f10-local-admission/README.md)).
+- Manifest-level deployment reconciliation (`r1s deploy apply/status`, named multi-deployment
+  desired state, revision hashes, create-before-destroy replacement, removal semantics) — [F15](./f15-deployment-reconciliation/README.md)
+  was closed because the keep-alive intent from [F17](./f17-execution-lease/README.md) already
+  satisfies the durable single-execution need (resolved decision 14). Revisit only if
+  multi-deployment or spec-replacement workflows appear; such a layer must stay client-side over
+  the existing execution operations.
 - Application-level event buses, agent hierarchy, and task decomposition.
 - External data plane for bulk application data — requires a fresh decision on whether it belongs
   in the system at all (see open decision 1 above).

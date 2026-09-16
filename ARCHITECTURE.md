@@ -106,18 +106,16 @@ The unit managed by r1s is one immutable execution. `request` creates one execut
 `result`, `logs`, and `cancel` address that execution explicitly. A request is
 therefore not a deployment declaration.
 
-The planned [F15 deployment reconciler](./roadmap/f15-deployment-reconciliation/README.md) adds
-`r1s deploy` as a client-side layer over those execution operations. It owns durable deployment
-names, desired specification hashes, and the mapping to execution IDs for one client identity. It
-does not add deployment messages to the RNS protocol, allocator-owned desired state, a global
-scheduler, or a cluster-wide source of truth.
-
-`r1s deploy apply` reconciles a versioned manifest by requesting a changed workload, observing the
-replacement through `inspect` or `Watch`, and explicitly cancelling the previous execution only
-after the replacement reaches the required execution phase. An unchanged specification is a no-op,
-and a failed replacement leaves the previous execution running. `RUNNING` reports only that the
-runtime started an execution; application readiness, traffic switching, connection draining, load
-balancing, replicas, and rollout strategies are not part of the first deployment task.
+The closest thing to desired state today is the durable lease-holding intent recorded by
+`request --keep-alive` ([F17](./roadmap/f17-execution-lease/README.md)): the shared client engine
+renews it, and a lost lease converts it into a re-request of the recorded workload, so one
+execution heals across restarts without becoming a deployment declaration. A manifest-driven
+`r1s deploy` layer — durable deployment names, desired specification hashes, and the mapping to
+execution IDs for one client identity — was planned as
+[F15](./roadmap/f15-deployment-reconciliation/README.md) and is deferred (see
+[BACKLOG.md](./roadmap/BACKLOG.md)). It would have stayed a client-side layer over the same
+execution operations, without deployment messages in the RNS protocol, allocator-owned desired
+state, a global scheduler, or a cluster-wide source of truth.
 
 This boundary also preserves the lifetime rule below: losing a controller connection never stops
 an assigned execution.

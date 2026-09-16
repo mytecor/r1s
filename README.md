@@ -25,10 +25,12 @@ authenticated `logs` request.
 RNS is the resilient, low-bandwidth control plane. OCI images remain ordinary digest-pinned registry
 references fetched by containerd.
 
-Each `request` creates one immutable execution. The planned
-[`r1s deploy`](./roadmap/f15-deployment-reconciliation/README.md) workflow will add durable,
-client-owned desired state above those primitives: it will compose `request`, `inspect`, `cancel`,
-and the local `Watch` API without adding deployment state to allocators or the wire protocol.
+Each `request` creates one immutable execution. Durable, client-owned desired state for one
+execution is `request --keep-alive`: the recorded intent is renewed for the service lifetime, and
+a lost lease re-requests the recorded workload with its allocator pinning. A manifest-level
+`r1s deploy` layer is deferred (see [BACKLOG.md](./roadmap/BACKLOG.md)); if built, it would
+compose `request`, `inspect`, `cancel`, and the local `Watch` API without adding deployment state
+to allocators or the wire protocol.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for protocol, authority, lifecycle, persistence, and adapter
 boundaries.
