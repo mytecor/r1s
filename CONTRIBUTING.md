@@ -3,10 +3,12 @@
 ## Development workflow
 
 1. Read [ARCHITECTURE.md](./ARCHITECTURE.md) and the relevant feature task.
-2. Keep changes within the existing protocol, transport, allocator, and runtime boundaries.
-3. Add contract-focused tests when implementation begins.
-4. Run `make check` before submitting changes.
-5. Update the affected documentation and roadmap task status in the same change.
+2. Install the gofmt pre-commit hook once: `make install-hooks` (verifies staged Go files; use
+   `make fmt` to format and re-stage).
+3. Keep changes within the existing protocol, transport, allocator, and runtime boundaries.
+4. Add contract-focused tests when implementation begins.
+5. Run `make check` before submitting changes.
+6. Update the affected documentation and roadmap task status in the same change.
 
 ## Protocol changes
 

@@ -12,16 +12,16 @@ import (
 )
 
 type commandLine struct {
-	showVersion    bool
-	configPath     string
-	identitySource string
-	statePath      string
-	clusterSource  string
-	socketPath     string
+	showVersion     bool
+	configPath      string
+	identitySource  string
+	statePath       string
+	clusterSource   string
+	socketPath      string
 	socketCandidate string
-	networkWait    time.Duration
-	command        string
-	arguments      []string
+	networkWait     time.Duration
+	command         string
+	arguments       []string
 }
 
 func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) error {

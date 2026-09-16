@@ -1,4 +1,4 @@
-.PHONY: check docs-check generate generate-check protoc-check test race
+.PHONY: check docs-check fmt generate generate-check install-hooks protoc-check test race
 
 MODULE := github.com/mytecor/r1s
 PROTO_DIR := api/proto
@@ -37,11 +37,21 @@ $(PROTOC_GEN_GO_GRPC): Makefile
 	mkdir -p bin
 	GOBIN=$(CURDIR)/bin go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
 
-test:
-	go test ./...
+fmt:
+	gofmt -w $$(find . -name '*.go' -not -path './**/testdata/*' -not -path './.git/*')
+	@echo "gofmt applied"
+
+# Install the repository pre-commit hook that verifies staged Go files are
+# gofmt-clean, without needing a third-party hook manager.
+install-hooks:
+	git config core.hooksPath .githooks
+	@echo "pre-commit hook installed (core.hooksPath=.githooks)"
 
 race:
 	go test -race ./...
+
+test:
+	go test ./...
 
 docs-check:
 	lychee --no-progress --offline --include-fragments=full .
