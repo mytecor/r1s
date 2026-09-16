@@ -100,6 +100,28 @@ over RNS, so the service cannot become a remotely reachable cluster-wide control
 The API surface is defined in `api/proto/r1s/v1/local.proto`; messages are additive and local-only
 and never travel over the RNS control plane.
 
+## Execution and deployment layers
+
+The unit managed by r1s is one immutable execution. `request` creates one execution; `inspect`,
+`result`, `logs`, and `cancel` address that execution explicitly. A request is therefore not a
+deployment declaration.
+
+The planned [F15 deployment reconciler](./roadmap/f15-deployment-reconciliation/README.md) adds
+`r1s deploy` as a client-side layer over those execution operations. It owns durable deployment
+names, desired specification hashes, and the mapping to execution IDs for one client identity. It
+does not add deployment messages to the RNS protocol, allocator-owned desired state, a global
+scheduler, or a cluster-wide source of truth.
+
+`r1s deploy apply` reconciles a versioned manifest by requesting a changed workload, observing the
+replacement through `inspect` or `Watch`, and explicitly cancelling the previous execution only
+after the replacement reaches the required execution phase. An unchanged specification is a no-op,
+and a failed replacement leaves the previous execution running. `RUNNING` reports only that the
+runtime started an execution; application readiness, traffic switching, connection draining, load
+balancing, replicas, and rollout strategies are not part of the first deployment task.
+
+This boundary also preserves the lifetime rule below: losing a controller connection never stops
+an assigned execution.
+
 ## Distributed authority
 
 r1s has no globally consistent state:

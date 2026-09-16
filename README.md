@@ -25,6 +25,11 @@ authenticated `logs` request.
 RNS is the resilient, low-bandwidth control plane. OCI images remain ordinary digest-pinned registry
 references fetched by containerd.
 
+Each `request` creates one immutable execution. The planned
+[`r1s deploy`](./roadmap/f15-deployment-reconciliation/README.md) workflow will add durable,
+client-owned desired state above those primitives: it will compose `request`, `inspect`, `cancel`,
+and the local `Watch` API without adding deployment state to allocators or the wire protocol.
+
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for protocol, authority, lifecycle, persistence, and adapter
 boundaries.
 

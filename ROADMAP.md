@@ -147,6 +147,18 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - **Depends on:** [F2](#f2-rns-transport), [F12](#f12-shared-secret-cluster-membership),
   [F13](#f13-local-client-api).
 
+## [F15. Deployment reconciliation](./roadmap/f15-deployment-reconciliation/README.md)
+
+> `r1s deploy` applies client-owned desired workload state by creating changed executions before
+> cancelling the executions they replace.
+
+- **Status:** ⏳ planned
+- **Done when:** repeated apply is idempotent, changed workloads use create-before-destroy,
+  failed replacements leave the previous execution running, and durable recovery cannot create a
+  duplicate execution or cancel the wrong one.
+- **Depends on:** [F4](#f4-client-workflow), [F5](#f5-partition-recovery),
+  [F13](#f13-local-client-api).
+
 ## [F16. Node capabilities and placement](./roadmap/f16-node-placement/README.md)
 
 > Allocators advertise bounded OS, architecture, runtime, device, and operator labels so clients can
@@ -175,6 +187,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - [F14](#f14-direct-node-access-r1s-linkd) is the next vertical: `r1s-linkd` gives the authenticated
   execution owner a direct Yggdrasil tunnel to a running execution, independent of artifact
   transfer, without Yggdrasil-specific protocol types or a new global state source.
+- [F15](#f15-deployment-reconciliation) can proceed from [F13](#f13-local-client-api)
+  independently of F14: `r1s deploy` persists client-owned desired state and reconciles it through
+  the existing execution operations without changing the allocator or RNS protocol.
 - [F16](#f16-node-capabilities-and-placement) can follow [F14](#f14-direct-node-access-r1s-linkd) or
   run independently: allocators advertise bounded capability labels, clients express exact-match
   constraints, and only compatible allocators offer. It does not introduce a scheduler or global state.
