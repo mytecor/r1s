@@ -135,6 +135,18 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - **Depends on:** [F4](#f4-client-workflow), [F5](#f5-partition-recovery),
   [F9](#f9-local-logs-and-explicit-retrieval).
 
+## [F14. Direct node access (r1s-linkd)](./roadmap/f14-direct-node-access/README.md)
+
+> An execution owner opens an authenticated tunnel from their client to a running execution over
+> Yggdrasil and carries arbitrary traffic inside it, independent of any artifact model.
+
+- **Status:** ⏳ planned
+- **Done when:** a client tunnels to a running execution through Yggdrasil, only the authenticated
+  execution owner can open or keep the tunnel, and the core and protocol stay free of
+  Yggdrasil-specific types while carrying no tunnel bytes over RNS.
+- **Depends on:** [F2](#f2-rns-transport), [F12](#f12-shared-secret-cluster-membership),
+  [F13](#f13-local-client-api).
+
 ## [F16. Node capabilities and placement](./roadmap/f16-node-placement/README.md)
 
 > Allocators advertise bounded OS, architecture, runtime, device, and operator labels so clients can
@@ -160,9 +172,12 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 
 - [F13](#f13-local-client-api) is complete: `r1s serve` plus `--socket` give applications a persistent
   local frontend and a `Watch` stream while preserving client-owned placement and identity.
-- [F16](#f16-node-capabilities-and-placement) is the next vertical: allocators advertise bounded
-  capability labels, clients express exact-match constraints, and only compatible allocators offer.
-  It follows the local API independently and does not introduce a scheduler or global state.
+- [F14](#f14-direct-node-access-r1s-linkd) is the next vertical: `r1s-linkd` gives the authenticated
+  execution owner a direct Yggdrasil tunnel to a running execution, independent of artifact
+  transfer, without Yggdrasil-specific protocol types or a new global state source.
+- [F16](#f16-node-capabilities-and-placement) can follow [F14](#f14-direct-node-access-r1s-linkd) or
+  run independently: allocators advertise bounded capability labels, clients express exact-match
+  constraints, and only compatible allocators offer. It does not introduce a scheduler or global state.
 - [F18](#f18-observability) adds standard local export points and inspection surfaces after the
   client and API surfaces exist.
 
