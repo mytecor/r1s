@@ -63,7 +63,7 @@ func (b *cliWorkflowBackend) RunRequest(ctx context.Context, workload *r1sv1.Wor
 	}
 	executionID := assignment.GetExecutionAssign().GetExecutionId()
 	if keepAlive > 0 {
-		if err := b.clientCore.RecordLeaseIntent(executionID, keepAlive); err != nil {
+		if err := b.clientCore.RecordLeaseIntent(executionID, keepAlive, nil); err != nil {
 			return "", "", nil, err
 		}
 	}

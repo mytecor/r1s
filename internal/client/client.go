@@ -68,7 +68,10 @@ type executionRecord struct {
 	// continuous renewal loop lives only in `r1s serve`; it replays this
 	// durable state on every tick. leaseLost marks a lease that expired
 	// before a renewal landed: the recorded workload must be re-requested.
+	// leaseAllocators preserves the explicit allocator pinning recorded with
+	// the intent so a re-request reuses the original placement constraint.
 	leaseDuration       time.Duration
+	leaseAllocators     []string
 	leaseLost           bool
 	leaseRenewedAt      time.Time
 	leaseRenewMessageID string

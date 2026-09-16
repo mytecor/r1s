@@ -152,6 +152,16 @@ func TestRebindLeaseIntentMovesDutyToReplacement(t *testing.T) {
 	core, executionID := leasedExecution(t, 5*time.Minute)
 	now := time.Unix(1_800_000_000, 0).UTC()
 
+	// Pin allocator destinations with the intent; a re-request must preserve
+	// the original placement constraint.
+	if err := core.RecordLeaseIntent(executionID, 5*time.Minute, []string{"pin-a", "pin-b", "pin-a"}); err != nil {
+		t.Fatal(err)
+	}
+	pinned := core.LeaseIntentAllocators(executionID)
+	if len(pinned) != 2 || pinned[0] != "pin-a" || pinned[1] != "pin-b" {
+		t.Fatalf("LeaseIntentAllocators() = %v, want deduplicated [pin-a pin-b]", pinned)
+	}
+
 	// Re-request the recorded workload as a fresh request and assignment.
 	replacementRequestID, replacementRequest, err := core.CreateRequest(testWorkload(), testPolicy(), "default")
 	if err != nil {
@@ -185,6 +195,28 @@ func TestRebindLeaseIntentMovesDutyToReplacement(t *testing.T) {
 	destination, envelope, lost, err := core.Maintain(replacementID, 0)
 	if err != nil || lost || destination != "near" || envelope.GetExecutionLeaseRenew().GetLeaseDuration().AsDuration() != 5*time.Minute {
 		t.Fatalf("rebound Maintain() = (%q, lost=%v, %v, %v)", destination, lost, envelope.GetExecutionLeaseRenew().GetLeaseDuration(), err)
+	}
+	// The pinning moves with the intent and leaves the lost execution.
+	if moved := core.LeaseIntentAllocators(replacementID); len(moved) != 2 || moved[0] != "pin-a" || moved[1] != "pin-b" {
+		t.Fatalf("rebound LeaseIntentAllocators() = %v, want [pin-a pin-b]", moved)
+	}
+	if left := core.LeaseIntentAllocators(executionID); left != nil {
+		t.Fatalf("lost LeaseIntentAllocators() = %v, want none", left)
+	}
+}
+
+// TestLeaseAckWithoutPendingRenewalIsRejected ensures an ack without a
+// correlation ID can never apply against an empty pending renewal.
+func TestLeaseAckWithoutPendingRenewalIsRejected(t *testing.T) {
+	core, executionID := leasedExecution(t, 5*time.Minute)
+	strayAck := &r1sv1.Envelope{
+		MessageId: "stray-ack", Sender: []byte("allocator"), CorrelationId: "", SentAt: timestamppb.Now(),
+		Payload: &r1sv1.Envelope_ExecutionLeaseRenewAck{ExecutionLeaseRenewAck: &r1sv1.ExecutionLeaseRenewAck{
+			ExecutionId: executionID, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour)),
+		}},
+	}
+	if err := core.Handle(context.Background(), strayAck); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("stray ack without correlation ID = %v, want ErrUnauthorized", err)
 	}
 }
 

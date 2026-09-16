@@ -76,7 +76,9 @@ collect:
 	if keepAlive > 0 {
 		// Durably record the lease-holding intent so the shared renewal loop
 		// (serve, or a foreground keep-alive request) keeps this execution.
-		if err := a.client.RecordLeaseIntent(executionID, keepAlive); err != nil {
+		// The explicit allocator destinations ride with the intent so a
+		// re-request after lease loss preserves the pinning.
+		if err := a.client.RecordLeaseIntent(executionID, keepAlive, allocators); err != nil {
 			return "", "", nil, err
 		}
 	}
@@ -116,31 +118,46 @@ func (a *application) cancelState(ctx context.Context, executionID, reason strin
 	return snapshot.State, nil
 }
 
-// renewOrReRequest renews one execution's client-held lease. When the lease was
-// already lost (the execution was evicted before a renewal landed), it
+// renewOrReRequest renews one execution's client-held lease. When the lease
+// was already lost (the execution was evicted before a renewal landed), it
 // re-requests the recorded workload as a fresh request, rebinds the durable
-// lease-holding intent to the replacement execution, and returns its expiry.
+// lease-holding intent to the replacement execution, and renews the
+// replacement so the returned expiry is authoritative. The replacement always
+// starts on a valid initial lease, so the loop iterates at most once in
+// practice instead of recursing.
 func (a *application) renewOrReRequest(ctx context.Context, executionID string, leaseDuration, wait time.Duration) (activeID string, expiresAt time.Time, rerequested bool, err error) {
-	destination, envelope, lost, err := a.client.Maintain(executionID, leaseDuration)
-	if err != nil {
-		return "", time.Time{}, false, err
+	activeID = executionID
+	for {
+		destination, envelope, lost, err := a.client.Maintain(activeID, leaseDuration)
+		if err != nil {
+			return "", time.Time{}, rerequested, err
+		}
+		var newExpiry time.Time
+		if !lost {
+			if err := a.send(destination, envelope); err != nil {
+				return "", time.Time{}, rerequested, err
+			}
+			newExpiry, err = a.awaitLeaseAck(ctx, activeID, envelope.GetMessageId(), wait)
+			if err == nil {
+				return activeID, newExpiry, rerequested, nil
+			}
+			// The renewal may have been rejected because the lease was lost
+			// while the command was in flight; the durable intent records that.
+			// Recover below.
+			if !a.client.LeaseIntentLost(activeID) {
+				if rerequested {
+					return activeID, time.Time{}, rerequested, errors.Join(err, fmt.Errorf("lease intent rebound to %s; renewal will retry", activeID))
+				}
+				return "", time.Time{}, rerequested, err
+			}
+		}
+		// The lease was lost: re-request the recorded workload and continue
+		// with the replacement, which carries the rebound intent.
+		if activeID, err = a.reRequestLostLease(ctx, activeID); err != nil {
+			return "", time.Time{}, rerequested, err
+		}
+		rerequested = true
 	}
-	if lost {
-		return a.reRequestLostLease(ctx, executionID, leaseDuration, wait)
-	}
-	if err := a.send(destination, envelope); err != nil {
-		return "", time.Time{}, false, err
-	}
-	newExpiry, err := a.awaitLeaseAck(ctx, executionID, envelope.GetMessageId(), wait)
-	if err == nil {
-		return executionID, newExpiry, false, nil
-	}
-	// The renewal may have been rejected because the lease was lost while the
-	// command was in flight; the durable intent records that. Recover there.
-	if !a.client.LeaseIntentLost(executionID) {
-		return "", time.Time{}, false, err
-	}
-	return a.reRequestLostLease(ctx, executionID, leaseDuration, wait)
 }
 
 // awaitLeaseAck waits for the allocator ack of one renewal command.
@@ -168,25 +185,22 @@ func (a *application) awaitLeaseAck(ctx context.Context, executionID, correlatio
 }
 
 // reRequestLostLease creates a fresh request from the recorded workload of a
-// lease-expired execution, rebinds the durable lease intent to the replacement,
-// and renews it once so the returned expiry is authoritative.
-func (a *application) reRequestLostLease(ctx context.Context, executionID string, leaseDuration, wait time.Duration) (string, time.Time, bool, error) {
+// lease-expired execution, preserving the allocator destinations recorded with
+// the lease-holding intent, and rebinds the intent to the replacement
+// execution. Renewing the replacement is the caller's next step.
+func (a *application) reRequestLostLease(ctx context.Context, executionID string) (string, error) {
 	request, ok := a.client.RequestForExecution(executionID)
 	if !ok {
-		return "", time.Time{}, false, fmt.Errorf("%w: execution %q has no recorded request to re-request", client.ErrExecutionNotFound, executionID)
+		return "", fmt.Errorf("%w: execution %q has no recorded request to re-request", client.ErrExecutionNotFound, executionID)
 	}
-	_, replacement, _, err := a.runRequest(ctx, request.GetWorkload(), request.GetPolicy(), request.GetResourceClass(), defaultOfferWait, nil, 0)
+	_, replacement, _, err := a.runRequest(ctx, request.GetWorkload(), request.GetPolicy(), request.GetResourceClass(), defaultOfferWait, a.client.LeaseIntentAllocators(executionID), 0)
 	if err != nil {
-		return "", time.Time{}, false, fmt.Errorf("re-request after lease expiry: %w", err)
+		return "", fmt.Errorf("re-request after lease expiry: %w", err)
 	}
 	if err := a.client.RebindLeaseIntent(executionID, replacement); err != nil {
-		return "", time.Time{}, false, err
+		return "", fmt.Errorf("lease intent not rebound to %s: %w", replacement, err)
 	}
-	activeID, expiresAt, _, err := a.renewOrReRequest(ctx, replacement, leaseDuration, wait)
-	if err != nil {
-		return replacement, time.Time{}, false, errors.Join(err, fmt.Errorf("lease intent rebound to %s; renewal will retry", replacement))
-	}
-	return activeID, expiresAt, true, nil
+	return replacement, nil
 }
 
 // maintainTick paces the serve-mode renewal loop. Every recorded lease intent
@@ -225,8 +239,13 @@ func (a *application) runLeaseMaintainer(ctx context.Context, diagnostics io.Wri
 			if ctx.Err() != nil {
 				return
 			}
-			if _, _, _, err := a.renewOrReRequest(ctx, executionID, 0, 30*time.Second); err != nil {
+			activeID, _, rerequested, err := a.renewOrReRequest(ctx, executionID, 0, 30*time.Second)
+			if err != nil {
 				fmt.Fprintf(diagnostics, "lease re-request for %s failed: %v\n", executionID, err)
+				continue
+			}
+			if rerequested {
+				fmt.Fprintf(diagnostics, "lease lost for %s; re-requested as %s\n", executionID, activeID)
 			}
 		}
 	}

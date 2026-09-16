@@ -36,9 +36,9 @@ distinguishable from a client cancellation.
 - Renewal never attaches logs, results, or other payload; it returns only the new expiry.
 - When a lease is lost — the execution was evicted before a renewal landed — the durable
   lease-holding intent converts into a re-request duty: the client engine runs a fresh request with
-  the recorded workload and rebinds the intent to the replacement execution. The keep-alive
-  requester prints the recovery (`status=rerequested`), and the serve renewal loop does the same
-  on its next tick.
+  the recorded workload, preserving the allocator pinning recorded with the intent, and rebinds the
+  intent to the replacement execution. The keep-alive requester prints the recovery
+  (`status=rerequested`), and the serve renewal loop logs it on its next tick.
 
 Renewal is an authenticated control-plane primitive, not a loop. The renewal loop lives only in
 the shared durable client engine: `r1s serve` renews the lease-holding intents recorded in its

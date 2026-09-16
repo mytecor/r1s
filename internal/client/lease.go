@@ -15,7 +15,7 @@ import (
 // clientDefaultLease is the lease duration recorded by a bare Maintain call
 // when no explicit duration is supplied. It matches the allocator's default
 // initial lease so one-shot callers renew at a sane cadence.
-const clientDefaultLease = 10 * time.Minute
+const clientDefaultLease = protocol.DefaultLease
 
 // Maintain durably records the lease-holding intent for one execution and
 // returns a one-shot authenticated renewal command. The continuous renewal
@@ -98,8 +98,10 @@ func (o *Client) DueLeaseRenewals() []string {
 
 // RecordLeaseIntent durably records the lease-holding intent for one execution
 // without sending anything. The shared renewal loop (serve, or a foreground
-// keep-alive request) replays it on every tick and renews when due.
-func (o *Client) RecordLeaseIntent(executionID string, leaseDuration time.Duration) error {
+// keep-alive request) replays it on every tick and renews when due. Explicit
+// allocator destinations ride with the intent so a re-request after lease
+// loss preserves the original pinning.
+func (o *Client) RecordLeaseIntent(executionID string, leaseDuration time.Duration, allocators []string) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	record := o.executions[executionID]
@@ -112,13 +114,47 @@ func (o *Client) RecordLeaseIntent(executionID string, leaseDuration time.Durati
 	if leaseDuration <= 0 {
 		leaseDuration = clientDefaultLease
 	}
-	previous := record.leaseDuration
+	previousDuration := record.leaseDuration
+	previousAllocators := record.leaseAllocators
 	record.leaseDuration = leaseDuration
+	record.leaseAllocators = pinnedAllocators(allocators)
 	if err := o.persistLocked(context.Background()); err != nil {
-		record.leaseDuration = previous
+		record.leaseDuration = previousDuration
+		record.leaseAllocators = previousAllocators
 		return err
 	}
 	return nil
+}
+
+// pinnedAllocators returns a deduplicated copy of the explicit allocator
+// destinations recorded with a lease-holding intent.
+func pinnedAllocators(destinations []string) []string {
+	if len(destinations) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(destinations))
+	var pinned []string
+	for _, destination := range destinations {
+		if destination == "" || seen[destination] {
+			continue
+		}
+		seen[destination] = true
+		pinned = append(pinned, destination)
+	}
+	return pinned
+}
+
+// LeaseIntentAllocators returns the allocator destinations recorded with the
+// lease-holding intent of one execution, so a re-request after lease loss can
+// preserve the original pinning.
+func (o *Client) LeaseIntentAllocators(executionID string) []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	record := o.executions[executionID]
+	if record == nil {
+		return nil
+	}
+	return append([]string(nil), record.leaseAllocators...)
 }
 
 // LeaseDue reports whether the recorded intent for one execution is due for
@@ -175,7 +211,8 @@ func (o *Client) RequestForExecution(executionID string) (*r1sv1.ExecutionReques
 }
 
 // RebindLeaseIntent moves a lost lease-holding intent to a replacement
-// execution created by re-requesting the recorded workload.
+// execution created by re-requesting the recorded workload, carrying the
+// recorded allocator pinning along.
 func (o *Client) RebindLeaseIntent(oldExecutionID, newExecutionID string) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -188,14 +225,25 @@ func (o *Client) RebindLeaseIntent(oldExecutionID, newExecutionID string) error 
 		return ErrConflict
 	}
 	savedOld := previous.leaseDuration
+	savedOldLost := previous.leaseLost
+	savedOldAllocators := previous.leaseAllocators
+	savedNewDuration := replacement.leaseDuration
+	savedNewLost := replacement.leaseLost
+	savedNewAllocators := replacement.leaseAllocators
 	previous.leaseDuration = 0
 	previous.leaseLost = false
+	previous.leaseAllocators = nil
 	replacement.leaseDuration = savedOld
 	replacement.leaseLost = false
+	replacement.leaseAllocators = savedOldAllocators
 	replacement.leaseExpiresAt = time.Time{}
 	if err := o.persistLocked(context.Background()); err != nil {
 		previous.leaseDuration = savedOld
-		replacement.leaseDuration = 0
+		previous.leaseLost = savedOldLost
+		previous.leaseAllocators = savedOldAllocators
+		replacement.leaseDuration = savedNewDuration
+		replacement.leaseLost = savedNewLost
+		replacement.leaseAllocators = savedNewAllocators
 		return err
 	}
 	return nil
@@ -208,7 +256,9 @@ func (o *Client) handleRenewAckLocked(envelope *r1sv1.Envelope, ack *r1sv1.Execu
 	if record == nil {
 		return ErrExecutionNotFound
 	}
-	if !bytes.Equal(record.allocatorID, envelope.GetSender()) || record.leaseRenewMessageID != envelope.GetCorrelationId() {
+	// An empty pending renewal never matches: an ack without a correlation ID
+	// cannot authorize itself even when it comes from the right allocator.
+	if record.leaseRenewMessageID == "" || !bytes.Equal(record.allocatorID, envelope.GetSender()) || record.leaseRenewMessageID != envelope.GetCorrelationId() {
 		return ErrUnauthorized
 	}
 	if record.leaseLost {

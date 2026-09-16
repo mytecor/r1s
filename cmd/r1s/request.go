@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/mytecor/r1s/internal/protocol"
 )
 
 // defaultLeaseDuration matches the allocator's default initial lease so a
 // keep-alive caller renews at a sane cadence without tuning anything.
-const defaultLeaseDuration = 10 * time.Minute
+const defaultLeaseDuration = protocol.DefaultLease
 
 func (a *application) request(arguments []string, stderr io.Writer) error {
 	flags := newFlagSet("r1s request [options] '<ExecutionRequest JSON>'", stderr)

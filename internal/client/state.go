@@ -66,6 +66,7 @@ type persistedExecution struct {
 	CancelReason        string    `json:"cancel_reason,omitempty"`
 	State               []byte    `json:"state,omitempty"`
 	LeaseDurationNanos  int64     `json:"lease_duration,omitempty"`
+	LeaseAllocators     []string  `json:"lease_allocators,omitempty"`
 	LeaseLost           bool      `json:"lease_lost,omitempty"`
 	LeaseRenewedAt      time.Time `json:"lease_renewed_at,omitempty"`
 	LeaseRenewMessageID string    `json:"lease_renew_message_id,omitempty"`
@@ -142,7 +143,7 @@ func (o *Client) loadLocked(ctx context.Context) error {
 			destination: saved.Destination, assignmentMessageID: saved.AssignmentMessageID, assignmentSentAt: saved.AssignmentSentAt,
 			inspectMessageID: saved.InspectMessageID, inspectSentAt: saved.InspectSentAt,
 			cancelMessageID: saved.CancelMessageID, cancelSentAt: saved.CancelSentAt, cancelReason: saved.CancelReason,
-			leaseDuration: time.Duration(saved.LeaseDurationNanos), leaseLost: saved.LeaseLost,
+			leaseDuration: time.Duration(saved.LeaseDurationNanos), leaseAllocators: saved.LeaseAllocators, leaseLost: saved.LeaseLost,
 			leaseRenewedAt: saved.LeaseRenewedAt, leaseRenewMessageID: saved.LeaseRenewMessageID, leaseExpiresAt: saved.LeaseExpiresAt,
 		}
 		if len(saved.State) > 0 {
@@ -185,7 +186,7 @@ func (o *Client) persistLocked(ctx context.Context) error {
 			Destination: record.destination, AssignmentMessageID: record.assignmentMessageID, AssignmentSentAt: record.assignmentSentAt,
 			InspectMessageID: record.inspectMessageID, InspectSentAt: record.inspectSentAt,
 			CancelMessageID: record.cancelMessageID, CancelSentAt: record.cancelSentAt, CancelReason: record.cancelReason,
-			LeaseDurationNanos: int64(record.leaseDuration), LeaseLost: record.leaseLost,
+			LeaseDurationNanos: int64(record.leaseDuration), LeaseAllocators: record.leaseAllocators, LeaseLost: record.leaseLost,
 			LeaseRenewedAt: record.leaseRenewedAt, LeaseRenewMessageID: record.leaseRenewMessageID, LeaseExpiresAt: record.leaseExpiresAt,
 		}
 		if record.state != nil {

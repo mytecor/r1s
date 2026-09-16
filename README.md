@@ -137,7 +137,10 @@ The command returns durable request and execution IDs after assignment. The exec
 bounded by a client-held lease (10 minutes by default). Add `--keep-alive` (optionally `--lease`)
 to keep it running: direct mode blocks, renews the lease, and re-requests the recorded workload if
 the lease is ever lost; `--socket` mode records the duty durably in the service, whose renewal
-loop holds it while `r1s serve` runs. An execution whose lease expires without renewal is evicted
+loop holds it while `r1s serve` runs. A re-request preserves the allocator pinning (`--allocator`)
+recorded with the intent, and the intent itself is durable: an interrupted direct-mode keep-alive
+request leaves it recorded, and a later `r1s serve` with the same client state resumes holding it.
+An execution whose lease expires without renewal is evicted
 locally; its terminal metadata stays retrievable within `result_retention`. Use the execution ID
 with `inspect`, `cancel`, `result`, or `logs`; use `list` to show saved requests. Run `r1s --help`
 or a subcommand with `--help` for all options.

@@ -74,6 +74,8 @@ func (a *Allocator) handleLeaseRenew(envelope *r1sv1.Envelope, renew *r1sv1.Exec
 // Stop boundary exactly like cancellation: the CANCELLING transition commits
 // first, the runtime stop is idempotent, and the terminal state commits with a
 // lease-expiry reason that is distinguishable from client cancellation.
+// A failed eviction restores the pre-eviction state and returns; the next
+// sweep retries it instead of this call tight-looping over the same record.
 // Terminal metadata stays retrievable for the result_retention horizon, and
 // capacity returns on eviction.
 func (a *Allocator) EvictExpiredLeases(ctx context.Context) error {
@@ -87,16 +89,23 @@ func (a *Allocator) EvictExpiredLeases(ctx context.Context) error {
 			return allErr
 		}
 		var err error
+		var previousDetail string
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			err = ctxErr
 		} else {
-			err = a.beginEvictionLocked(expiredID, now)
+			previousDetail, err = a.beginEvictionLocked(expiredID, now)
 		}
 		a.mu.Unlock()
 		if err != nil {
 			return errors.Join(allErr, err)
 		}
-		allErr = errors.Join(allErr, a.completeEviction(ctx, expiredID, expiredPhase))
+		evictErr := a.completeEviction(ctx, expiredID, expiredPhase, previousDetail)
+		allErr = errors.Join(allErr, evictErr)
+		if evictErr != nil {
+			// A failed eviction restores the pre-eviction phase; retrying belongs
+			// to the next sweep, not to a tight loop over the same record.
+			return allErr
+		}
 	}
 }
 
@@ -112,9 +121,10 @@ func (a *Allocator) nextExpiredLeaseLocked(now time.Time) (string, r1sv1.Executi
 }
 
 // beginEvictionLocked commits the CANCELLING transition for one lease-expired
-// execution so concurrent commands observe the eviction in progress. Callers
+// execution so concurrent commands observe the eviction in progress, and
+// returns the pre-eviction detail so a failed eviction restores it. Callers
 // must hold a.mu.
-func (a *Allocator) beginEvictionLocked(id string, now time.Time) error {
+func (a *Allocator) beginEvictionLocked(id string, now time.Time) (string, error) {
 	record := a.executions[id]
 	previousPhase := record.phase
 	previousDetail := record.detail
@@ -129,15 +139,16 @@ func (a *Allocator) beginEvictionLocked(id string, now time.Time) error {
 		record.detail = previousDetail
 		record.occurredAt = previousTime
 		record.revision = previousRevision
-		return err
+		return previousDetail, err
 	}
-	return nil
+	return previousDetail, nil
 }
 
 // completeEviction stops the runtime task through the same idempotent boundary
 // cancellation uses, then commits the terminal evicted state. A failed stop
-// restores the pre-eviction phase so a later sweep can retry the eviction.
-func (a *Allocator) completeEviction(ctx context.Context, id string, previousPhase r1sv1.ExecutionPhase) error {
+// restores the pre-eviction phase and detail so a later sweep can retry the
+// eviction.
+func (a *Allocator) completeEviction(ctx context.Context, id string, previousPhase r1sv1.ExecutionPhase, previousDetail string) error {
 	stopErr := a.runtime.Stop(ctx, id)
 
 	a.mu.Lock()
@@ -150,7 +161,7 @@ func (a *Allocator) completeEviction(ctx context.Context, id string, previousPha
 	if stopErr != nil && !errors.Is(stopErr, r1sruntime.ErrExecutionMissing) {
 		if record.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING {
 			record.phase = previousPhase
-			record.detail = ""
+			record.detail = previousDetail
 			record.occurredAt = now
 			record.revision++
 		}

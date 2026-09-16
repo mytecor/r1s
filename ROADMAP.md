@@ -195,10 +195,6 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 
 ## Current implementation order
 
-- [F13](#f13-local-client-api) is complete: `r1s serve` plus `--socket` give applications a persistent
-  local frontend and a `Watch` stream while preserving client-owned placement and identity.
-- [F13](#f13-local-client-api) is complete: `r1s serve` plus `--socket` give applications a persistent
-  local frontend and a `Watch` stream while preserving client-owned placement and identity.
 - [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
   explicitly renewed client-held lease instead of a request-time deadline, and `r1s serve` renews
   the durable lease-holding intents recorded by `r1s request --keep-alive`.

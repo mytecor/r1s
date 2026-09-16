@@ -255,3 +255,30 @@ func TestLostLeaseRenewalAfterEvictionIsRejected(t *testing.T) {
 		t.Fatalf("evicted renewal error = %v, want ErrInvalidTransition", err)
 	}
 }
+
+func TestFailedEvictionStopRestoresPhaseAndDetail(t *testing.T) {
+	clock := newFakeClock()
+	runtime := newFakeRuntime()
+	allocator := newTestAllocator(t, clock, runtime, 1)
+	assignedExecution(t, allocator, clock, "one", "client", "request", "execution")
+
+	clock.Advance(11 * time.Minute)
+	runtime.setStopError(errors.New("temporary stop failure"))
+	if err := allocator.EvictExpiredLeases(context.Background()); !errors.Is(err, ErrRuntimeStop) {
+		t.Fatalf("eviction with failing stop = %v, want ErrRuntimeStop", err)
+	}
+	// A failed stop restores the pre-eviction phase and detail so the next
+	// sweep can retry the eviction from a clean state.
+	snapshot, ok := allocator.Execution("execution")
+	if !ok || snapshot.State.GetPhase() != r1sv1.ExecutionPhase_EXECUTION_PHASE_RUNNING || snapshot.State.GetDetail() != "" {
+		t.Fatalf("restored snapshot = %+v, want running without detail", snapshot)
+	}
+	runtime.setStopError(nil)
+	if err := allocator.EvictExpiredLeases(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, ok = allocator.Execution("execution")
+	if !ok || snapshot.State.GetPhase() != r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED || snapshot.State.GetDetail() != protocol.LeaseExpiredDetail {
+		t.Fatalf("retried eviction snapshot = %+v, want failed with lease-expiry detail", snapshot)
+	}
+}

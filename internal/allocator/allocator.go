@@ -21,7 +21,7 @@ const (
 	defaultReplayCapacity = 4096
 	// defaultLeaseTTL is the initial lease granted at assignment. A client
 	// extends it with authenticated ExecutionLeaseRenew messages.
-	defaultLeaseTTL = 10 * time.Minute
+	defaultLeaseTTL = protocol.DefaultLease
 	// maxLeaseTTL bounds a single renewal. It matches the command replay
 	// horizon so a durable lease never outlives the tombstones that guard it.
 	maxLeaseTTL = CommandHorizon
