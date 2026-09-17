@@ -50,6 +50,14 @@ This file records unresolved choices so they do not remain implicit in implement
    client-supplied cancellation reason. Still open: clock semantics across allocator restart
    (wall-clock persisted expiry versus monotonic accounting) and whether a strict eviction grace
    period after one missed renewal is worth adding over the lazy sweep.
+9. **Tunnel server-side target** — where the F14 direct-access tunnel terminates on the allocator is
+   deliberately a named, unfilled slot. A workload in the host network namespace has no free
+   address, so v1 needs an allocator-owned local target `(host, port)` recorded in local execution
+   metadata and populated by allocator-local configuration/policy at allocation time — never a
+   client-supplied destination in the immutable workload. When no target is configured for an
+   execution, granting the tunnel fails with a clear `CommandError` instead of connecting by
+   guesswork. Target auto-discovery from the running workload is a later improvement, out of scope
+   for now. See [F14-01](./f14-direct-node-access/f14-01-access-grant.md).
 
 ## Resolved
 

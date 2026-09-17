@@ -206,8 +206,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   pinning after lease loss. A manifest-driven `r1s deploy` (named multi-deployment state, revision
   diffing, create-before-destroy replacement, removal) is deferred in
   [BACKLOG.md](./roadmap/BACKLOG.md).
-- [F14](#f14-direct-node-access-r1s-tunneld) is the next vertical: `r1s-tunneld` gives the authenticated
-  execution owner a direct Yggdrasil tunnel to a running execution, independent of artifact
+- [F14](#f14-direct-node-access-r1s-tunneld) is the next vertical: `r1s tunnel` with the
+  allocator-side edge inside `r1sd` gives the authenticated execution owner a direct Yggdrasil
+  tunnel to a running execution over an embedded yggdrasil-go node, independent of artifact
   transfer, without Yggdrasil-specific protocol types or a new global state source.
 - [F16](#f16-node-capabilities-and-placement) can follow [F14](#f14-direct-node-access-r1s-tunneld) or
   run independently: allocators advertise bounded capability labels, clients express exact-match
