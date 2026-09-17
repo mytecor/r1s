@@ -11,6 +11,7 @@ import (
 	"github.com/mytecor/r1s/internal/allocator"
 	"github.com/mytecor/r1s/internal/cluster"
 	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
+	"github.com/mytecor/r1s/internal/tunnel"
 )
 
 type commandLine struct {
@@ -31,6 +32,12 @@ type commandLine struct {
 	statePath             string
 	clusterSource         string
 	clusterArguments      []string
+	tunnelEnabled         bool
+	tunnelGrantTTL        time.Duration
+	tunnelTargets         map[string]tunnel.Target
+	tunnelDefaultTarget   tunnel.Target
+	tunnelEndpoint        []byte
+	tunnelEndpointPubKey  []byte
 }
 
 func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) error {
@@ -76,6 +83,12 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	admissionPath := flags.String("admission-policy", "", "local resource profiles, allowed identities, and quotas JSON")
 	statePath := flags.String("state", "", "allocator state database (defaults beside the identity file or under ~/.config/r1s)")
 	clusterSource := flags.String("cluster", "", "cluster join token or state file (defaults to ~/.config/r1s/cluster)")
+	tunnelEnabled := flags.Bool("tunnel-enabled", false, "enable the direct-access tunnel edge (F14); requires the server-side target configuration")
+	tunnelGrantTTL := flags.Duration("tunnel-grant-ttl", allocator.DefaultTunnelGrantTTL, "minted tunnel grant lifetime")
+	tunnelTargetsValue := flags.String("tunnel-target", "", "comma-separated per-resource-class tunnel targets, for example default=127.0.0.1:9000")
+	tunnelDefaultTarget := flags.String("tunnel-default-target", "", "mandatory fallback tunnel target for classes without an explicit target")
+	tunnelEndpoint := flags.String("tunnel-endpoint", "", "opaque transport-neutral allocator endpoint advertisement (hex); set automatically by the F14-02 edge")
+	tunnelEndpointPubKey := flags.String("tunnel-endpoint-pubkey", "", "opaque transport-neutral allocator edge public key (hex); set automatically by the F14-02 edge")
 	if err := flags.Parse(arguments); err != nil {
 		return commandLine{}, err
 	}
@@ -98,6 +111,28 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	if err != nil {
 		return commandLine{}, err
 	}
+	tunnelTargets, err := ParseTunnelTargets(*tunnelTargetsValue)
+	if err != nil {
+		return commandLine{}, err
+	}
+	var defaultTarget tunnel.Target
+	if strings.TrimSpace(*tunnelDefaultTarget) != "" {
+		defaultTarget, err = ParseTunnelTarget(*tunnelDefaultTarget)
+		if err != nil {
+			return commandLine{}, fmt.Errorf("--tunnel-default-target: %w", err)
+		}
+	}
+	if *tunnelGrantTTL <= 0 {
+		return commandLine{}, errors.New("--tunnel-grant-ttl must be positive")
+	}
+	tunnelEndpointBytes, err := parseHexBytes("tunnel-endpoint", *tunnelEndpoint)
+	if err != nil {
+		return commandLine{}, err
+	}
+	tunnelEndpointPubKeyBytes, err := parseHexBytes("tunnel-endpoint-pubkey", *tunnelEndpointPubKey)
+	if err != nil {
+		return commandLine{}, err
+	}
 	return commandLine{
 		configPath: *configPath, identitySource: *identitySource, capacity: capacity,
 		announceInterval: *announceInterval, containerdAddress: *containerdAddress,
@@ -105,5 +140,8 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		logPath: *logPath, logBytes: *logBytes, logBudget: *logBudget, maxRecords: *maxRecords,
 		sweepInterval: *sweepInterval, admissionPath: *admissionPath, statePath: *statePath,
 		clusterSource: *clusterSource,
+		tunnelEnabled: *tunnelEnabled, tunnelGrantTTL: *tunnelGrantTTL,
+		tunnelTargets: tunnelTargets, tunnelDefaultTarget: defaultTarget,
+		tunnelEndpoint: tunnelEndpointBytes, tunnelEndpointPubKey: tunnelEndpointPubKeyBytes,
 	}, nil
 }

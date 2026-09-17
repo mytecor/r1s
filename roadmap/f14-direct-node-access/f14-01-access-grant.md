@@ -1,6 +1,6 @@
 # F14-01 — Execution-scoped access grant and tunnel endpoint
 
-**Status:** ⏳ Planned
+**Status:** ✅ Implemented (grant + endpoint + allocator registry + target resolution). The F14-02 edge, the embedded node, and `r1s tunnel` remain planned.
 
 ## Outcome
 

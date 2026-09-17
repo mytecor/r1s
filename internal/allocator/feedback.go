@@ -25,6 +25,14 @@ func (a *Allocator) errorResponse(command *r1sv1.Envelope, err error) []*r1sv1.E
 		code, detail = "EXPIRED", "reservation or retained result expired"
 	case errors.Is(err, ErrExecutionConflict), errors.Is(err, ErrReplayConflict), errors.Is(err, ErrOfferAlreadyAssigned):
 		code, detail = "CONFLICT", "command conflicts with durable state"
+	case errors.Is(err, ErrTunnelDisabled):
+		code, detail = "TUNNEL", "direct-access tunnels are disabled on this allocator"
+	case errors.Is(err, ErrTunnelNoEndpoint):
+		code, detail, retry = "TUNNEL", "tunnel endpoint is not ready on this allocator", true
+	case errors.Is(err, ErrTunnelNoTarget):
+		code, detail = "TUNNEL", "no tunnel target configured for this execution's resource class"
+	case errors.Is(err, ErrInvalidTransition):
+		code, detail = "CONFLICT", "command conflicts with the current execution phase"
 	case errors.Is(err, protocol.ErrInvalidEnvelope), errors.Is(err, ErrUnsupportedMessage), errors.Is(err, ErrLeaseTooLong):
 		code, detail = "INVALID_REQUEST", "invalid or unsupported command"
 	case errors.Is(err, ErrRuntimeStart), errors.Is(err, ErrRuntimeStop):

@@ -31,6 +31,8 @@ message Envelope {
     ExecutionLogsResponse execution_logs_response = 20;
     ExecutionLeaseRenew execution_lease_renew = 21;
     ExecutionLeaseRenewAck execution_lease_renew_ack = 22;
+    ExecutionTunnelGrant execution_tunnel_grant = 23;
+    ExecutionTunnelGrantAck execution_tunnel_grant_ack = 24;
   }
 }
 
@@ -168,4 +170,27 @@ message ExecutionLeaseRenew {
 message ExecutionLeaseRenewAck {
   string execution_id = 1;
   google.protobuf.Timestamp expires_at = 2;
+}
+
+// ExecutionTunnelGrant requests a short-lived, single-use, execution-scoped
+// direct-access tunnel to a running execution. The sender must be the
+// authenticated execution owner. ygg_peer_pubkey is the client's edge node
+// public key (HKDF-derived from the client identity seed, opaque to the
+// protocol); the allocator binds it into the minted grant so the tunnel edge
+// accepts only an authenticated peer whose key matches.
+message ExecutionTunnelGrant {
+  string execution_id = 1;
+  bytes ygg_peer_pubkey = 2;
+}
+
+// ExecutionTunnelGrantAck is the allocator's mint reply: a grant ID, its
+// expiry, and the transport-neutral allocator-local endpoint advertisement
+// (opaque address bytes and opaque public-key bytes). Nothing secret is
+// embedded in the advertisement or the ack.
+message ExecutionTunnelGrantAck {
+  string execution_id = 1;
+  string grant_id = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  bytes allocator_endpoint = 4;
+  bytes allocator_endpoint_pubkey = 5;
 }

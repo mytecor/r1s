@@ -159,6 +159,8 @@ type Envelope struct {
 	//	*Envelope_ExecutionLogsResponse
 	//	*Envelope_ExecutionLeaseRenew
 	//	*Envelope_ExecutionLeaseRenewAck
+	//	*Envelope_ExecutionTunnelGrant
+	//	*Envelope_ExecutionTunnelGrantAck
 	Payload       isEnvelope_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -346,6 +348,24 @@ func (x *Envelope) GetExecutionLeaseRenewAck() *ExecutionLeaseRenewAck {
 	return nil
 }
 
+func (x *Envelope) GetExecutionTunnelGrant() *ExecutionTunnelGrant {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_ExecutionTunnelGrant); ok {
+			return x.ExecutionTunnelGrant
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetExecutionTunnelGrantAck() *ExecutionTunnelGrantAck {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_ExecutionTunnelGrantAck); ok {
+			return x.ExecutionTunnelGrantAck
+		}
+	}
+	return nil
+}
+
 type isEnvelope_Payload interface {
 	isEnvelope_Payload()
 }
@@ -402,6 +422,14 @@ type Envelope_ExecutionLeaseRenewAck struct {
 	ExecutionLeaseRenewAck *ExecutionLeaseRenewAck `protobuf:"bytes,22,opt,name=execution_lease_renew_ack,json=executionLeaseRenewAck,proto3,oneof"`
 }
 
+type Envelope_ExecutionTunnelGrant struct {
+	ExecutionTunnelGrant *ExecutionTunnelGrant `protobuf:"bytes,23,opt,name=execution_tunnel_grant,json=executionTunnelGrant,proto3,oneof"`
+}
+
+type Envelope_ExecutionTunnelGrantAck struct {
+	ExecutionTunnelGrantAck *ExecutionTunnelGrantAck `protobuf:"bytes,24,opt,name=execution_tunnel_grant_ack,json=executionTunnelGrantAck,proto3,oneof"`
+}
+
 func (*Envelope_ExecutionRequest) isEnvelope_Payload() {}
 
 func (*Envelope_ExecutionOffer) isEnvelope_Payload() {}
@@ -427,6 +455,10 @@ func (*Envelope_ExecutionLogsResponse) isEnvelope_Payload() {}
 func (*Envelope_ExecutionLeaseRenew) isEnvelope_Payload() {}
 
 func (*Envelope_ExecutionLeaseRenewAck) isEnvelope_Payload() {}
+
+func (*Envelope_ExecutionTunnelGrant) isEnvelope_Payload() {}
+
+func (*Envelope_ExecutionTunnelGrantAck) isEnvelope_Payload() {}
 
 // Workload describes an OCI workload without exposing a concrete runtime API.
 type Workload struct {
@@ -1389,11 +1421,150 @@ func (x *ExecutionLeaseRenewAck) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
+// ExecutionTunnelGrant requests a short-lived, single-use, execution-scoped
+// direct-access tunnel to a running execution. The sender must be the
+// authenticated execution owner. ygg_peer_pubkey is the client's edge node
+// public key (HKDF-derived from the client identity seed, opaque to the
+// protocol); the allocator binds it into the minted grant so the tunnel edge
+// accepts only an authenticated peer whose key matches.
+type ExecutionTunnelGrant struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	YggPeerPubkey []byte                 `protobuf:"bytes,2,opt,name=ygg_peer_pubkey,json=yggPeerPubkey,proto3" json:"ygg_peer_pubkey,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecutionTunnelGrant) Reset() {
+	*x = ExecutionTunnelGrant{}
+	mi := &file_r1s_v1_control_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionTunnelGrant) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionTunnelGrant) ProtoMessage() {}
+
+func (x *ExecutionTunnelGrant) ProtoReflect() protoreflect.Message {
+	mi := &file_r1s_v1_control_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutionTunnelGrant.ProtoReflect.Descriptor instead.
+func (*ExecutionTunnelGrant) Descriptor() ([]byte, []int) {
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ExecutionTunnelGrant) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *ExecutionTunnelGrant) GetYggPeerPubkey() []byte {
+	if x != nil {
+		return x.YggPeerPubkey
+	}
+	return nil
+}
+
+// ExecutionTunnelGrantAck is the allocator's mint reply: a grant ID, its
+// expiry, and the transport-neutral allocator-local endpoint advertisement
+// (opaque address bytes and opaque public-key bytes). Nothing secret is
+// embedded in the advertisement or the ack.
+type ExecutionTunnelGrantAck struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId             string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	GrantId                 string                 `protobuf:"bytes,2,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	ExpiresAt               *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	AllocatorEndpoint       []byte                 `protobuf:"bytes,4,opt,name=allocator_endpoint,json=allocatorEndpoint,proto3" json:"allocator_endpoint,omitempty"`
+	AllocatorEndpointPubkey []byte                 `protobuf:"bytes,5,opt,name=allocator_endpoint_pubkey,json=allocatorEndpointPubkey,proto3" json:"allocator_endpoint_pubkey,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *ExecutionTunnelGrantAck) Reset() {
+	*x = ExecutionTunnelGrantAck{}
+	mi := &file_r1s_v1_control_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionTunnelGrantAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionTunnelGrantAck) ProtoMessage() {}
+
+func (x *ExecutionTunnelGrantAck) ProtoReflect() protoreflect.Message {
+	mi := &file_r1s_v1_control_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutionTunnelGrantAck.ProtoReflect.Descriptor instead.
+func (*ExecutionTunnelGrantAck) Descriptor() ([]byte, []int) {
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ExecutionTunnelGrantAck) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *ExecutionTunnelGrantAck) GetGrantId() string {
+	if x != nil {
+		return x.GrantId
+	}
+	return ""
+}
+
+func (x *ExecutionTunnelGrantAck) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *ExecutionTunnelGrantAck) GetAllocatorEndpoint() []byte {
+	if x != nil {
+		return x.AllocatorEndpoint
+	}
+	return nil
+}
+
+func (x *ExecutionTunnelGrantAck) GetAllocatorEndpointPubkey() []byte {
+	if x != nil {
+		return x.AllocatorEndpointPubkey
+	}
+	return nil
+}
+
 var File_r1s_v1_control_proto protoreflect.FileDescriptor
 
 const file_r1s_v1_control_proto_rawDesc = "" +
 	"\n" +
-	"\x14r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaa\t\n" +
+	"\x14r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe0\n" +
+	"\n" +
 	"\bEnvelope\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x16\n" +
@@ -1413,7 +1584,9 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"\x16execution_logs_request\x18\x13 \x01(\v2\x1c.r1s.v1.ExecutionLogsRequestH\x00R\x14executionLogsRequest\x12W\n" +
 	"\x17execution_logs_response\x18\x14 \x01(\v2\x1d.r1s.v1.ExecutionLogsResponseH\x00R\x15executionLogsResponse\x12Q\n" +
 	"\x15execution_lease_renew\x18\x15 \x01(\v2\x1b.r1s.v1.ExecutionLeaseRenewH\x00R\x13executionLeaseRenew\x12[\n" +
-	"\x19execution_lease_renew_ack\x18\x16 \x01(\v2\x1e.r1s.v1.ExecutionLeaseRenewAckH\x00R\x16executionLeaseRenewAckB\t\n" +
+	"\x19execution_lease_renew_ack\x18\x16 \x01(\v2\x1e.r1s.v1.ExecutionLeaseRenewAckH\x00R\x16executionLeaseRenewAck\x12T\n" +
+	"\x16execution_tunnel_grant\x18\x17 \x01(\v2\x1c.r1s.v1.ExecutionTunnelGrantH\x00R\x14executionTunnelGrant\x12^\n" +
+	"\x1aexecution_tunnel_grant_ack\x18\x18 \x01(\v2\x1f.r1s.v1.ExecutionTunnelGrantAckH\x00R\x17executionTunnelGrantAckB\t\n" +
 	"\apayloadJ\x04\b\x05\x10\n" +
 	"\"\x80\x02\n" +
 	"\bWorkload\x12\x14\n" +
@@ -1494,7 +1667,17 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"\x16ExecutionLeaseRenewAck\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x129\n" +
 	"\n" +
-	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt*\xa7\x01\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"a\n" +
+	"\x14ExecutionTunnelGrant\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12&\n" +
+	"\x0fygg_peer_pubkey\x18\x02 \x01(\fR\ryggPeerPubkey\"\xfd\x01\n" +
+	"\x17ExecutionTunnelGrantAck\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x19\n" +
+	"\bgrant_id\x18\x02 \x01(\tR\agrantId\x129\n" +
+	"\n" +
+	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12-\n" +
+	"\x12allocator_endpoint\x18\x04 \x01(\fR\x11allocatorEndpoint\x12:\n" +
+	"\x19allocator_endpoint_pubkey\x18\x05 \x01(\fR\x17allocatorEndpointPubkey*\xa7\x01\n" +
 	"\x13OfferReleaseOutcome\x12%\n" +
 	"!OFFER_RELEASE_OUTCOME_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eOFFER_RELEASE_OUTCOME_RELEASED\x10\x01\x12!\n" +
@@ -1522,7 +1705,7 @@ func file_r1s_v1_control_proto_rawDescGZIP() []byte {
 }
 
 var file_r1s_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_r1s_v1_control_proto_goTypes = []any{
 	(OfferReleaseOutcome)(0),         // 0: r1s.v1.OfferReleaseOutcome
 	(ExecutionPhase)(0),              // 1: r1s.v1.ExecutionPhase
@@ -1542,12 +1725,14 @@ var file_r1s_v1_control_proto_goTypes = []any{
 	(*ExecutionLogsResponse)(nil),    // 15: r1s.v1.ExecutionLogsResponse
 	(*ExecutionLeaseRenew)(nil),      // 16: r1s.v1.ExecutionLeaseRenew
 	(*ExecutionLeaseRenewAck)(nil),   // 17: r1s.v1.ExecutionLeaseRenewAck
-	nil,                              // 18: r1s.v1.Workload.EnvironmentEntry
-	(*timestamppb.Timestamp)(nil),    // 19: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),      // 20: google.protobuf.Duration
+	(*ExecutionTunnelGrant)(nil),     // 18: r1s.v1.ExecutionTunnelGrant
+	(*ExecutionTunnelGrantAck)(nil),  // 19: r1s.v1.ExecutionTunnelGrantAck
+	nil,                              // 20: r1s.v1.Workload.EnvironmentEntry
+	(*timestamppb.Timestamp)(nil),    // 21: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),      // 22: google.protobuf.Duration
 }
 var file_r1s_v1_control_proto_depIdxs = []int32{
-	19, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
+	21, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
 	5,  // 1: r1s.v1.Envelope.execution_request:type_name -> r1s.v1.ExecutionRequest
 	6,  // 2: r1s.v1.Envelope.execution_offer:type_name -> r1s.v1.ExecutionOffer
 	7,  // 3: r1s.v1.Envelope.execution_assign:type_name -> r1s.v1.ExecutionAssign
@@ -1561,21 +1746,24 @@ var file_r1s_v1_control_proto_depIdxs = []int32{
 	15, // 11: r1s.v1.Envelope.execution_logs_response:type_name -> r1s.v1.ExecutionLogsResponse
 	16, // 12: r1s.v1.Envelope.execution_lease_renew:type_name -> r1s.v1.ExecutionLeaseRenew
 	17, // 13: r1s.v1.Envelope.execution_lease_renew_ack:type_name -> r1s.v1.ExecutionLeaseRenewAck
-	18, // 14: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
-	20, // 15: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
-	3,  // 16: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
-	4,  // 17: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
-	19, // 18: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
-	0,  // 19: r1s.v1.ExecutionOfferReleaseAck.outcome:type_name -> r1s.v1.OfferReleaseOutcome
-	1,  // 20: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
-	19, // 21: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
-	20, // 22: r1s.v1.ExecutionLeaseRenew.lease_duration:type_name -> google.protobuf.Duration
-	19, // 23: r1s.v1.ExecutionLeaseRenewAck.expires_at:type_name -> google.protobuf.Timestamp
-	24, // [24:24] is the sub-list for method output_type
-	24, // [24:24] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	18, // 14: r1s.v1.Envelope.execution_tunnel_grant:type_name -> r1s.v1.ExecutionTunnelGrant
+	19, // 15: r1s.v1.Envelope.execution_tunnel_grant_ack:type_name -> r1s.v1.ExecutionTunnelGrantAck
+	20, // 16: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
+	22, // 17: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
+	3,  // 18: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
+	4,  // 19: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
+	21, // 20: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
+	0,  // 21: r1s.v1.ExecutionOfferReleaseAck.outcome:type_name -> r1s.v1.OfferReleaseOutcome
+	1,  // 22: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
+	21, // 23: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
+	22, // 24: r1s.v1.ExecutionLeaseRenew.lease_duration:type_name -> google.protobuf.Duration
+	21, // 25: r1s.v1.ExecutionLeaseRenewAck.expires_at:type_name -> google.protobuf.Timestamp
+	21, // 26: r1s.v1.ExecutionTunnelGrantAck.expires_at:type_name -> google.protobuf.Timestamp
+	27, // [27:27] is the sub-list for method output_type
+	27, // [27:27] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_r1s_v1_control_proto_init() }
@@ -1597,6 +1785,8 @@ func file_r1s_v1_control_proto_init() {
 		(*Envelope_ExecutionLogsResponse)(nil),
 		(*Envelope_ExecutionLeaseRenew)(nil),
 		(*Envelope_ExecutionLeaseRenewAck)(nil),
+		(*Envelope_ExecutionTunnelGrant)(nil),
+		(*Envelope_ExecutionTunnelGrantAck)(nil),
 	}
 	file_r1s_v1_control_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
@@ -1605,7 +1795,7 @@ func file_r1s_v1_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_r1s_v1_control_proto_rawDesc), len(file_r1s_v1_control_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -1,0 +1,74 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"strings"
+	"testing"
+)
+
+func TestParseTunnelTargets(t *testing.T) {
+	targets, err := ParseTunnelTargets("default=127.0.0.1:9000,gpu=10.0.0.1:9001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("targets = %+v, want 2 entries", targets)
+	}
+	if target := targets["default"]; target.Host != "127.0.0.1" || target.Port != 9000 {
+		t.Fatalf("default target = %+v", target)
+	}
+	if target := targets["gpu"]; target.Host != "10.0.0.1" || target.Port != 9001 {
+		t.Fatalf("gpu target = %+v", target)
+	}
+
+	empty, err := ParseTunnelTargets("")
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("ParseTunnelTargets(\"\") = %+v, %v", empty, err)
+	}
+	for _, value := range []string{"default", "default=127.0.0.1", "default=127.0.0.1:0", "default=host:99999", "default=127.0.0.1:80,default=127.0.0.1:81"} {
+		if _, err := ParseTunnelTargets(value); err == nil {
+			t.Errorf("ParseTunnelTargets(%q) succeeded", value)
+		}
+	}
+}
+
+func TestParseTunnelTarget(t *testing.T) {
+	target, err := ParseTunnelTarget("[::1]:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Host != "::1" || target.Port != 8080 {
+		t.Fatalf("target = %+v", target)
+	}
+	for _, value := range []string{"", "127.0.0.1", "127.0.0.1:0", ":8080", "host:-1"} {
+		if _, err := ParseTunnelTarget(value); err == nil {
+			t.Errorf("ParseTunnelTarget(%q) succeeded", value)
+		}
+	}
+}
+
+func TestParseHexBytes(t *testing.T) {
+	if value, err := parseHexBytes("tunnel-endpoint", ""); err != nil || value != nil {
+		t.Fatalf("empty = %x, %v", value, err)
+	}
+	if value, err := parseHexBytes("tunnel-endpoint", "deadbeef"); err != nil || string(value) != "\xde\xad\xbe\xef" {
+		t.Fatalf("decoded = %x, %v", value, err)
+	}
+	if _, err := parseHexBytes("tunnel-endpoint", "zz"); err == nil || !strings.Contains(err.Error(), "--tunnel-endpoint must be hex") {
+		t.Fatalf("invalid hex error = %v", err)
+	}
+}
+
+// TestTunnelFlagValidation verifies the daemon rejects an invalid tunnel target
+// through the command line.
+func TestTunnelFlagValidation(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := run(context.Background(), []string{
+		"--rns-config", "unused", "--identity", "unused",
+		"--tunnel-enabled", "--tunnel-target", "default=127.0.0.1",
+	}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "invalid tunnel target") {
+		t.Fatalf("error = %v, want invalid tunnel target diagnostic", err)
+	}
+}

@@ -20,6 +20,7 @@ import (
 	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport/rns"
+	"github.com/mytecor/r1s/internal/tunnel"
 )
 
 type daemon struct {
@@ -109,6 +110,18 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 	result.core, err = allocator.New(allocator.Config{
 		Identity: identityHash, Capacity: options.capacity, Store: result.stateStore,
 		Admission: admission, Logs: logs, MaxRecords: options.maxRecords,
+		Tunnel: allocator.TunnelConfig{
+			Enabled: options.tunnelEnabled, GrantTTL: options.tunnelGrantTTL,
+			TargetByClass: options.tunnelTargets,
+			Endpoint:      tunnel.Endpoint{Address: options.tunnelEndpoint, PubKey: options.tunnelEndpointPubKey},
+			DefaultTarget: func() *tunnel.Target {
+				if options.tunnelDefaultTarget.Host == "" && options.tunnelDefaultTarget.Port == 0 {
+					return nil
+				}
+				target := options.tunnelDefaultTarget
+				return &target
+			}(),
+		},
 	}, result.runtime)
 	if err != nil {
 		result.close()

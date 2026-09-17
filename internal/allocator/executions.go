@@ -254,4 +254,10 @@ func (a *Allocator) finishLocked(record *executionRecord, phase r1sv1.ExecutionP
 		a.capacity.release(record.resourceClass)
 		record.released = true
 	}
+	// A terminal execution closes its live tunnel sessions and invalidates its
+	// grants in the same local transition that commits the terminal state. The
+	// in-memory registry is not persisted, so a restart already invalidates any
+	// outstanding grants; this couples the tunnel lifecycle to the execution so
+	// terminal state ends the session promptly without a second lease.
+	a.tunnels.Invalidate(record.id)
 }

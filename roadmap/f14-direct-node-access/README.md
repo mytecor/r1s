@@ -2,7 +2,8 @@
 
 Corresponds to [milestone F14](../../ROADMAP.md#f14-direct-node-access-r1s-tunneld).
 
-**Status:** ⏳ Planned
+**Status:** 🚧 In progress — F14-01 (access grant + endpoint + grant-and-session registry) is
+implemented; F14-02 (tunnel edge, `r1s tunnel`) remains planned.
 
 ## Outcome
 

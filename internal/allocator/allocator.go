@@ -13,6 +13,7 @@ import (
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
+	"github.com/mytecor/r1s/internal/tunnel"
 )
 
 const (
@@ -41,6 +42,11 @@ type Config struct {
 	Store          StateStore
 	Admission      AdmissionPolicy
 	Logs           r1sruntime.LogStore
+	// Tunnel is the allocator-local F14 direct-access tunnel authorization
+	// surface. It is transport-neutral (opaque endpoint bytes, no network
+	// library) and in-memory: grants are never persisted and a restart
+	// invalidates them by construction.
+	Tunnel TunnelConfig
 }
 
 type offerStatus uint8
@@ -125,6 +131,9 @@ type Allocator struct {
 	requests   map[string]string
 	executions map[string]*executionRecord
 	replay     replayCache
+
+	tunnels      *tunnel.Registry
+	tunnelConfig TunnelConfig
 }
 
 // New restores or constructs an allocator.
@@ -189,6 +198,21 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 		requests:   make(map[string]string),
 		executions: make(map[string]*executionRecord),
 		replay:     newReplayCache(config.ReplayTTL, config.ReplayCapacity),
+		tunnelConfig: TunnelConfig{
+			Enabled:       config.Tunnel.Enabled,
+			DefaultTarget: config.Tunnel.DefaultTarget,
+			GrantTTL:      config.Tunnel.GrantTTL,
+			Endpoint:      config.Tunnel.Endpoint,
+		},
+	}
+	// Copy the target map so callers cannot mutate tunnel targets concurrently.
+	result.tunnelConfig.TargetByClass = make(map[string]tunnel.Target, len(config.Tunnel.TargetByClass))
+	for class, target := range config.Tunnel.TargetByClass {
+		result.tunnelConfig.TargetByClass[class] = target
+	}
+	result.tunnels, err = tunnel.NewRegistry(tunnel.RegistryConfig{NewID: config.NewID})
+	if err != nil {
+		return nil, err
 	}
 	result.mu.Lock()
 	err = result.loadLocked(context.Background())
@@ -212,7 +236,7 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		return a.handleLogs(ctx, envelope)
 	}
 	switch envelope.GetPayload().(type) {
-	case *r1sv1.Envelope_ExecutionRequest, *r1sv1.Envelope_ExecutionAssign, *r1sv1.Envelope_ExecutionCancel, *r1sv1.Envelope_ExecutionInspect, *r1sv1.Envelope_ExecutionOfferRelease, *r1sv1.Envelope_ExecutionLeaseRenew:
+	case *r1sv1.Envelope_ExecutionRequest, *r1sv1.Envelope_ExecutionAssign, *r1sv1.Envelope_ExecutionCancel, *r1sv1.Envelope_ExecutionInspect, *r1sv1.Envelope_ExecutionOfferRelease, *r1sv1.Envelope_ExecutionLeaseRenew, *r1sv1.Envelope_ExecutionTunnelGrant:
 	default:
 		return nil, ErrUnsupportedMessage
 	}
@@ -246,6 +270,8 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		responses, err = a.handleOfferRelease(envelope, payload.ExecutionOfferRelease)
 	case *r1sv1.Envelope_ExecutionLeaseRenew:
 		responses, err = a.handleLeaseRenew(envelope, payload.ExecutionLeaseRenew)
+	case *r1sv1.Envelope_ExecutionTunnelGrant:
+		responses, err = a.handleTunnelGrant(envelope, payload.ExecutionTunnelGrant)
 	default:
 		panic("payload type checked above")
 	}

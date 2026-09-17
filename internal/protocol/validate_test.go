@@ -1,12 +1,14 @@
 package protocol_test
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
+	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -76,6 +78,12 @@ func TestValidateEveryPayload(t *testing.T) {
 		envelope(now, &r1sv1.Envelope_ExecutionLeaseRenew{ExecutionLeaseRenew: &r1sv1.ExecutionLeaseRenew{
 			ExecutionId: "execution", LeaseDuration: durationpb.New(time.Minute),
 		}}),
+		envelope(now, &r1sv1.Envelope_ExecutionTunnelGrant{ExecutionTunnelGrant: &r1sv1.ExecutionTunnelGrant{
+			ExecutionId: "execution", YggPeerPubkey: []byte("edge-node-public-key"),
+		}}),
+		envelope(now, &r1sv1.Envelope_ExecutionTunnelGrantAck{ExecutionTunnelGrantAck: &r1sv1.ExecutionTunnelGrantAck{
+			ExecutionId: "execution", GrantId: "grant", ExpiresAt: timestamppb.New(now.Add(time.Minute)),
+		}}),
 	}
 	for _, candidate := range tests {
 		if err := protocol.ValidateEnvelope(candidate); err != nil {
@@ -102,6 +110,67 @@ func TestValidateLeaseRenew(t *testing.T) {
 	}
 	if err := protocol.ValidateEnvelope(valid); err != nil {
 		t.Fatalf("valid lease renewal rejected: %v", err)
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			candidate := proto.Clone(valid).(*r1sv1.Envelope)
+			mutate(candidate)
+			if err := protocol.ValidateEnvelope(candidate); !errors.Is(err, protocol.ErrInvalidEnvelope) {
+				t.Fatalf("ValidateEnvelope() error = %v, want ErrInvalidEnvelope", err)
+			}
+		})
+	}
+}
+
+func TestValidateTunnelGrant(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	valid := envelope(now, &r1sv1.Envelope_ExecutionTunnelGrant{ExecutionTunnelGrant: &r1sv1.ExecutionTunnelGrant{
+		ExecutionId: "execution", YggPeerPubkey: []byte("edge-node-public-key"),
+	}})
+	tests := map[string]func(*r1sv1.Envelope){
+		"missing execution ID": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionTunnelGrant().ExecutionId = ""
+		},
+		"missing peer public key": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionTunnelGrant().YggPeerPubkey = nil
+		},
+		"peer public key too large": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionTunnelGrant().YggPeerPubkey = bytes.Repeat([]byte{1}, tunnel.MaxPeerKeySize+1)
+		},
+	}
+	if err := protocol.ValidateEnvelope(valid); err != nil {
+		t.Fatalf("valid tunnel grant rejected: %v", err)
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			candidate := proto.Clone(valid).(*r1sv1.Envelope)
+			mutate(candidate)
+			if err := protocol.ValidateEnvelope(candidate); !errors.Is(err, protocol.ErrInvalidEnvelope) {
+				t.Fatalf("ValidateEnvelope() error = %v, want ErrInvalidEnvelope", err)
+			}
+		})
+	}
+}
+
+func TestValidateTunnelGrantAck(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	valid := envelope(now, &r1sv1.Envelope_ExecutionTunnelGrantAck{ExecutionTunnelGrantAck: &r1sv1.ExecutionTunnelGrantAck{
+		ExecutionId: "execution", GrantId: "grant", ExpiresAt: timestamppb.New(now.Add(time.Minute)),
+		AllocatorEndpoint: []byte("transport-neutral-address"), AllocatorEndpointPubkey: []byte("transport-neutral-key"),
+	}})
+	tests := map[string]func(*r1sv1.Envelope){
+		"missing execution ID": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionTunnelGrantAck().ExecutionId = ""
+		},
+		"missing grant ID": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionTunnelGrantAck().GrantId = ""
+		},
+		"missing expiry": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionTunnelGrantAck().ExpiresAt = nil
+		},
+	}
+	if err := protocol.ValidateEnvelope(valid); err != nil {
+		t.Fatalf("valid tunnel grant ack rejected: %v", err)
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -148,6 +217,10 @@ func envelope(now time.Time, payload any) *r1sv1.Envelope {
 	case *r1sv1.Envelope_ExecutionInspect:
 		envelope.Payload = payload
 	case *r1sv1.Envelope_ExecutionLeaseRenew:
+		envelope.Payload = payload
+	case *r1sv1.Envelope_ExecutionTunnelGrant:
+		envelope.Payload = payload
+	case *r1sv1.Envelope_ExecutionTunnelGrantAck:
 		envelope.Payload = payload
 	default:
 		panic("unsupported test payload")

@@ -177,5 +177,9 @@ This file records unresolved choices so they do not remain implicit in implement
   in the system at all (see open decision 1 above).
 - Direct-mode client bridge for `r1s tunnel` (no live `r1s serve`): out of v1 scope; the
   service-backed-only model is resolved decision 15.
+- Embedded Yggdrasil network adapter for the allocator edge: deferred to F14-02 (tunnel edge and
+  `r1s tunnel`). F14-01 keeps the wire contract and registry transport-neutral (`allocator_endpoint`
+  / `allocator_endpoint_pubkey` opaque bytes), so the adapter is a pure addition with no schema
+  change and never appears in deterministic tests (an in-memory tunnel fake stands in).
 - TCP fallback or NAT-traversal plans for a tunnel edge deployment where the private peer set is
   not reachable.

@@ -1,15 +1,18 @@
 package main
 
 import (
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/mytecor/r1s/internal/cluster"
 	"github.com/mytecor/r1s/internal/transport/rns"
+	"github.com/mytecor/r1s/internal/tunnel"
 )
 
 func allocatorClusterSource(value string) (string, error) {
@@ -48,6 +51,63 @@ func parseCapacity(value string) (map[string]uint32, error) {
 		capacity[class] = uint32(slots)
 	}
 	return capacity, nil
+}
+
+// ParseTunnelTargets parses a comma-separated per-resource-class tunnel target
+// map, for example "default=127.0.0.1:9000,gpu=127.0.0.1:9001". The target is
+// allocator-local and resolved at grant time; it is never a client-supplied
+// destination.
+func ParseTunnelTargets(value string) (map[string]tunnel.Target, error) {
+	targets := make(map[string]tunnel.Target)
+	if strings.TrimSpace(value) == "" {
+		return targets, nil
+	}
+	for _, entry := range strings.Split(value, ",") {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" {
+			return nil, fmt.Errorf("invalid tunnel target %q: expected class=host:port", entry)
+		}
+		target, err := ParseTunnelTarget(parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid tunnel target %q: %w", entry, err)
+		}
+		class := strings.TrimSpace(parts[0])
+		if _, duplicate := targets[class]; duplicate {
+			return nil, fmt.Errorf("invalid tunnel target %q: duplicate class", entry)
+		}
+		targets[class] = target
+	}
+	return targets, nil
+}
+
+// ParseTunnelTarget parses a single host:port target. A missing port is an
+// error: the tunnel must always terminate at a concrete local endpoint.
+func ParseTunnelTarget(value string) (tunnel.Target, error) {
+	host, portText, err := net.SplitHostPort(strings.TrimSpace(value))
+	if err != nil {
+		return tunnel.Target{}, fmt.Errorf("expected host:port")
+	}
+	port, err := strconv.ParseUint(portText, 10, 16)
+	if err != nil || port == 0 {
+		return tunnel.Target{}, fmt.Errorf("port must be a positive uint16")
+	}
+	if strings.TrimSpace(host) == "" {
+		return tunnel.Target{}, fmt.Errorf("host is required")
+	}
+	return tunnel.Target{Host: host, Port: uint16(port)}, nil
+}
+
+// parseHexBytes decodes an opaque hex-encoded value, allowing an empty string.
+// Used for the transport-neutral tunnel endpoint advertisement flags.
+func parseHexBytes(name, value string) ([]byte, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	decoded, err := hex.DecodeString(strings.TrimSpace(value))
+	if err != nil {
+		return nil, fmt.Errorf("--%s must be hex-encoded bytes: %w", name, err)
+	}
+	return decoded, nil
 }
 
 func newFlagSet(name string, output io.Writer) *flag.FlagSet {

@@ -68,6 +68,9 @@ func (a *Allocator) checkFreshness(e *r1sv1.Envelope) error {
 	if q := e.GetExecutionLeaseRenew(); q != nil {
 		id = q.GetExecutionId()
 	}
+	if q := e.GetExecutionTunnelGrant(); q != nil {
+		id = q.GetExecutionId()
+	}
 	if record := a.executions[id]; record != nil && bytes.Equal(record.client, e.GetSender()) && terminal(record.phase) && !record.retainUntil.After(now) {
 		return ErrResultExpired
 	}
@@ -160,6 +163,9 @@ func (a *Allocator) Sweep(ctx context.Context) error {
 				drop = a.executions[q.GetExecutionId()] == nil
 			}
 			if q := e.GetExecutionLeaseRenew(); q != nil {
+				drop = a.executions[q.GetExecutionId()] == nil
+			}
+			if q := e.GetExecutionTunnelGrant(); q != nil {
 				drop = a.executions[q.GetExecutionId()] == nil
 			}
 			if drop {
