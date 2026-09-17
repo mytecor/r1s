@@ -143,7 +143,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - **Status:** ⏳ planned
 - **Done when:** a client tunnels to a running execution through Yggdrasil, only the authenticated
   execution owner can open or keep the tunnel, and the core and protocol stay free of
-  Yggdrasil-specific types while carrying no tunnel bytes over RNS.
+  Yggdrasil-specific types while carrying no tunnel bytes over RNS. `r1s tunnel` is service-backed
+  only over a bidi `LocalTunnel` stream; edge node keys are HKDF-derived from persistent identities
+  (no separate key files).
 - **Depends on:** [F2](#f2-rns-transport), [F12](#f12-shared-secret-cluster-membership),
   [F13](#f13-local-client-api).
 

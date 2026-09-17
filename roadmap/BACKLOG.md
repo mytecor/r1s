@@ -51,13 +51,13 @@ This file records unresolved choices so they do not remain implicit in implement
    (wall-clock persisted expiry versus monotonic accounting) and whether a strict eviction grace
    period after one missed renewal is worth adding over the lazy sweep.
 9. **Tunnel server-side target** — where the F14 direct-access tunnel terminates on the allocator is
-   deliberately a named, unfilled slot. A workload in the host network namespace has no free
-   address, so v1 needs an allocator-owned local target `(host, port)` recorded in local execution
-   metadata and populated by allocator-local configuration/policy at allocation time — never a
-   client-supplied destination in the immutable workload. When no target is configured for an
-   execution, granting the tunnel fails with a clear `CommandError` instead of connecting by
-   guesswork. Target auto-discovery from the running workload is a later improvement, out of scope
-   for now. See [F14-01](./f14-direct-node-access/f14-01-access-grant.md).
+   settled with [F14-01](./f14-direct-node-access/f14-01-access-grant.md): the `(host, port)` target
+   is resolved **at grant time** from allocator-local configuration — a per-resource-class target
+   map plus a mandatory default — and bound into the minted grant. It is never a client-supplied
+   destination and never per-execution metadata populated at allocation time. When no target can be
+   resolved (no class match and no default), minting fails with a clear `CommandError` instead of
+   connecting by guesswork. Target auto-discovery from the running workload is a later improvement,
+   out of scope for now.
 
 ## Resolved
 
@@ -144,6 +144,24 @@ This file records unresolved choices so they do not remain implicit in implement
     multiple named deployments, revision hashes, create-before-destroy replacement, and removal —
     was never built and moved to the deferred list.
 
+15. **F14 tunnel simplification review** — the F14 design was reviewed and simplified before
+    implementation (2026-09-17): `r1s tunnel` is service-backed only (a bidi `LocalTunnel` stream
+    over the local Unix socket, added additively to `local.proto`; stdout never carries tunnel
+    bytes) because only `r1s serve` holds the F17 keep-alive intent that keeps the execution alive
+    mid-session; edge node keys are HKDF-derived from persistent identity seeds (separate `info`
+    for the client and `r1sd`) instead of managed key files; a run-time routing preamble
+    (execution ID + grant ID) disambiguates accept-time lookup before any payload is spliced;
+    the grant and the active session are one registry record per execution (repeat mint replaces
+    the outstanding grant, re-mint after a close is immediate, terminal sweep deletes the single
+    record); TTL expiry is lazy (no sweeper goroutine) and the grant is consumed only on a
+    successful splice; the allocator edge starts eagerly with `r1sd` when `tunnel.enabled`; there
+    is no allocator-wide session cap in v1; the server-side target is resolved at grant time from
+    allocator-local configuration. Rejected alternatives: direct-mode tunnels, per-command client
+    edge startup, persisted node-key files independent of identity, and mint-time session-cap
+    enforcement. See
+    [F14-01](./f14-direct-node-access/f14-01-access-grant.md),
+    [F14-02](./f14-direct-node-access/f14-02-tunnel-service.md).
+
 ## Deferred
 
 - VM and microVM runtime adapters.
@@ -157,3 +175,7 @@ This file records unresolved choices so they do not remain implicit in implement
 - Application-level event buses, agent hierarchy, and task decomposition.
 - External data plane for bulk application data — requires a fresh decision on whether it belongs
   in the system at all (see open decision 1 above).
+- Direct-mode client bridge for `r1s tunnel` (no live `r1s serve`): out of v1 scope; the
+  service-backed-only model is resolved decision 15.
+- TCP fallback or NAT-traversal plans for a tunnel edge deployment where the private peer set is
+  not reachable.

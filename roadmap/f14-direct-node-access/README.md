@@ -9,7 +9,7 @@ Corresponds to [milestone F14](../../ROADMAP.md#f14-direct-node-access-r1s-tunne
 An execution owner opens an authenticated tunnel from their client to a running execution on an
 allocator over an embedded Yggdrasil node and carries arbitrary traffic inside it (for example SSH
 or HTTP). Access is gated by an execution-scoped grant bound to the owner's authenticated identity
-and the client's Yggdrasil node key, not by a bearer secret. The tunnel is node-local and
+and the client's edge node key, not by a bearer secret. The tunnel is node-local and
 capability-gated, independent of any artifact model, and never travels over RNS.
 
 ## Dependencies
@@ -22,16 +22,27 @@ capability-gated, independent of any artifact model, and never travels over RNS.
 ## Architecture decisions
 
 - **No separate daemon.** The allocator-side tunnel edge is a package inside `r1sd`; the client side
-  is the `r1s tunnel` command. The roadmap title keeps the historical `r1s-tunneld` name; no such
-  service binary is introduced.
-- **Peer-key binding, not a bearer token.** The grant pins the client's Yggdrasil node public key
-  over the authenticated control plane; the tunnel edge accepts only an authenticated Yggdrasil peer
-  whose key matches a live grant. Nothing secret is embedded in the endpoint advertisement,
+  is the `r1s tunnel` command bridging a running `r1s serve` over the local socket. The roadmap
+  title keeps the historical `r1s-tunneld` name; no such service binary is introduced.
+- **Peer-key binding, not a bearer token.** The grant pins the client's edge node public key
+  over the authenticated control plane; the tunnel edge accepts only an authenticated peer whose
+  key matches a live grant. Nothing secret is embedded in the endpoint advertisement,
   diagnostics, metrics, or durable records.
+- **Edge node keys are derived, not managed.** Both edge node keys are HKDF-derived from the
+  existing persistent identity seeds — the client from the client identity source, the allocator
+  from the `r1sd` identity — with distinct `info` domain separation, so there are no extra key
+  files to create, back up, or rotate. The peer key stays an opaque contract value; the derivation
+  is an internal edge-adapter detail.
 - **Overlay mesh, not point-to-point peering.** Both processes embed yggdrasil-go; default bootstrap
-  joins the public overlay mesh (address derived from a persisted node key), so no host-level daemon,
-  no manual peering, and no allocator firewall port is required. A private peer set is a configurable
-  edge option for isolated networks.
+  joins the public overlay mesh (address derived from the HKDF-derived node key), so no host-level
+  daemon, no manual peering, and no allocator firewall port is required. A private peer set is a
+  configurable edge option for isolated networks.
+- **Service-backed tunneling only.** `r1s tunnel` exists only in the service-backed mode and
+  connects to a running `r1s serve`; a `serve`-backed tunnel holds the F17 keep-alive intent, so
+  the execution stays alive for the session. Direct-mode invocations are rejected with a clear
+  `CommandError`; a future client-edge bridge for direct mode is BACKLOG work. The user-facing
+  pipe is a gRPC bidi stream added additively to `local.proto` (`LocalTunnel`); stdout is never
+  used as a data channel for tunnel bytes.
 - **One live session per execution**, bound to the execution lifecycle: terminal state closes the
   session and invalidates its grants. The tunnel adds no second lease; the F17 lease stays the only
   authority on execution lifetime.
@@ -40,14 +51,14 @@ capability-gated, independent of any artifact model, and never travels over RNS.
 
 - Define the control exchange that mints a short-lived, single-use, execution-scoped access grant
   over the authenticated control plane (F14-01): the grant binds execution ID, owner, the client's
-  Yggdrasil node key, and expiry.
+  edge node key, and expiry.
 - Advertise a transport-neutral endpoint through the authenticated control data — the allocator's
   Yggdrasil address and public key — so the client can learn where to connect without embedding an
   address in the immutable workload.
 - Serve the allocator-local tunnel edge over an embedded Yggdrasil node, terminating at an
-  allocator-owned local target named in execution metadata (F14-01), with all authorization in the
-  allocator core and the edge acting as pure plumbing.
-- Carry arbitrary traffic inside the tunnel; r1s-tunneld neither parses nor restricts the payload.
+  allocator-owned local target resolved at grant time from allocator-local configuration (F14-01),
+  with all authorization in the allocator core and the edge acting as pure plumbing.
+- Carry arbitrary traffic inside the tunnel; the tunnel neither parses nor restricts the payload.
 - Restrict access to the authenticated execution owner and keep the tunnel independent of artifact
   transfer: lifecycle and debugging access, not a data plane.
 - Keep the core mockable: a generic tunnel interface (`internal/tunnel`) in front of an embedded
