@@ -798,6 +798,227 @@ func (x *LocalWatchEvent) GetResync() bool {
 	return false
 }
 
+// LocalTunnelMessage is one message on the LocalTunnel bidirectional stream. It
+// carries raw tunnel bytes between the CLI and a running execution through the
+// local r1s serve bridge: the serve process mints the F14 access grant, dials
+// the allocator edge, and relays bytes. The stream is a live session, not a
+// one-shot RPC; the first client->server message MUST be an open.
+type LocalTunnelMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*LocalTunnelMessage_Open
+	//	*LocalTunnelMessage_Data
+	//	*LocalTunnelMessage_Close
+	Payload       isLocalTunnelMessage_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LocalTunnelMessage) Reset() {
+	*x = LocalTunnelMessage{}
+	mi := &file_r1s_v1_local_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocalTunnelMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocalTunnelMessage) ProtoMessage() {}
+
+func (x *LocalTunnelMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_r1s_v1_local_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocalTunnelMessage.ProtoReflect.Descriptor instead.
+func (*LocalTunnelMessage) Descriptor() ([]byte, []int) {
+	return file_r1s_v1_local_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *LocalTunnelMessage) GetPayload() isLocalTunnelMessage_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *LocalTunnelMessage) GetOpen() *LocalTunnelOpen {
+	if x != nil {
+		if x, ok := x.Payload.(*LocalTunnelMessage_Open); ok {
+			return x.Open
+		}
+	}
+	return nil
+}
+
+func (x *LocalTunnelMessage) GetData() []byte {
+	if x != nil {
+		if x, ok := x.Payload.(*LocalTunnelMessage_Data); ok {
+			return x.Data
+		}
+	}
+	return nil
+}
+
+func (x *LocalTunnelMessage) GetClose() *LocalTunnelClose {
+	if x != nil {
+		if x, ok := x.Payload.(*LocalTunnelMessage_Close); ok {
+			return x.Close
+		}
+	}
+	return nil
+}
+
+type isLocalTunnelMessage_Payload interface {
+	isLocalTunnelMessage_Payload()
+}
+
+type LocalTunnelMessage_Open struct {
+	// open names the execution to reach. Sent once, first, client->server.
+	Open *LocalTunnelOpen `protobuf:"bytes,1,opt,name=open,proto3,oneof"`
+}
+
+type LocalTunnelMessage_Data struct {
+	// data carries raw payload bytes in the direction it is sent (client to
+	// serve, or serve to client). The serve process never writes logs into
+	// this direction: data is byte-clean.
+	Data []byte `protobuf:"bytes,2,opt,name=data,proto3,oneof"`
+}
+
+type LocalTunnelMessage_Close struct {
+	// close ends the stream. half=true half-closes only the sending direction
+	// (write-EOF to the peer) so interactive protocols behave correctly;
+	// half=false closes the whole session.
+	Close *LocalTunnelClose `protobuf:"bytes,3,opt,name=close,proto3,oneof"`
+}
+
+func (*LocalTunnelMessage_Open) isLocalTunnelMessage_Payload() {}
+
+func (*LocalTunnelMessage_Data) isLocalTunnelMessage_Payload() {}
+
+func (*LocalTunnelMessage_Close) isLocalTunnelMessage_Payload() {}
+
+// LocalTunnelOpen is the one-time routing header sent first on a LocalTunnel
+// stream.
+type LocalTunnelOpen struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LocalTunnelOpen) Reset() {
+	*x = LocalTunnelOpen{}
+	mi := &file_r1s_v1_local_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocalTunnelOpen) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocalTunnelOpen) ProtoMessage() {}
+
+func (x *LocalTunnelOpen) ProtoReflect() protoreflect.Message {
+	mi := &file_r1s_v1_local_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocalTunnelOpen.ProtoReflect.Descriptor instead.
+func (*LocalTunnelOpen) Descriptor() ([]byte, []int) {
+	return file_r1s_v1_local_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *LocalTunnelOpen) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+// LocalTunnelClose ends a LocalTunnel stream. A close with reason set is an
+// abnormal teardown; the CLI surfaces it with a non-zero exit and a clear
+// diagnostic on stderr, and stdout stays byte-clean.
+type LocalTunnelClose struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Half  bool                   `protobuf:"varint,1,opt,name=half,proto3" json:"half,omitempty"`
+	// reason is the transport-neutral teardown reason (mirrors tunnel.Reason)
+	// and is set only on abnormal teardown (or to report a setup failure).
+	Reason        string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	Detail        string `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LocalTunnelClose) Reset() {
+	*x = LocalTunnelClose{}
+	mi := &file_r1s_v1_local_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocalTunnelClose) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocalTunnelClose) ProtoMessage() {}
+
+func (x *LocalTunnelClose) ProtoReflect() protoreflect.Message {
+	mi := &file_r1s_v1_local_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocalTunnelClose.ProtoReflect.Descriptor instead.
+func (*LocalTunnelClose) Descriptor() ([]byte, []int) {
+	return file_r1s_v1_local_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *LocalTunnelClose) GetHalf() bool {
+	if x != nil {
+		return x.Half
+	}
+	return false
+}
+
+func (x *LocalTunnelClose) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *LocalTunnelClose) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
 var File_r1s_v1_local_proto protoreflect.FileDescriptor
 
 const file_r1s_v1_local_proto_rawDesc = "" +
@@ -859,7 +1080,18 @@ const file_r1s_v1_local_proto_rawDesc = "" +
 	"\bsequence\x18\x01 \x01(\x04R\bsequence\x12!\n" +
 	"\fexecution_id\x18\x02 \x01(\tR\vexecutionId\x12,\n" +
 	"\x05state\x18\x03 \x01(\v2\x16.r1s.v1.ExecutionStateR\x05state\x12\x16\n" +
-	"\x06resync\x18\x04 \x01(\bR\x06resync2\xcd\x03\n" +
+	"\x06resync\x18\x04 \x01(\bR\x06resync\"\x96\x01\n" +
+	"\x12LocalTunnelMessage\x12-\n" +
+	"\x04open\x18\x01 \x01(\v2\x17.r1s.v1.LocalTunnelOpenH\x00R\x04open\x12\x14\n" +
+	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x120\n" +
+	"\x05close\x18\x03 \x01(\v2\x18.r1s.v1.LocalTunnelCloseH\x00R\x05closeB\t\n" +
+	"\apayload\"4\n" +
+	"\x0fLocalTunnelOpen\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\"V\n" +
+	"\x10LocalTunnelClose\x12\x12\n" +
+	"\x04half\x18\x01 \x01(\bR\x04half\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x16\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail2\x93\x04\n" +
 	"\vLocalClient\x12=\n" +
 	"\aRequest\x12\x14.r1s.v1.LocalRequest\x1a\x1c.r1s.v1.LocalRequestResponse\x12;\n" +
 	"\x04List\x12\x18.r1s.v1.LocalListRequest\x1a\x19.r1s.v1.LocalListResponse\x12B\n" +
@@ -867,7 +1099,8 @@ const file_r1s_v1_local_proto_rawDesc = "" +
 	"\x06Result\x12\x1a.r1s.v1.LocalResultRequest\x1a\x1a.r1s.v1.LocalStateResponse\x12@\n" +
 	"\x06Cancel\x12\x1a.r1s.v1.LocalCancelRequest\x1a\x1a.r1s.v1.LocalStateResponse\x12;\n" +
 	"\x04Logs\x12\x18.r1s.v1.LocalLogsRequest\x1a\x19.r1s.v1.LocalLogsResponse\x12=\n" +
-	"\x05Watch\x12\x19.r1s.v1.LocalWatchRequest\x1a\x17.r1s.v1.LocalWatchEvent0\x01B-Z+github.com/mytecor/r1s/api/gen/r1s/v1;r1sv1b\x06proto3"
+	"\x05Watch\x12\x19.r1s.v1.LocalWatchRequest\x1a\x17.r1s.v1.LocalWatchEvent0\x01\x12D\n" +
+	"\x06Tunnel\x12\x1a.r1s.v1.LocalTunnelMessage\x1a\x1a.r1s.v1.LocalTunnelMessage(\x010\x01B-Z+github.com/mytecor/r1s/api/gen/r1s/v1;r1sv1b\x06proto3"
 
 var (
 	file_r1s_v1_local_proto_rawDescOnce sync.Once
@@ -881,7 +1114,7 @@ func file_r1s_v1_local_proto_rawDescGZIP() []byte {
 	return file_r1s_v1_local_proto_rawDescData
 }
 
-var file_r1s_v1_local_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_r1s_v1_local_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_r1s_v1_local_proto_goTypes = []any{
 	(*LocalRequest)(nil),         // 0: r1s.v1.LocalRequest
 	(*LocalRequestResponse)(nil), // 1: r1s.v1.LocalRequestResponse
@@ -896,42 +1129,49 @@ var file_r1s_v1_local_proto_goTypes = []any{
 	(*LocalLogsResponse)(nil),    // 10: r1s.v1.LocalLogsResponse
 	(*LocalWatchRequest)(nil),    // 11: r1s.v1.LocalWatchRequest
 	(*LocalWatchEvent)(nil),      // 12: r1s.v1.LocalWatchEvent
-	(*Workload)(nil),             // 13: r1s.v1.Workload
-	(*ExecutionPolicy)(nil),      // 14: r1s.v1.ExecutionPolicy
-	(*durationpb.Duration)(nil),  // 15: google.protobuf.Duration
-	(*ExecutionState)(nil),       // 16: r1s.v1.ExecutionState
+	(*LocalTunnelMessage)(nil),   // 13: r1s.v1.LocalTunnelMessage
+	(*LocalTunnelOpen)(nil),      // 14: r1s.v1.LocalTunnelOpen
+	(*LocalTunnelClose)(nil),     // 15: r1s.v1.LocalTunnelClose
+	(*Workload)(nil),             // 16: r1s.v1.Workload
+	(*ExecutionPolicy)(nil),      // 17: r1s.v1.ExecutionPolicy
+	(*durationpb.Duration)(nil),  // 18: google.protobuf.Duration
+	(*ExecutionState)(nil),       // 19: r1s.v1.ExecutionState
 }
 var file_r1s_v1_local_proto_depIdxs = []int32{
-	13, // 0: r1s.v1.LocalRequest.workload:type_name -> r1s.v1.Workload
-	14, // 1: r1s.v1.LocalRequest.policy:type_name -> r1s.v1.ExecutionPolicy
-	15, // 2: r1s.v1.LocalRequest.offer_wait:type_name -> google.protobuf.Duration
-	15, // 3: r1s.v1.LocalRequest.keep_alive:type_name -> google.protobuf.Duration
-	15, // 4: r1s.v1.LocalInspectRequest.wait:type_name -> google.protobuf.Duration
-	15, // 5: r1s.v1.LocalResultRequest.wait:type_name -> google.protobuf.Duration
-	16, // 6: r1s.v1.LocalStateResponse.state:type_name -> r1s.v1.ExecutionState
-	15, // 7: r1s.v1.LocalCancelRequest.wait:type_name -> google.protobuf.Duration
+	16, // 0: r1s.v1.LocalRequest.workload:type_name -> r1s.v1.Workload
+	17, // 1: r1s.v1.LocalRequest.policy:type_name -> r1s.v1.ExecutionPolicy
+	18, // 2: r1s.v1.LocalRequest.offer_wait:type_name -> google.protobuf.Duration
+	18, // 3: r1s.v1.LocalRequest.keep_alive:type_name -> google.protobuf.Duration
+	18, // 4: r1s.v1.LocalInspectRequest.wait:type_name -> google.protobuf.Duration
+	18, // 5: r1s.v1.LocalResultRequest.wait:type_name -> google.protobuf.Duration
+	19, // 6: r1s.v1.LocalStateResponse.state:type_name -> r1s.v1.ExecutionState
+	18, // 7: r1s.v1.LocalCancelRequest.wait:type_name -> google.protobuf.Duration
 	8,  // 8: r1s.v1.LocalListResponse.requests:type_name -> r1s.v1.LocalRequestView
-	15, // 9: r1s.v1.LocalLogsRequest.wait:type_name -> google.protobuf.Duration
-	16, // 10: r1s.v1.LocalWatchEvent.state:type_name -> r1s.v1.ExecutionState
-	0,  // 11: r1s.v1.LocalClient.Request:input_type -> r1s.v1.LocalRequest
-	6,  // 12: r1s.v1.LocalClient.List:input_type -> r1s.v1.LocalListRequest
-	2,  // 13: r1s.v1.LocalClient.Inspect:input_type -> r1s.v1.LocalInspectRequest
-	3,  // 14: r1s.v1.LocalClient.Result:input_type -> r1s.v1.LocalResultRequest
-	5,  // 15: r1s.v1.LocalClient.Cancel:input_type -> r1s.v1.LocalCancelRequest
-	9,  // 16: r1s.v1.LocalClient.Logs:input_type -> r1s.v1.LocalLogsRequest
-	11, // 17: r1s.v1.LocalClient.Watch:input_type -> r1s.v1.LocalWatchRequest
-	1,  // 18: r1s.v1.LocalClient.Request:output_type -> r1s.v1.LocalRequestResponse
-	7,  // 19: r1s.v1.LocalClient.List:output_type -> r1s.v1.LocalListResponse
-	4,  // 20: r1s.v1.LocalClient.Inspect:output_type -> r1s.v1.LocalStateResponse
-	4,  // 21: r1s.v1.LocalClient.Result:output_type -> r1s.v1.LocalStateResponse
-	4,  // 22: r1s.v1.LocalClient.Cancel:output_type -> r1s.v1.LocalStateResponse
-	10, // 23: r1s.v1.LocalClient.Logs:output_type -> r1s.v1.LocalLogsResponse
-	12, // 24: r1s.v1.LocalClient.Watch:output_type -> r1s.v1.LocalWatchEvent
-	18, // [18:25] is the sub-list for method output_type
-	11, // [11:18] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	18, // 9: r1s.v1.LocalLogsRequest.wait:type_name -> google.protobuf.Duration
+	19, // 10: r1s.v1.LocalWatchEvent.state:type_name -> r1s.v1.ExecutionState
+	14, // 11: r1s.v1.LocalTunnelMessage.open:type_name -> r1s.v1.LocalTunnelOpen
+	15, // 12: r1s.v1.LocalTunnelMessage.close:type_name -> r1s.v1.LocalTunnelClose
+	0,  // 13: r1s.v1.LocalClient.Request:input_type -> r1s.v1.LocalRequest
+	6,  // 14: r1s.v1.LocalClient.List:input_type -> r1s.v1.LocalListRequest
+	2,  // 15: r1s.v1.LocalClient.Inspect:input_type -> r1s.v1.LocalInspectRequest
+	3,  // 16: r1s.v1.LocalClient.Result:input_type -> r1s.v1.LocalResultRequest
+	5,  // 17: r1s.v1.LocalClient.Cancel:input_type -> r1s.v1.LocalCancelRequest
+	9,  // 18: r1s.v1.LocalClient.Logs:input_type -> r1s.v1.LocalLogsRequest
+	11, // 19: r1s.v1.LocalClient.Watch:input_type -> r1s.v1.LocalWatchRequest
+	13, // 20: r1s.v1.LocalClient.Tunnel:input_type -> r1s.v1.LocalTunnelMessage
+	1,  // 21: r1s.v1.LocalClient.Request:output_type -> r1s.v1.LocalRequestResponse
+	7,  // 22: r1s.v1.LocalClient.List:output_type -> r1s.v1.LocalListResponse
+	4,  // 23: r1s.v1.LocalClient.Inspect:output_type -> r1s.v1.LocalStateResponse
+	4,  // 24: r1s.v1.LocalClient.Result:output_type -> r1s.v1.LocalStateResponse
+	4,  // 25: r1s.v1.LocalClient.Cancel:output_type -> r1s.v1.LocalStateResponse
+	10, // 26: r1s.v1.LocalClient.Logs:output_type -> r1s.v1.LocalLogsResponse
+	12, // 27: r1s.v1.LocalClient.Watch:output_type -> r1s.v1.LocalWatchEvent
+	13, // 28: r1s.v1.LocalClient.Tunnel:output_type -> r1s.v1.LocalTunnelMessage
+	21, // [21:29] is the sub-list for method output_type
+	13, // [13:21] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_r1s_v1_local_proto_init() }
@@ -940,13 +1180,18 @@ func file_r1s_v1_local_proto_init() {
 		return
 	}
 	file_r1s_v1_control_proto_init()
+	file_r1s_v1_local_proto_msgTypes[13].OneofWrappers = []any{
+		(*LocalTunnelMessage_Open)(nil),
+		(*LocalTunnelMessage_Data)(nil),
+		(*LocalTunnelMessage_Close)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_r1s_v1_local_proto_rawDesc), len(file_r1s_v1_local_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

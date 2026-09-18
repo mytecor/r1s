@@ -15,6 +15,7 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
+	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
@@ -45,6 +46,15 @@ type Backend interface {
 	WatchAfter(ctx context.Context, after uint64) ([]client.WatchEvent, bool)
 	// SubscribeWatch registers a live observer returning its cancel.
 	SubscribeWatch(ctx context.Context, observer func(client.WatchEvent)) (cancel func())
+
+	// Tunnel opens a live F14 direct-access tunnel session to a running
+	// execution and returns the connected, authenticated byte pipe plus the
+	// minted grant ID. The implementation mints the access grant over the
+	// control plane and dials the allocator edge; the returned connection
+	// carries arbitrary raw bytes with per-direction half-close. The grant ID
+	// is surfaced so the caller (or a preamble-aware Conn) can write the
+	// one-time routing preamble before any payload is relayed.
+	Tunnel(ctx context.Context, executionID string) (tunnel.Conn, string, error)
 }
 
 // Server serves the LocalClient gRPC service over a Unix socket.

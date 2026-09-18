@@ -26,6 +26,7 @@ const (
 	LocalClient_Cancel_FullMethodName  = "/r1s.v1.LocalClient/Cancel"
 	LocalClient_Logs_FullMethodName    = "/r1s.v1.LocalClient/Logs"
 	LocalClient_Watch_FullMethodName   = "/r1s.v1.LocalClient/Watch"
+	LocalClient_Tunnel_FullMethodName  = "/r1s.v1.LocalClient/Tunnel"
 )
 
 // LocalClientClient is the client API for LocalClient service.
@@ -39,6 +40,7 @@ type LocalClientClient interface {
 	Cancel(ctx context.Context, in *LocalCancelRequest, opts ...grpc.CallOption) (*LocalStateResponse, error)
 	Logs(ctx context.Context, in *LocalLogsRequest, opts ...grpc.CallOption) (*LocalLogsResponse, error)
 	Watch(ctx context.Context, in *LocalWatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LocalWatchEvent], error)
+	Tunnel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[LocalTunnelMessage, LocalTunnelMessage], error)
 }
 
 type localClientClient struct {
@@ -128,6 +130,19 @@ func (c *localClientClient) Watch(ctx context.Context, in *LocalWatchRequest, op
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type LocalClient_WatchClient = grpc.ServerStreamingClient[LocalWatchEvent]
 
+func (c *localClientClient) Tunnel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[LocalTunnelMessage, LocalTunnelMessage], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &LocalClient_ServiceDesc.Streams[1], LocalClient_Tunnel_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[LocalTunnelMessage, LocalTunnelMessage]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type LocalClient_TunnelClient = grpc.BidiStreamingClient[LocalTunnelMessage, LocalTunnelMessage]
+
 // LocalClientServer is the server API for LocalClient service.
 // All implementations must embed UnimplementedLocalClientServer
 // for forward compatibility.
@@ -139,6 +154,7 @@ type LocalClientServer interface {
 	Cancel(context.Context, *LocalCancelRequest) (*LocalStateResponse, error)
 	Logs(context.Context, *LocalLogsRequest) (*LocalLogsResponse, error)
 	Watch(*LocalWatchRequest, grpc.ServerStreamingServer[LocalWatchEvent]) error
+	Tunnel(grpc.BidiStreamingServer[LocalTunnelMessage, LocalTunnelMessage]) error
 	mustEmbedUnimplementedLocalClientServer()
 }
 
@@ -169,6 +185,9 @@ func (UnimplementedLocalClientServer) Logs(context.Context, *LocalLogsRequest) (
 }
 func (UnimplementedLocalClientServer) Watch(*LocalWatchRequest, grpc.ServerStreamingServer[LocalWatchEvent]) error {
 	return status.Errorf(codes.Unimplemented, "method Watch not implemented")
+}
+func (UnimplementedLocalClientServer) Tunnel(grpc.BidiStreamingServer[LocalTunnelMessage, LocalTunnelMessage]) error {
+	return status.Errorf(codes.Unimplemented, "method Tunnel not implemented")
 }
 func (UnimplementedLocalClientServer) mustEmbedUnimplementedLocalClientServer() {}
 func (UnimplementedLocalClientServer) testEmbeddedByValue()                     {}
@@ -310,6 +329,13 @@ func _LocalClient_Watch_Handler(srv interface{}, stream grpc.ServerStream) error
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type LocalClient_WatchServer = grpc.ServerStreamingServer[LocalWatchEvent]
 
+func _LocalClient_Tunnel_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(LocalClientServer).Tunnel(&grpc.GenericServerStream[LocalTunnelMessage, LocalTunnelMessage]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type LocalClient_TunnelServer = grpc.BidiStreamingServer[LocalTunnelMessage, LocalTunnelMessage]
+
 // LocalClient_ServiceDesc is the grpc.ServiceDesc for LocalClient service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -347,6 +373,12 @@ var LocalClient_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Watch",
 			Handler:       _LocalClient_Watch_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "Tunnel",
+			Handler:       _LocalClient_Tunnel_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "r1s/v1/local.proto",

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -35,6 +36,7 @@ func localAPISocketAlive(socketPath string) bool {
 type localCLI struct {
 	ctx        context.Context
 	stdout     io.Writer
+	stdin      *os.File
 	socketPath string
 	client     *localapi.Client
 }
@@ -44,7 +46,7 @@ func openLocalCLI(ctx context.Context, options commandLine, stdout io.Writer, st
 	if err != nil {
 		return nil, err
 	}
-	handler := &localCLI{ctx: ctx, stdout: stdout, socketPath: options.socketPath, client: client}
+	handler := &localCLI{ctx: ctx, stdout: stdout, stdin: os.Stdin, socketPath: options.socketPath, client: client}
 	// Refuse to silently create a second identity or assignment: an unreachable
 	// socket is an error, never a fallback.
 	if err := client.Ping(ctx); err != nil {

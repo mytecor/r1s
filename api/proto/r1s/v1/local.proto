@@ -109,6 +109,43 @@ message LocalWatchEvent {
   bool resync = 4;
 }
 
+// LocalTunnelMessage is one message on the LocalTunnel bidirectional stream. It
+// carries raw tunnel bytes between the CLI and a running execution through the
+// local r1s serve bridge: the serve process mints the F14 access grant, dials
+// the allocator edge, and relays bytes. The stream is a live session, not a
+// one-shot RPC; the first client->server message MUST be an open.
+message LocalTunnelMessage {
+  oneof payload {
+    // open names the execution to reach. Sent once, first, client->server.
+    LocalTunnelOpen open = 1;
+    // data carries raw payload bytes in the direction it is sent (client to
+    // serve, or serve to client). The serve process never writes logs into
+    // this direction: data is byte-clean.
+    bytes data = 2;
+    // close ends the stream. half=true half-closes only the sending direction
+    // (write-EOF to the peer) so interactive protocols behave correctly;
+    // half=false closes the whole session.
+    LocalTunnelClose close = 3;
+  }
+}
+
+// LocalTunnelOpen is the one-time routing header sent first on a LocalTunnel
+// stream.
+message LocalTunnelOpen {
+  string execution_id = 1;
+}
+
+// LocalTunnelClose ends a LocalTunnel stream. A close with reason set is an
+// abnormal teardown; the CLI surfaces it with a non-zero exit and a clear
+// diagnostic on stderr, and stdout stays byte-clean.
+message LocalTunnelClose {
+  bool half = 1;
+  // reason is the transport-neutral teardown reason (mirrors tunnel.Reason)
+  // and is set only on abnormal teardown (or to report a setup failure).
+  string reason = 2;
+  string detail = 3;
+}
+
 service LocalClient {
   rpc Request(LocalRequest) returns (LocalRequestResponse);
   rpc List(LocalListRequest) returns (LocalListResponse);
@@ -117,4 +154,5 @@ service LocalClient {
   rpc Cancel(LocalCancelRequest) returns (LocalStateResponse);
   rpc Logs(LocalLogsRequest) returns (LocalLogsResponse);
   rpc Watch(LocalWatchRequest) returns (stream LocalWatchEvent);
+  rpc Tunnel(stream LocalTunnelMessage) returns (stream LocalTunnelMessage);
 }

@@ -226,7 +226,11 @@ This file records unresolved choices so they do not remain implicit in implement
 
   Partial state (2026-09): the adapter package now holds the real, tested HKDF node-key derivation
   and the dependency-free node/dialer/listener shapes, and the `r1s serve` dial path is wired but
-  returns a deferred error until the stream adapter lands. What remains in the adapter:
+  returns a deferred error until the stream adapter lands. The client-side plumbing is now in place:
+  `Backend.Tunnel` mints the grant, threads the grant ID back (it is no longer dropped), checks that
+  an edge exists before minting, and writes the routing preamble onto a preamble-aware Conn via the
+  optional `tunnel.PreambleWriter` (the in-memory fake does not implement it, keeping the test relay
+  byte-clean). What remains in the adapter:
 
   - The stream-adaptation layer over the Yggdrasil/ironwood packet interface that presents
     `tunnel.Conn` as a byte stream (reliable, ordered, per-direction half-close) from `Core.ReadFrom`/

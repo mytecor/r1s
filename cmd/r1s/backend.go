@@ -10,6 +10,8 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
+	"github.com/mytecor/r1s/internal/tunnel"
+	"github.com/mytecor/r1s/internal/tunnel/yggdrasil"
 )
 
 // The r1s application implements localserver.Backend so both the persistent
@@ -24,6 +26,10 @@ func (a *application) runRequest(ctx context.Context, workload *r1sv1.Workload, 
 	if err != nil {
 		return "", "", nil, err
 	}
+	// Register the reply waiter before the first send so a prompt offer or
+	// rejection is still routed to this collection loop.
+	ch, cancel := a.registerWaiter(envelope.GetMessageId())
+	defer cancel()
 	sent := make(map[string]bool)
 	for _, destination := range allocators {
 		if err := a.send(destination, envelope); err != nil {
@@ -40,11 +46,9 @@ collect:
 			return "", "", nil, ctx.Err()
 		case <-timer.C:
 			break collect
-		case response := <-a.events:
-			if response.GetCorrelationId() == envelope.GetMessageId() {
-				if err := client.RemoteFailure(response); err != nil {
-					return "", "", nil, err
-				}
+		case response := <-ch:
+			if err := client.RemoteFailure(response); err != nil {
+				return "", "", nil, err
 			}
 		case service := <-a.endpoint.Discoveries():
 			if service.Descriptor.Capacity[resourceClass] == 0 {
@@ -92,10 +96,12 @@ func (a *application) inspectState(ctx context.Context, executionID string, wait
 	if err != nil {
 		return nil, err
 	}
+	ch, cancel := a.registerWaiter(envelope.GetMessageId())
+	defer cancel()
 	if err := a.send(destination, envelope); err != nil {
 		return nil, err
 	}
-	snapshot, err := a.awaitState(executionID, envelope.GetMessageId(), wait)
+	snapshot, err := a.awaitState(executionID, ch, wait)
 	if err != nil {
 		return nil, err
 	}
@@ -108,10 +114,12 @@ func (a *application) cancelState(ctx context.Context, executionID, reason strin
 	if err != nil {
 		return nil, err
 	}
+	ch, cancel := a.registerWaiter(envelope.GetMessageId())
+	defer cancel()
 	if err := a.send(destination, envelope); err != nil {
 		return nil, err
 	}
-	snapshot, err := a.awaitState(executionID, envelope.GetMessageId(), wait)
+	snapshot, err := a.awaitState(executionID, ch, wait)
 	if err != nil {
 		return nil, err
 	}
@@ -134,10 +142,13 @@ func (a *application) renewOrReRequest(ctx context.Context, executionID string, 
 		}
 		var newExpiry time.Time
 		if !lost {
+			ch, cancel := a.registerWaiter(envelope.GetMessageId())
 			if err := a.send(destination, envelope); err != nil {
+				cancel()
 				return "", time.Time{}, rerequested, err
 			}
-			newExpiry, err = a.awaitLeaseAck(ctx, activeID, envelope.GetMessageId(), wait)
+			newExpiry, err = a.awaitLeaseAck(ctx, activeID, ch, wait)
+			cancel()
 			if err == nil {
 				return activeID, newExpiry, rerequested, nil
 			}
@@ -160,8 +171,9 @@ func (a *application) renewOrReRequest(ctx context.Context, executionID string, 
 	}
 }
 
-// awaitLeaseAck waits for the allocator ack of one renewal command.
-func (a *application) awaitLeaseAck(ctx context.Context, executionID, correlationID string, timeout time.Duration) (time.Time, error) {
+// awaitLeaseAck waits for the allocator ack of one renewal command on the given
+// waiter channel (registered for the renewal's correlation ID before send).
+func (a *application) awaitLeaseAck(ctx context.Context, executionID string, ch chan *r1sv1.Envelope, timeout time.Duration) (time.Time, error) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	for {
@@ -170,10 +182,7 @@ func (a *application) awaitLeaseAck(ctx context.Context, executionID, correlatio
 			return time.Time{}, ctx.Err()
 		case <-timer.C:
 			return time.Time{}, fmt.Errorf("timed out waiting for execution %s lease renewal", executionID)
-		case envelope := <-a.events:
-			if envelope.GetCorrelationId() != correlationID {
-				continue
-			}
+		case envelope := <-ch:
 			if err := client.RemoteFailure(envelope); err != nil {
 				return time.Time{}, err
 			}
@@ -257,6 +266,12 @@ const keepAliveTick = 5 * time.Second
 // defaultRenewWait bounds one lease-renewal ack wait in the hold loop.
 const defaultRenewWait = 30 * time.Second
 
+// grantAckTimeout bounds one tunnel-grant mint ack wait. It is deliberately
+// shorter than the grant TTL the allocator grants (the client does not know
+// that TTL); a mint that does not come back in time is aborted so the caller
+// can surface a clear error and retry.
+const grantAckTimeout = 30 * time.Second
+
 // holdLease is the foreground workflow of `r1s request --keep-alive` in direct
 // mode. It renews the execution's client-held lease when due and re-requests
 // the recorded workload whenever the lease is lost, then exits when the
@@ -301,6 +316,8 @@ func (a *application) retrieveLogs(ctx context.Context, executionID, stream stri
 	if err != nil {
 		return nil, err
 	}
+	ch, cancel := a.registerWaiter(request.GetMessageId())
+	defer cancel()
 	if err := a.send(destination, request); err != nil {
 		return nil, err
 	}
@@ -312,10 +329,7 @@ func (a *application) retrieveLogs(ctx context.Context, executionID, stream stri
 			return nil, ctx.Err()
 		case <-timer.C:
 			return nil, errLogTimeout(offset)
-		case response := <-a.events:
-			if response.GetCorrelationId() != request.GetMessageId() {
-				continue
-			}
+		case response := <-ch:
 			if err := client.RemoteFailure(response); err != nil {
 				return nil, err
 			}
@@ -377,4 +391,75 @@ func (a *application) WatchAfter(ctx context.Context, after uint64) ([]client.Wa
 
 func (a *application) SubscribeWatch(ctx context.Context, observer func(client.WatchEvent)) (cancel func()) {
 	return a.client.SubscribeWatch(observer)
+}
+
+// Tunnel mints an F14 access grant for the running execution and dials the
+// allocator edge, returning the connected byte pipe the serve process relays to
+// the CLI, plus the minted grant ID. It is the service-backed path for
+// `r1s tunnel`: only a serve process holds the F17 keep-alive intent that keeps
+// the execution alive for the session, so a direct-mode client is rejected
+// before this point.
+//
+// The grant ID is surfaced (not dropped) so a preamble-aware edge can write the
+// one-time routing header; a Conn that implements tunnel.PreambleWriter is
+// handed the preamble here, before any payload byte is relayed. The in-memory
+// fake does not implement it, keeping the test relay byte-clean.
+func (a *application) Tunnel(ctx context.Context, executionID string) (tunnel.Conn, string, error) {
+	if a.tunnelDialer == nil {
+		return nil, "", errors.New("tunnel: client edge is not configured; start 'r1s serve' with the tunnel edge enabled")
+	}
+	peerKey, err := yggdrasil.NodePubKey(a.identity, yggdrasil.ClientNodeKeyContext)
+	if err != nil {
+		return nil, "", fmt.Errorf("tunnel: derive client edge key: %w", err)
+	}
+	destination, envelope, err := a.client.TunnelGrant(executionID, peerKey)
+	if err != nil {
+		return nil, "", err
+	}
+	ch, cancel := a.registerWaiter(envelope.GetMessageId())
+	defer cancel()
+	if err := a.send(destination, envelope); err != nil {
+		return nil, "", fmt.Errorf("tunnel: request grant: %w", err)
+	}
+	ack, err := a.awaitTunnelGrantAck(ctx, executionID, ch)
+	if err != nil {
+		return nil, "", err
+	}
+	endpoint := tunnel.Endpoint{Address: ack.GetAllocatorEndpoint(), PubKey: ack.GetAllocatorEndpointPubkey()}
+	if len(endpoint.Address) == 0 || len(endpoint.PubKey) == 0 {
+		return nil, "", errors.New("tunnel: allocator advertised no tunnel endpoint")
+	}
+	conn, err := a.tunnelDialer.Dial(ctx, endpoint)
+	if err != nil {
+		return nil, "", fmt.Errorf("tunnel: dial allocator edge: %w", err)
+	}
+	if pw, ok := conn.(tunnel.PreambleWriter); ok {
+		if err := pw.WritePreamble(tunnel.Preamble{ExecutionID: executionID, GrantID: ack.GetGrantId()}); err != nil {
+			_ = conn.Close()
+			return nil, "", fmt.Errorf("tunnel: write routing preamble: %w", err)
+		}
+	}
+	return conn, ack.GetGrantId(), nil
+}
+
+// awaitTunnelGrantAck waits for the allocator's mint reply on the waiter
+// channel registered for the grant request's correlation ID.
+func (a *application) awaitTunnelGrantAck(ctx context.Context, executionID string, ch chan *r1sv1.Envelope) (*r1sv1.ExecutionTunnelGrantAck, error) {
+	timer := time.NewTimer(grantAckTimeout)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+			return nil, fmt.Errorf("tunnel: timed out waiting for a grant for execution %s", executionID)
+		case envelope := <-ch:
+			if err := client.RemoteFailure(envelope); err != nil {
+				return nil, fmt.Errorf("tunnel: grant rejected: %w", err)
+			}
+			if ack := envelope.GetExecutionTunnelGrantAck(); ack != nil && ack.GetExecutionId() == executionID {
+				return ack, nil
+			}
+		}
+	}
 }

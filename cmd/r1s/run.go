@@ -117,11 +117,11 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		return commandLine{showVersion: true}, nil
 	}
 	if len(commandArguments) == 0 {
-		return commandLine{}, errors.New("command is required: cluster, serve, request, list, inspect, cancel, result, or logs")
+		return commandLine{}, errors.New("command is required: cluster, serve, request, list, inspect, cancel, result, tunnel, or logs")
 	}
 	command := commandArguments[0]
 	if command != "cluster" && !knownCommand(command) {
-		return commandLine{}, fmt.Errorf("unknown command %q: expected cluster, serve, request, list, inspect, cancel, result, or logs", command)
+		return commandLine{}, fmt.Errorf("unknown command %q: expected cluster, serve, request, list, inspect, cancel, result, tunnel, or logs", command)
 	}
 	if command != "cluster" && !containsHelp(commandArguments[1:]) && strings.TrimSpace(*socketPath) == "" && socketCandidate == "" && (strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identitySource) == "") {
 		return commandLine{}, errors.New("--rns-config and --identity are required (or pass --socket, or start 'r1s serve' so its socket is discovered)")
@@ -148,6 +148,7 @@ type commandHandler interface {
 	inspect(args []string, stderr io.Writer, resultOnly bool) error
 	cancel(args []string, stderr io.Writer) error
 	serve(args []string, stderr io.Writer) error
+	tunnel(args []string, stderr io.Writer) error
 }
 
 func dispatch(handler commandHandler, command string, args []string, stderr io.Writer) error {
@@ -166,13 +167,15 @@ func dispatch(handler commandHandler, command string, args []string, stderr io.W
 		return handler.cancel(args, stderr)
 	case "result":
 		return handler.inspect(args, stderr, true)
+	case "tunnel":
+		return handler.tunnel(args, stderr)
 	default:
-		return fmt.Errorf("unknown command %q: expected serve, request, list, inspect, cancel, result, or logs", command)
+		return fmt.Errorf("unknown command %q: expected serve, request, list, inspect, cancel, result, tunnel, or logs", command)
 	}
 }
 
 func knownCommand(command string) bool {
-	return command == "serve" || command == "logs" || command == "request" || command == "list" || command == "inspect" || command == "cancel" || command == "result"
+	return command == "serve" || command == "logs" || command == "request" || command == "list" || command == "inspect" || command == "cancel" || command == "result" || command == "tunnel"
 }
 
 func containsHelp(arguments []string) bool {

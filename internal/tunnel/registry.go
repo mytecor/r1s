@@ -76,12 +76,12 @@ func NewRegistry(config RegistryConfig) (*Registry, error) {
 }
 
 // Mint creates the outstanding grant for one execution, or replaces a
-// previously minted, still-unconsumed grant. The peer key from the grant
-// request is pinned into the record; a repeat mint with a different key repins
-// it. A mint while a session is active replaces the outstanding grant without
-// disturbing the session — the per-execution cap of one session is enforced at
-// accept. Expiry is granted from now; a TTL is not tracked in the record
-// because it is evaluated lazily at accept.
+// previously minted, still-unconsumed grant. The peer key, target, and endpoint
+// from the grant request are pinned into the record; a repeat mint with new
+// values repins all three. A mint while a session is active replaces the
+// outstanding grant without disturbing the session — the per-execution cap of
+// one session is enforced at accept. Expiry is granted from now; a TTL is not
+// tracked in the record because it is evaluated lazily at accept.
 func (r *Registry) Mint(executionID string, peerKey []byte, target Target, endpoint Endpoint, ttl time.Duration, now time.Time) (Grant, error) {
 	if executionID == "" {
 		return Grant{}, errors.New("invalid tunnel grant: execution ID is required")
@@ -98,10 +98,18 @@ func (r *Registry) Mint(executionID string, peerKey []byte, target Target, endpo
 	defer r.mu.Unlock()
 	rec := r.records[executionID]
 	if rec == nil {
-		rec = &record{executionID: executionID, target: target, endpoint: endpoint}
+		rec = &record{executionID: executionID}
 		r.records[executionID] = rec
 	}
 	rec.peerKey = append([]byte(nil), peerKey...)
+	rec.target = target
+	// Clone the endpoint slices: the caller owns the backing arrays and may
+	// reuse them, and the record outlives the Mint call. peerKey is cloned
+	// above for the same reason.
+	rec.endpoint = Endpoint{
+		Address: append([]byte(nil), endpoint.Address...),
+		PubKey:  append([]byte(nil), endpoint.PubKey...),
+	}
 	// A repeat mint replaces the outstanding grant, keeping any active session
 	// intact; the new grant is unconsumed and single-use.
 	rec.grant = &grantState{id: id, expiresAt: expiresAt}
@@ -112,14 +120,21 @@ func (r *Registry) Mint(executionID string, peerKey []byte, target Target, endpo
 // the authenticated peer key and opens the execution's single live session.
 // The grant is consumed only on a successful accept. It rejects:
 //
-//   - an unknown execution or grant, or an execution with no minted grant;
+//   - an unknown execution or grant;
 //   - an expired grant (expiry is evaluated here, lazily);
 //   - a reused (already consumed) grant;
 //   - a grant pinned to a different peer key than the authenticated one;
 //   - a second accept while the execution already has a live session.
 //
-// A failed validation leaves the grant unconsumed and reusable until its
-// expiry.
+// The ordering matters for an unauthenticated peer:
+//
+//   - the auth checks (grant existence, grant ID, expiry, peer key) all
+//     precede the liveness (busy) check, so an unauthenticated client cannot
+//     probe whether an execution's session is busy;
+//   - expiry is evaluated before the peer key so a stale grant fails fast and
+//     uniformly; the expiry bit is low-sensitivity (it only reveals that a
+//     grant is no longer usable), unlike session liveness, so leaking it to
+//     an unauthenticated peer is acceptable.
 func (r *Registry) Accept(executionID, grantID string, peerKey []byte, now time.Time) (*Session, error) {
 	if executionID == "" || grantID == "" {
 		return nil, errors.New("invalid tunnel accept: execution and grant IDs are required")
@@ -130,9 +145,6 @@ func (r *Registry) Accept(executionID, grantID string, peerKey []byte, now time.
 	if rec == nil || rec.grant == nil {
 		return nil, ErrGrantNotFound
 	}
-	if rec.session != nil {
-		return nil, ErrSessionBusy
-	}
 	grant := rec.grant
 	if grant.id != grantID {
 		return nil, ErrGrantNotFound
@@ -140,11 +152,16 @@ func (r *Registry) Accept(executionID, grantID string, peerKey []byte, now time.
 	if !rec.grant.expiresAt.After(now) {
 		return nil, ErrGrantExpired
 	}
-	if grant.consumed {
-		return nil, ErrGrantReused
-	}
+	// The peer key is validated before the liveness (busy) check so an
+	// unauthenticated peer cannot probe whether an execution's session is busy.
 	if !bytes.Equal(rec.peerKey, peerKey) {
 		return nil, ErrPeerKeyMismatch
+	}
+	if rec.session != nil {
+		return nil, ErrSessionBusy
+	}
+	if grant.consumed {
+		return nil, ErrGrantReused
 	}
 	grant.consumed = true
 	session := &Session{
@@ -172,23 +189,6 @@ func (r *Registry) Session(executionID string) (*Session, bool) {
 	session := *rec.session
 	session.PeerKey = append([]byte(nil), rec.session.PeerKey...)
 	return &session, true
-}
-
-// RejectBeforeSplice is a no-op placeholder for the F14-02 accept-time routing
-// hook: a failed validation before splice must leave the grant unconsumed and
-// reusable. The registry already enforces that inside Accept; this method
-// documents the contract for the edge plumbing and is retained so the core
-// lifecycle coupling has a single call site when sessions end without a
-// successful splice.
-func (r *Registry) RejectBeforeSplice(executionID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	rec := r.records[executionID]
-	if rec == nil || rec.session != nil {
-		return
-	}
-	// Keep the unconsumed grant; it remains reusable until expiry. Nothing to
-	// do here in F14-01; F14-02's edge calls this before relaying payload.
 }
 
 // CloseSession ends the active session for an execution without cancelling the

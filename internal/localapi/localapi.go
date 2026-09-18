@@ -133,3 +133,20 @@ func (c *Client) List(ctx context.Context) (*r1sv1.LocalListResponse, error) {
 func (c *Client) Watch(ctx context.Context, after uint64) (r1sv1.LocalClient_WatchClient, error) {
 	return c.local.Watch(ctx, &r1sv1.LocalWatchRequest{After: after})
 }
+
+// Tunnel opens a bidirectional raw-byte tunnel to a running execution through
+// the local r1s serve bridge. The stream's first message is the open naming the
+// execution; after that it carries raw payload bytes (data) and close
+// half-close/full-close signals in both directions. Setup failures surface as a
+// stream error before any payload is relayed.
+func (c *Client) Tunnel(ctx context.Context, executionID string) (r1sv1.LocalClient_TunnelClient, error) {
+	stream, err := c.local.Tunnel(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{ExecutionId: executionID}}}); err != nil {
+		_ = stream.CloseSend()
+		return nil, err
+	}
+	return stream, nil
+}

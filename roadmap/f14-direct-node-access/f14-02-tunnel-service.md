@@ -124,6 +124,11 @@ half-close) lives in `internal/tunnel/yggdrasil` (see resolved decision 16 in
   only on a successful splice; a failed validation (mismatched preamble, wrong key, expiry, busy
   slot) leaves the grant unconsumed and the rejection happens before a single payload byte is
   spliced.
+  Implementation: the serve-side `Backend.Tunnel` mints the grant, threads the grant ID back to the
+  caller (it is no longer dropped), and writes the preamble itself onto the dialed edge through the
+  optional `tunnel.PreambleWriter` interface when the edge supports it. The in-memory fake does not
+  implement `PreambleWriter`, so the test relay stays byte-clean; the real framing/yggdrasil edge
+  will consume the header at accept (deferred with the framing layer).
 - **One registry record per execution.** The grant and the active session are the same record; a
   repeat mint replaces the outstanding grant, a re-mint after a session close is immediate, and
   one live session per execution is enforced at accept (a second accept while a session is open is
@@ -142,11 +147,13 @@ half-close) lives in `internal/tunnel/yggdrasil` (see resolved decision 16 in
   behave correctly; for interactive use the CLI sets the local terminal to raw mode for the session
   and restores it on exit. The CLI stdin/stdout pipe the `LocalTunnel` stream; the serve process
   relays to the edge and back. Diagnostics and logs always go to stderr — stdout is the data
-  channel and must stay byte-clean.
+  channel and must stay byte-clean. A teardown reason is carried to the CLI with its detail and
+  surfaced on exit; a failure to enter raw mode is reported on stderr rather than silently ignored.
 - No application-level keepalives or framing are injected into the payload stream: liveness is left
   to the Yggdrasil link layer, and the session ends when either side closes or the execution ends.
 - The teardown reason is surfaced on exit (execution ended, grant rejected/expired/revoked, mesh
-  unreachable, unauthorized), with a non-zero exit code on abnormal termination, mirroring how other
+  unreachable, unauthorized, session failed), with a non-zero exit code on abnormal termination,
+  mirroring how other
   commands surface `CommandError` without attaching workload output.
 
 ## Acceptance

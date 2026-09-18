@@ -31,6 +31,8 @@ func (o *Client) Handle(_ context.Context, envelope *r1sv1.Envelope) error {
 		return o.handleReleaseAckLocked(envelope, payload.ExecutionOfferReleaseAck)
 	case *r1sv1.Envelope_ExecutionLeaseRenewAck:
 		return o.handleRenewAckLocked(envelope, payload.ExecutionLeaseRenewAck)
+	case *r1sv1.Envelope_ExecutionTunnelGrantAck:
+		return o.handleTunnelGrantAckLocked(envelope, payload.ExecutionTunnelGrantAck)
 	default:
 		return ErrUnsupportedMessage
 	}

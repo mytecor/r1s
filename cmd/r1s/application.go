@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/reticulumconfig"
@@ -15,16 +16,86 @@ import (
 	"github.com/mytecor/r1s/internal/cluster"
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport/rns"
+	"github.com/mytecor/r1s/internal/tunnel"
 )
 
 type application struct {
-	ctx      context.Context
-	stdout   io.Writer
-	endpoint *rns.Endpoint
-	client   *client.Client
-	events   chan *r1sv1.Envelope
-	store    *statebolt.Store
-	finish   func() []client.PendingRelease
+	ctx          context.Context
+	stdout       io.Writer
+	endpoint     *rns.Endpoint
+	client       *client.Client
+	store        *statebolt.Store
+	finish       func() []client.PendingRelease
+	identity     []byte
+	tunnelDialer tunnel.Dialer
+
+	// waitMu guards waiters, the registry that routes inbound control-plane
+	// envelopes to the awaiting workflows (request, inspect, cancel, lease
+	// renewal, logs, tunnel grant) by correlation ID. A single envelope maps to
+	// the one message ID that requested it; routing by key means several
+	// concurrent awaiters never steal or drop each other's replies the way a
+	// shared consume-and-drop channel would.
+	waitMu  sync.Mutex
+	waiters map[string][]chan *r1sv1.Envelope
+}
+
+// registerWaiter creates a one-shot delivery channel for the envelope whose
+// correlation ID matches correlationID. The caller must register BEFORE sending
+// the request so a reply that arrives promptly is still routed (dispatch retains
+// the envelope only for already-registered waiters). The returned cancel unregisters
+// the channel so a timed-out or errored await does not leak it.
+func (a *application) registerWaiter(correlationID string) (chan *r1sv1.Envelope, func()) {
+	ch := make(chan *r1sv1.Envelope, 1)
+	a.waitMu.Lock()
+	if a.waiters == nil {
+		a.waiters = make(map[string][]chan *r1sv1.Envelope)
+	}
+	a.waiters[correlationID] = append(a.waiters[correlationID], ch)
+	a.waitMu.Unlock()
+
+	var cancelled bool
+	cancel := func() {
+		a.waitMu.Lock()
+		defer a.waitMu.Unlock()
+		if cancelled {
+			return
+		}
+		cancelled = true
+		chans := a.waiters[correlationID]
+		for i, c := range chans {
+			if c == ch {
+				a.waiters[correlationID] = append(chans[:i], chans[i+1:]...)
+				break
+			}
+		}
+		if len(a.waiters[correlationID]) == 0 {
+			delete(a.waiters, correlationID)
+		}
+	}
+	return ch, cancel
+}
+
+// dispatchEnvelope routes an inbound envelope to every waiter registered for
+// its correlation ID. It never blocks: a waiter that raced cancellation simply
+// does not receive it. Envelopes with no correlation ID (or no registered
+// waiter) are dropped — their effects were already applied to the durable
+// client store by handleEnvelope, so nothing is lost for a wait that has not
+// started.
+func (a *application) dispatchEnvelope(envelope *r1sv1.Envelope) {
+	corr := envelope.GetCorrelationId()
+	if corr == "" {
+		return
+	}
+	a.waitMu.Lock()
+	chans := a.waiters[corr]
+	delete(a.waiters, corr)
+	a.waitMu.Unlock()
+	for _, ch := range chans {
+		select {
+		case ch <- envelope:
+		default:
+		}
+	}
 }
 
 func openApplication(ctx context.Context, options commandLine, stdout io.Writer) (*application, error) {
@@ -47,7 +118,7 @@ func openApplication(ctx context.Context, options commandLine, stdout io.Writer)
 	}
 	reticulumConfig.ConfigPath = filepath.Join(identityDirectory, "reticulum-client")
 
-	app := &application{ctx: ctx, stdout: stdout, events: make(chan *r1sv1.Envelope, 32)}
+	app := &application{ctx: ctx, stdout: stdout}
 	app.endpoint, err = rns.New(rns.Config{
 		Reticulum:      reticulumConfig,
 		IdentitySource: options.identitySource,
@@ -62,6 +133,7 @@ func openApplication(ctx context.Context, options commandLine, stdout io.Writer)
 		app.close()
 		return nil, fmt.Errorf("decode local identity: %w", err)
 	}
+	app.identity = identityHash
 	statePath := options.statePath
 	if strings.TrimSpace(statePath) == "" {
 		if rns.IsInlineIdentitySource(options.identitySource) {
@@ -93,10 +165,7 @@ func (a *application) handleEnvelope(ctx context.Context, envelope *r1sv1.Envelo
 	if err := a.client.Handle(ctx, envelope); err != nil {
 		return err
 	}
-	select {
-	case a.events <- envelope:
-	default:
-	}
+	a.dispatchEnvelope(envelope)
 	return nil
 }
 
@@ -113,6 +182,12 @@ func (a *application) stop(diagnostics io.Writer) {
 		for _, release := range a.finish() {
 			fmt.Fprintf(diagnostics, "offer release pending allocator=%s offer=%s; retained for retry, lease expiry remains the fallback\n", release.Destination, release.Envelope.GetExecutionOfferRelease().GetOfferId())
 		}
+	}
+	// Release the client edge's overlay node before the durable client store is
+	// closed. No-op in direct mode (no edge is built).
+	if a.tunnelDialer != nil {
+		_ = a.tunnelDialer.Close()
+		a.tunnelDialer = nil
 	}
 	// Stop incoming callbacks before the durable client store is closed.
 	_ = a.endpoint.Close()
@@ -133,7 +208,7 @@ func (a *application) send(destination string, envelope *r1sv1.Envelope) error {
 	return a.endpoint.Send(ctx, destination, envelope)
 }
 
-func (a *application) awaitState(executionID, correlationID string, timeout time.Duration) (client.ExecutionSnapshot, error) {
+func (a *application) awaitState(executionID string, ch chan *r1sv1.Envelope, timeout time.Duration) (client.ExecutionSnapshot, error) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	for {
@@ -142,10 +217,7 @@ func (a *application) awaitState(executionID, correlationID string, timeout time
 			return client.ExecutionSnapshot{}, a.ctx.Err()
 		case <-timer.C:
 			return client.ExecutionSnapshot{}, fmt.Errorf("timed out waiting for execution %s state", executionID)
-		case envelope := <-a.events:
-			if envelope.GetCorrelationId() != correlationID {
-				continue
-			}
+		case envelope := <-ch:
 			if err := client.RemoteFailure(envelope); err != nil {
 				return client.ExecutionSnapshot{}, err
 			}

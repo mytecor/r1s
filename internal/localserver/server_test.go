@@ -12,6 +12,7 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
+	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -31,6 +32,7 @@ type fakeBackend struct {
 	inspect    func(ctx context.Context, executionID string, wait time.Duration) (*r1sv1.ExecutionState, error)
 	cancel     func(ctx context.Context, executionID, reason string, wait time.Duration) (*r1sv1.ExecutionState, error)
 	logs       func(ctx context.Context, executionID, stream string, offset uint64, maxBytes uint32, wait time.Duration) (*r1sv1.ExecutionLogsResponse, error)
+	tunnelConn func(ctx context.Context, executionID string) (tunnel.Conn, string, error)
 }
 
 func (f *fakeBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (string, string, []byte, error) {
@@ -47,6 +49,13 @@ func (f *fakeBackend) Cancel(ctx context.Context, executionID, reason string, wa
 
 func (f *fakeBackend) Logs(ctx context.Context, executionID, stream string, offset uint64, maxBytes uint32, wait time.Duration) (*r1sv1.ExecutionLogsResponse, error) {
 	return f.logs(ctx, executionID, stream, offset, maxBytes, wait)
+}
+
+func (f *fakeBackend) Tunnel(ctx context.Context, executionID string) (tunnel.Conn, string, error) {
+	if f.tunnelConn == nil {
+		return nil, "", io.ErrClosedPipe
+	}
+	return f.tunnelConn(ctx, executionID)
 }
 
 func (f *fakeBackend) Requests(ctx context.Context) []client.RequestSnapshot {

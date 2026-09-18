@@ -12,6 +12,7 @@ import (
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
 	"github.com/mytecor/r1s/internal/localserver"
+	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -61,6 +62,11 @@ func (s *stubBackend) WatchAfter(ctx context.Context, after uint64) ([]client.Wa
 
 func (s *stubBackend) SubscribeWatch(ctx context.Context, observer func(client.WatchEvent)) (cancel func()) {
 	return func() {}
+}
+
+// Tunnel is not exercised by the basic client contract tests.
+func (s *stubBackend) Tunnel(ctx context.Context, executionID string) (tunnel.Conn, string, error) {
+	return nil, "", errors.New("tunnel: not exercised")
 }
 
 func TestLocalAPIClientTalksToServer(t *testing.T) {

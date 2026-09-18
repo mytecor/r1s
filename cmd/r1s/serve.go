@@ -8,6 +8,7 @@ import (
 
 	"github.com/mytecor/r1s/internal/cluster"
 	"github.com/mytecor/r1s/internal/localserver"
+	"github.com/mytecor/r1s/internal/tunnel/yggdrasil"
 )
 
 // serveOptions are parsed from `r1s serve`.
@@ -33,6 +34,21 @@ func (a *application) serve(args []string, stderr io.Writer) error {
 		return err
 	}
 	defer a.stop(stderr)
+
+	// Construct the client-side tunnel edge for this serve process. The edge
+	// derives its overlay node key from the client identity (F14-01), so grants
+	// and sessions survive reconnects within their TTL. The dial mapping is
+	// deferred with the framing/reliability layer; a failure to build the edge
+	// is reported here so `r1s tunnel` later fails with a clear reason instead
+	// of a silent "edge not configured".
+	node, nodeErr := yggdrasil.NewNode(a.identity, yggdrasil.ClientNodeKeyContext)
+	if nodeErr != nil {
+		fmt.Fprintf(stderr, "serve: tunnel edge: %v (tunnel sessions unavailable)\n", nodeErr)
+	} else if dialer, dialerErr := yggdrasil.NewDialer(node); dialerErr != nil {
+		fmt.Fprintf(stderr, "serve: tunnel edge: %v (tunnel sessions unavailable)\n", dialerErr)
+	} else {
+		a.tunnelDialer = dialer
+	}
 
 	go a.runLeaseMaintainer(a.ctx, stderr)
 
