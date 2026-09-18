@@ -1,15 +1,21 @@
 # F14-02 — Tunnel edge and the `r1s tunnel` command
 
-**Status:** ⏳ Planned
+**Status:** 🚧 In progress — the transport-neutral stream contract, in-memory fake, node-key
+derivation, `LocalTunnel` bidi stream, the serve-side relay, the client grant mint, and the
+service-backed `r1s tunnel` command are landed and covered by deterministic tests through the
+in-memory fake plus the node-key derivation tests. The Yggdrasil stream-adaptation layer (over a
+`Core` node) and the `r1sd` accept-loop splice remain (BACKLOG, resolved decision 16); the live
+mesh test is also pending.
 
 ## Outcome
 
 An execution owner connects through an allocator-local tunnel edge over an embedded Yggdrasil node
 and carries arbitrary traffic (for example SSH or HTTP) to the running execution, gated by the
 F14-01 grant plus the authenticated Yggdrasil peer binding, and never routed through RNS. The
-allocator-side edge is an internal component of `r1sd`; the client side is a service-backed bridge:
-`r1s tunnel` pipes bytes through a running `r1s serve` over the local socket. No separate r1s
-daemon is introduced.
+edge embeds a yggdrasil-go `Core` node used as a `net.PacketConn` and adapts it to the byte-stream
+tunnel contract (`tunnel.Conn`); the edge is an internal component of `r1sd`. The client side is a
+service-backed bridge: `r1s tunnel` pipes bytes through a running `r1s serve` over the local
+socket. No separate r1s daemon is introduced.
 
 ## User model
 
@@ -78,9 +84,15 @@ internal/tunnel/yggdrasil/  the Yggdrasil edge adapter (the only package importi
 The core, the protocol, the local API, and the transport adapter never import
 `internal/tunnel/yggdrasil`.
 
-## Network: embedded yggdrasil-go on the overlay mesh
+## Network: embedded yggdrasil-go Core as a `net.PacketConn` on the overlay mesh
 
-Each process runs an embedded yggdrasil-go node; no host-level Yggdrasil daemon is required.
+Each `r1sd`/`r1s serve` embeds a yggdrasil-go `Core` node and uses it through `net.PacketConn`
+(`ReadFrom`/`WriteTo`), not through an OS tun interface. The r1s node is a separate overlay address
+on the same mesh; it needs neither a host tun device nor a shared host overlay address. A
+host-level Yggdrasil daemon may run on the same machine for other services (for example Caddy) and
+is entirely independent of the r1s node. The packet↔stream adaptation (reassembly, MTU split,
+half-close) lives in `internal/tunnel/yggdrasil` (see resolved decision 16 in
+[BACKLOG.md](../BACKLOG.md)).
 
 - Default bootstrap joins the Yggdrasil overlay through the standard public peers, so no manual
   client↔allocator peering and no allocator firewall port for tunnels is needed: addresses derive
@@ -96,6 +108,8 @@ Each process runs an embedded yggdrasil-go node; no host-level Yggdrasil daemon 
   F14-01 advertisement). Both ends pin the peer node public key — the client pins the allocator's
   key from the ack, the allocator pins the client's key from the grant — so a man-in-the-middle or
   a relay has nothing usable even if it sees the advertisement.
+- Containers need no overlay address: the tunnel terminates on the allocator at the grant-time
+  `(host, port)` target (host namespace), so no per-container subnet allocation is required.
 
 ## Authorization placement and lifecycle coupling
 

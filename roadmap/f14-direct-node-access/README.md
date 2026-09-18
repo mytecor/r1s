@@ -3,7 +3,12 @@
 Corresponds to [milestone F14](../../ROADMAP.md#f14-direct-node-access-r1s-tunneld).
 
 **Status:** 🚧 In progress — F14-01 (access grant + endpoint + grant-and-session registry) is
-implemented; F14-02 (tunnel edge, `r1s tunnel`) remains planned.
+implemented; F14-02 is part-way: the transport-neutral tunnel stream contract, in-memory fake,
+node-key derivation, `LocalTunnel` bidi RPC, the serve-side relay, the client grant mint, and the
+service-backed `r1s tunnel` command are landed (`make check` passes; deterministic tests through
+the in-memory fake). The Yggdrasil stream-adaptation layer (over a `Core` node used as
+`net.PacketConn`), the `r1sd` edge splice loop, and the live mesh test are deferred
+(BACKLOG, resolved decision 16).
 
 ## Outcome
 
@@ -34,10 +39,14 @@ capability-gated, independent of any artifact model, and never travels over RNS.
   from the `r1sd` identity — with distinct `info` domain separation, so there are no extra key
   files to create, back up, or rotate. The peer key stays an opaque contract value; the derivation
   is an internal edge-adapter detail.
-- **Overlay mesh, not point-to-point peering.** Both processes embed yggdrasil-go; default bootstrap
-  joins the public overlay mesh (address derived from the HKDF-derived node key), so no host-level
-  daemon, no manual peering, and no allocator firewall port is required. A private peer set is a
-  configurable edge option for isolated networks.
+- **Overlay mesh, not point-to-point peering.** Both processes embed a yggdrasil-go `Core` node
+  used through `net.PacketConn` (`ReadFrom`/`WriteTo`) — no OS tun interface is required; default
+  bootstrap joins the public overlay mesh (address derived from the HKDF-derived node key), so no
+  manual peering and no allocator firewall port is required. A private peer set is a configurable
+  edge option for isolated networks. A host-level Yggdrasil daemon used for other services is
+  independent of the r1s node: the r1s node is a separate overlay address on the same mesh and
+  needs no shared host address (see resolved decision 16 in
+  [BACKLOG.md](../BACKLOG.md)).
 - **Service-backed tunneling only.** `r1s tunnel` exists only in the service-backed mode and
   connects to a running `r1s serve`; a `serve`-backed tunnel holds the F17 keep-alive intent, so
   the execution stays alive for the session. Direct-mode invocations are rejected with a clear

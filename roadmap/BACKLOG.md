@@ -162,6 +162,48 @@ This file records unresolved choices so they do not remain implicit in implement
     [F14-01](./f14-direct-node-access/f14-01-access-grant.md),
     [F14-02](./f14-direct-node-access/f14-02-tunnel-service.md).
 
+16. **F14-02 edge: embedded `Core` as `net.PacketConn`; the tunnel contract stays a byte stream** —
+    reviewed 2026-09-18 and settled the open path left by decision 15: where the packet-level
+    Yggdrasil API meets the flow contract, keep `tunnel.Conn` as `io.ReadWriteCloser` (a reliable,
+    ordered, bidirectional byte pipe with per-direction half-close, carrying arbitrary SSH/HTTP
+    traffic) and build a thin **stream-adaptation layer**, not a reliability layer. Yggdrasil-go
+    v0.5.14 already gives an ordered reliable session transport under the hood (ironwood `HandleConn`
+    runs over a TCP-like `net.Conn`), so ordering and loss are not our concern — the only gap is
+    **message boundaries**: `Core.ReadFrom`/`WriteTo` expose discrete datagrams, while `tunnel.Conn`
+    expects a continuous stream with no framing. The adapter maps `net.PacketConn` to `tunnel.Conn`
+    by reassembling reads, splitting writes by MTU, and emulating `CloseRead`/`CloseWrite` with a
+    sentinel in the stream; this is ~50–100 lines and preserves the transport-neutral contract for
+    the in-memory fake and future transports. Key model decisions:
+
+    - **No host-level Yggdrasil daemon is consumed; no tun interface is required.** `r1sd` embeds a
+      `Core` library node (HKDF-derived node key from the `r1sd` identity, `AllocatorNodeKeyContext`)
+      and talks to it through `net.PacketConn` — `ReadFrom`/`WriteTo` — not through an OS network
+      stack. If a host-level Yggdrasil runs on the same machine for other services (for example
+      Caddy), the r1s node is a separate overlay address on the same mesh; it does not share the
+      host `tun0` and does not conflict with it. This supersedes the F14-02 wording that the
+      embedded node "joins public peers so no host-level daemon is required"; the real constraint
+      is "the r1s node needs no tun and no shared host address".
+    - **Containers need no overlay address.** The tunnel terminates on the allocator at the grant-time
+      `(host, port)` target (resolved allocator-local, host namespace), so no per-container subnet
+      allocation is ever required; the "assign addresses to containers in the subnet" idea was
+      explicitly rejected.
+    - **`internal/tunnel/yggdrasil` imports yggdrasil-go and is the only such package**; the stream
+      adapter replaces the current stubbed `Dial`/`Accept` that return `ErrorDeferred`.
+    - **One tunnel = one `Conn`; containers are differentiated by the Preamble, not by an in-stream
+      multiplexer.** `Listener.Accept()`/`Dialer.Dial()` return a separate `tunnel.Conn` per tunnel
+      (TCP-like connection model). Distinguishing which execution a session targets is the job of the
+      one-time routing Preamble (execution ID + grant ID) resolved against the registry record
+      (`executionID → {grant, session}`), already capped at one live session per execution
+      (`ErrSessionBusy`). No application-level multiplexer multiplexes several containers inside a
+      single `Conn`, and none is needed: containers live in the host namespace behind grant-time
+      targets, and each parallel tunnel is its own `Conn`. Model A (one tunnel = one ygg stream, Preamble
+      separates executions) was chosen over Model B (a multiplexer carrying many tunnels in one ygg
+      stream); Model B would add framing/multiplexing complexity without a current need and
+      contradicts how `Conn`/`Listener`/`Dialer` are shaped.
+    - **Rejected alternative:** redefining `tunnel.Conn` as packet-based. That would leak message
+      boundaries into the core and force SSH/HTTP (byte streams) to cope with framing anyway, plus
+      break the in-memory fake for deterministic tests.
+
 ## Deferred
 
 - VM and microVM runtime adapters.
@@ -181,5 +223,21 @@ This file records unresolved choices so they do not remain implicit in implement
   `r1s tunnel`). F14-01 keeps the wire contract and registry transport-neutral (`allocator_endpoint`
   / `allocator_endpoint_pubkey` opaque bytes), so the adapter is a pure addition with no schema
   change and never appears in deterministic tests (an in-memory tunnel fake stands in).
+
+  Partial state (2026-09): the adapter package now holds the real, tested HKDF node-key derivation
+  and the dependency-free node/dialer/listener shapes, and the `r1s serve` dial path is wired but
+  returns a deferred error until the stream adapter lands. What remains in the adapter:
+
+  - The stream-adaptation layer over the Yggdrasil/ironwood packet interface that presents
+    `tunnel.Conn` as a byte stream (reliable, ordered, per-direction half-close) from `Core.ReadFrom`/
+    `WriteTo`. Yggdrasil-go v0.5.14 exposes only a packet-level API, so a thin reassembly/MTU-split/
+    half-close adapter is the substantive deferred piece (see resolved decision 16; it is
+    stream-adaptation, not a reliability/ordering layer — the mesh already delivers ordered and
+    reliable).
+  - The `r1sd` allocator-edge accept loop: with the real `Listener`, read the routing preamble,
+    call `Allocator.AcceptTunnel`, and splice the stream to the granted target on success (see
+    [F14-02](./f14-direct-node-access/f14-02-tunnel-service.md)).
+  - The live mesh acceptance test from F14-02 (a payload round-trip over an embedded mesh proving
+    no tunnel bytes traverse RNS).
 - TCP fallback or NAT-traversal plans for a tunnel edge deployment where the private peer set is
   not reachable.

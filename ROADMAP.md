@@ -140,7 +140,13 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > An execution owner opens an authenticated tunnel from their client to a running execution over
 > Yggdrasil and carries arbitrary traffic inside it, independent of any artifact model.
 
-- **Status:** ⏳ planned
+- **Status:** 🚧 in progress — F14-01 (execution-scoped access grants) is implemented; F14-02 is
+  part-way: the transport-neutral tunnel stream contract, in-memory fake, node-key derivation,
+  `LocalTunnel` bidi RPC, the serve-side relay, the client grant mint, and the service-backed
+  `r1s tunnel` command are landed (`make check` passes; deterministic tests through the in-memory
+  fake plus node-key derivation tests). The Yggdrasil stream-adaptation layer (over a `Core` node
+  used as `net.PacketConn`), the `r1sd` edge splice loop, and the live mesh test are deferred
+  (BACKLOG, resolved decision 16).
 - **Done when:** a client tunnels to a running execution through Yggdrasil, only the authenticated
   execution owner can open or keep the tunnel, and the core and protocol stay free of
   Yggdrasil-specific types while carrying no tunnel bytes over RNS. `r1s tunnel` is service-backed
