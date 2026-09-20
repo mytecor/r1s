@@ -207,13 +207,15 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 
 > The F14 direct-access tunnel becomes a general-purpose, addressable, multiplexed stream transport
 > behind a single `r1s tunnel` command (ngrok-style): the same command that opens an interactive pipe
-> can publish a container HTTP port behind a balancer (local listener) or run several concurrent
-> protocols (SSH + HTTP + API) over one authenticated mesh connection.
+> can run several concurrent protocols (SSH + HTTP + API) to one execution over one authenticated mesh
+> connection. The direction stays client→allocator — the client connects to the container, never the
+> other way around; there is no reverse/listen/publish surface.
 
 - **Status:** ⏳ planned
 - **Done when:** `r1s tunnel <execution-id>` stays the only user-facing tunnel command and exposes
-  the execution as many addressable logical streams (named target, reverse/listen, or plain pipe)
-  over one authenticated pair of node keys; targets are allocator-resolved slot lists; and the
+  the execution as many addressable logical streams (named target or plain pipe, always
+  client→allocator) over one authenticated pair of node keys; targets are allocator-resolved slot
+  lists; and the
   core/protocol stay transport-neutral and free of Yggdrasil-specific types.
 - **Depends on:** [F14](#f14-direct-node-access-r1s-tunneld), [F13](#f13-local-client-api), [F17](#f17-execution-lease).
 
@@ -233,9 +235,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   tunnel to a running execution over an embedded yggdrasil-go node, independent of artifact
   transfer, without Yggdrasil-specific protocol types or a new global state source.
 - [F19](#f19-universal-tunnel-rework) is the next tunnel vertical: it reworks the F14 single
-  interactive byte pipe into a multiplexed, addressable stream transport — several named streams
-  (including a reverse/listen direction for publishing container ports) over one authenticated mesh
-  connection, with allocator-resolved target slots and no core/Yggdrasil coupling.
+  interactive byte pipe into a multiplexed, addressable stream transport — several named streams,
+  always client→allocator, over one authenticated mesh connection, with allocator-resolved target
+  slots and no core/Yggdrasil coupling.
 - [F16](#f16-node-capabilities-and-placement) can follow [F14](#f14-direct-node-access-r1s-tunneld) or
   run independently: allocators advertise bounded capability labels, clients express exact-match
   constraints, and only compatible allocators offer. It does not introduce a scheduler or global state.

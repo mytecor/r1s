@@ -9,12 +9,13 @@ addressable, multiplexed stream transport **behind a single `r1s tunnel` command
 
 ## Outcome
 
-The tunnel is no longer a ssh-stdin/stdout relay. `r1s tunnel` stays the **only** user-facing
-command, but it exposes the execution as a set of **addressable multiplexed streams** on top of the
-existing F14 mesh: the same command that opens an interactive pipe can also publish a container HTTP
-port behind a balancer (Caddy) or run several concurrent protocols (SSH + HTTP + API) against one
-execution — while keeping the F14 authorization model (peer-key pinning, one-time grants,
-allocator-resolved targets, transport-neutral `internal/tunnel` contract).
+`r1s tunnel` stays the **only** user-facing command, but it exposes the execution as a set of
+**addressable multiplexed streams** on top of the existing F14 mesh: the same command that opens an
+interactive pipe can run several concurrent protocols (SSH + HTTP + API) against one execution —
+always client→allocator, while keeping the F14 authorization model (peer-key pinning, one-time
+grants, allocator-resolved targets, transport-neutral `internal/tunnel` contract). There is no
+reverse, listen, or publish surface: the client connects to the container, never the other way
+around.
 
 ## Dependencies
 
