@@ -203,6 +203,20 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   allocator-local metrics without receiving workload stdout/stderr implicitly.
 - **Depends on:** [F13](#f13-local-client-api).
 
+## [F19. Universal tunnel rework](./roadmap/f19-tunnel-rework/README.md)
+
+> The F14 direct-access tunnel becomes a general-purpose, addressable, multiplexed stream transport
+> behind a single `r1s tunnel` command (ngrok-style): the same command that opens an interactive pipe
+> can publish a container HTTP port behind a balancer (local listener) or run several concurrent
+> protocols (SSH + HTTP + API) over one authenticated mesh connection.
+
+- **Status:** ⏳ planned
+- **Done when:** `r1s tunnel <execution-id>` stays the only user-facing tunnel command and exposes
+  the execution as many addressable logical streams (named target, reverse/listen, or plain pipe)
+  over one authenticated pair of node keys; targets are allocator-resolved slot lists; and the
+  core/protocol stay transport-neutral and free of Yggdrasil-specific types.
+- **Depends on:** [F14](#f14-direct-node-access-r1s-tunneld), [F13](#f13-local-client-api), [F17](#f17-execution-lease).
+
 ## Current implementation order
 
 - [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
@@ -218,6 +232,10 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   allocator-side edge inside `r1sd` gives the authenticated execution owner a direct Yggdrasil
   tunnel to a running execution over an embedded yggdrasil-go node, independent of artifact
   transfer, without Yggdrasil-specific protocol types or a new global state source.
+- [F19](#f19-universal-tunnel-rework) is the next tunnel vertical: it reworks the F14 single
+  interactive byte pipe into a multiplexed, addressable stream transport — several named streams
+  (including a reverse/listen direction for publishing container ports) over one authenticated mesh
+  connection, with allocator-resolved target slots and no core/Yggdrasil coupling.
 - [F16](#f16-node-capabilities-and-placement) can follow [F14](#f14-direct-node-access-r1s-tunneld) or
   run independently: allocators advertise bounded capability labels, clients express exact-match
   constraints, and only compatible allocators offer. It does not introduce a scheduler or global state.
