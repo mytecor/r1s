@@ -22,11 +22,14 @@ import (
 	"io"
 )
 
-// Target names a concrete local endpoint on the allocator where a tunnel
-// session is spliced. It is resolved at grant time from allocator-local
-// configuration, never from a client-supplied destination and never from
-// per-execution metadata.
+// Target names one allocator-resolved local endpoint a tunnel stream can be
+// spliced to. A target is a pre-resolved target slot: the allocator resolves
+// the slot list at grant time from allocator-local configuration, never from
+// a client-supplied destination and never from per-execution metadata. ID
+// names the slot so the client can reference it with --target; an empty ID
+// means the unnamed default slot.
 type Target struct {
+	ID   string
 	Host string
 	Port uint16
 }
@@ -59,6 +62,10 @@ var (
 	ErrGrantReused     = errors.New("tunnel grant already used")
 	ErrPeerKeyMismatch = errors.New("tunnel peer key does not match the pinned grant")
 	ErrSessionBusy     = errors.New("execution already has a live tunnel session")
+	// ErrUnknownTargetSlot reports that a stream header referenced a target
+	// slot the allocator did not pre-authorize. It is rejected before any
+	// payload byte moves.
+	ErrUnknownTargetSlot = errors.New("tunnel target slot was not pre-authorized")
 )
 
 // ErrReadAborted reports that the local read side of a tunnel was aborted: the
@@ -141,6 +148,19 @@ type PreambleWriter interface {
 	// WritePreamble sends the one-time routing preamble as the first bytes of
 	// the stream. It must be called once, before any payload byte is written.
 	WritePreamble(Preamble) error
+}
+
+// StreamOpener is implemented by a mesh connection (F19-01) that can carry
+// several logical streams over one authenticated pair. Dial returns a Conn that
+// also implements StreamOpener when the transport multiplexes: the interactive
+// pipe is the default stream, and OpenStream opens additional named streams.
+// targetSlot references an allocator-resolved target slot ("" is the unnamed
+// default slot); it is never a client-supplied raw (host, port).
+type StreamOpener interface {
+	// OpenStream opens a new logical stream on the same authenticated pair and
+	// returns its byte pipe. It must be called after the routing preamble has
+	// been written.
+	OpenStream(targetSlot string) (Conn, error)
 }
 
 // Reason is the surfaced session teardown outcome. The CLI maps a non-normal

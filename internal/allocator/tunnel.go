@@ -23,15 +23,16 @@ type TunnelConfig struct {
 	// GrantTTL bounds a minted grant. Expiry is evaluated lazily at mint and at
 	// accept; there is no TTL sweeper goroutine. Zero uses the default.
 	GrantTTL time.Duration
-	// TargetByClass resolves the allocator-local (host, port) target at grant
+	// TargetByClass resolves the allocator-local target slot list at grant
 	// time from allocator-local configuration. A workload on the host network
-	// namespace has no free "the running execution" address, so the target is
-	// one slot defined here, never a client-supplied destination and never
+	// namespace has no free "the running execution" address, so every slot is
+	// defined here, never a client-supplied destination and never
 	// per-execution metadata.
-	TargetByClass map[string]tunnel.Target
-	// DefaultTarget is the mandatory fallback used when no class matches. A
-	// missing default fails the mint with a clear error instead of connecting
-	// by guesswork.
+	TargetByClass map[string][]tunnel.Target
+	// DefaultTarget is the mandatory fallback slot used when no class matches
+	// and a stream carries no target_slot (the interactive pipe). A missing
+	// default fails the mint with a clear error instead of connecting by
+	// guesswork.
 	DefaultTarget *tunnel.Target
 	// Endpoint is the allocator's transport-neutral overlay advertisement
 	// returned in every minted grant ack. The allocator edge (F14-02) supplies
@@ -124,7 +125,7 @@ func (a *Allocator) handleTunnelGrant(envelope *r1sv1.Envelope, grant *r1sv1.Exe
 	if !a.tunnelsEnabled() {
 		return nil, ErrTunnelDisabled
 	}
-	target, err := a.resolveTunnelTarget(resourceClass)
+	targets, defaultTarget, err := a.resolveTunnelTargets(resourceClass)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +134,7 @@ func (a *Allocator) handleTunnelGrant(envelope *r1sv1.Envelope, grant *r1sv1.Exe
 		return nil, ErrTunnelNoEndpoint
 	}
 
-	minted, err := a.tunnels.Mint(grant.GetExecutionId(), peerKey, target, endpoint, a.tunnelGrantTTL(), now)
+	minted, err := a.tunnels.Mint(grant.GetExecutionId(), peerKey, targets, defaultTarget, endpoint, a.tunnelGrantTTL(), now)
 	if err != nil {
 		return nil, err
 	}
@@ -176,16 +177,47 @@ func (a *Allocator) tunnelGrantTTL() time.Duration {
 	return a.tunnelConfig.GrantTTL
 }
 
-// resolveTunnelTarget resolves the (host, port) target for a resource class at
-// grant time: the per-class map wins, the mandatory default is the fallback,
-// and a miss fails clearly instead of connecting by guesswork.
-func (a *Allocator) resolveTunnelTarget(resourceClass string) (tunnel.Target, error) {
+// resolveTunnelTargets resolves the target slot list for a resource class at
+// grant time: the per-class list wins, the mandatory default slot is the
+// fallback, and a miss fails clearly instead of connecting by guesswork. The
+// returned default target must name a real, usable endpoint (or be an explicit
+// member of the list) so a stream with no target_slot still splices
+// somewhere controlled.
+func (a *Allocator) resolveTunnelTargets(resourceClass string) ([]tunnel.Target, tunnel.Target, error) {
 	config := a.tunnelConfig
-	if target, ok := config.TargetByClass[resourceClass]; ok && strings.TrimSpace(target.Host) != "" && target.Port != 0 {
-		return target, nil
+	if slots, ok := config.TargetByClass[resourceClass]; ok && len(slots) > 0 {
+		return cloneTargetsForAllocator(slots), slotDefault(slots), nil
 	}
-	if config.DefaultTarget != nil && strings.TrimSpace(config.DefaultTarget.Host) != "" && config.DefaultTarget.Port != 0 {
-		return *config.DefaultTarget, nil
+	if config.DefaultTarget != nil && usableTarget(*config.DefaultTarget) {
+		return []tunnel.Target{*config.DefaultTarget}, *config.DefaultTarget, nil
 	}
-	return tunnel.Target{}, ErrTunnelNoTarget
+	return nil, tunnel.Target{}, ErrTunnelNoTarget
+}
+
+// usableTarget reports whether a target slot points at a concrete endpoint.
+func usableTarget(target tunnel.Target) bool {
+	return strings.TrimSpace(target.Host) != "" && target.Port != 0
+}
+
+// cloneTargetsForAllocator deep-copies a target slot list so the allocator
+// never aliases its configuration slice into a minted grant.
+func cloneTargetsForAllocator(slots []tunnel.Target) []tunnel.Target {
+	cloned := make([]tunnel.Target, len(slots))
+	copy(cloned, slots)
+	return cloned
+}
+
+// slotDefault returns the default slot for a per-class slot list: the
+// unnamed (empty ID) slot if present, else a copy of the first slot. A stream
+// with no target_slot splices to this slot.
+func slotDefault(slots []tunnel.Target) tunnel.Target {
+	for _, slot := range slots {
+		if slot.ID == "" {
+			return slot
+		}
+	}
+	if len(slots) > 0 {
+		return slots[0]
+	}
+	return tunnel.Target{}
 }

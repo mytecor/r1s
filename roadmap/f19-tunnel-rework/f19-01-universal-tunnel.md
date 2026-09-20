@@ -1,6 +1,11 @@
 # F19-01 — Universal tunnel: single multiplexed `r1s tunnel` command
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete — the F14 single interactive byte pipe is reworked into a multiplexed,
+addressable, client→allocator stream transport behind the single `r1s tunnel` command, while
+staying the same byte pipe for the interactive case. The multi-destination (slot-list) grant, the
+per-pair multiplexing layer (framing, per-stream flow control, stream-open authorization), the
+`--target <slot>` CLI surface, and the `LocalTunnelOpen.target_slot` envelope are landed and
+covered by tests, including a two-stream live-mesh leg; `make check` passes.
 
 ## Outcome
 

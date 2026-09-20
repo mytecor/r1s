@@ -136,6 +136,12 @@ message LocalTunnelMessage {
 // stream.
 message LocalTunnelOpen {
   string execution_id = 1;
+  // target_slot names the allocator-resolved target slot this stream is spliced
+  // to. Empty selects the unnamed default slot (the interactive pipe). The
+  // value is only a slot reference; the allocator resolves it against its
+  // grant-time slot list, never a client-supplied raw (host, port) — an
+  // unknown slot is rejected with ReasonUnauthorized before any payload moves.
+  string target_slot = 2;
 }
 
 // LocalTunnelClose ends a LocalTunnel stream. A close with reason set is an

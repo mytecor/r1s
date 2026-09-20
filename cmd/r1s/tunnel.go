@@ -19,14 +19,49 @@ import (
 // CommandError because only a persistent 'r1s serve' holds the F17 keep-alive
 // intent that keeps the execution alive for the duration of the session.
 func (l *localCLI) tunnel(args []string, stderr io.Writer) error {
-	flags := newFlagSet("r1s tunnel", stderr)
-	if err := flags.Parse(args); err != nil {
-		return err
+	// The tunnel command has a single flag (--target) and the usage shape from
+	// F19-01 puts the execution ID before flags: `r1s tunnel <id> --target
+	// <slot>`. The stdlib flag package stops at the first positional, so borrow
+	// interspersed parsing here — both `--target <slot> <id>` and
+	// `<id> --target <slot>` (and `--target=<slot>`) are accepted; the first
+	// non-flag token is the execution ID, anything else is rejected as unknown.
+	var targetSlot string
+	seenTarget := false
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--target" || a == "-target":
+			if seenTarget || i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				return errors.New("tunnel: --target requires a slot name")
+			}
+			targetSlot = strings.TrimSpace(args[i+1])
+			seenTarget = true
+			i++
+		case strings.HasPrefix(a, "--target=") || strings.HasPrefix(a, "-target="):
+			if seenTarget {
+				return errors.New("tunnel: --target given more than once")
+			}
+			targetSlot = strings.TrimPrefix(strings.TrimPrefix(a, "--target="), "-target=")
+			targetSlot = strings.TrimSpace(targetSlot)
+			if targetSlot == "" {
+				return errors.New("tunnel: --target requires a slot name")
+			}
+			seenTarget = true
+		case a == "--help" || a == "-h":
+			fmt.Fprintf(stderr, "Usage: r1s tunnel <execution-id> [--target <slot>]\n\n")
+			fmt.Fprintf(stderr, "  --target <slot>  open a stream to the named allocator-resolved target slot\n                 instead of the interactive pipe\n")
+			return nil
+		case strings.HasPrefix(a, "-") && a != "-":
+			return fmt.Errorf("tunnel: unknown flag: %s", a)
+		default:
+			positional = append(positional, a)
+		}
 	}
-	if flags.NArg() != 1 {
+	if len(positional) != 1 {
 		return errors.New("tunnel: execution ID is required")
 	}
-	executionID := strings.TrimSpace(flags.Arg(0))
+	executionID := strings.TrimSpace(positional[0])
 	if executionID == "" {
 		return errors.New("tunnel: execution ID is required")
 	}
@@ -36,7 +71,7 @@ func (l *localCLI) tunnel(args []string, stderr io.Writer) error {
 
 	// Open the bidirectional LocalTunnel stream. A setup failure surfaces here
 	// as a gRPC error before any payload is relayed; stdout stays byte-clean.
-	stream, err := l.client.Tunnel(ctx, executionID)
+	stream, err := l.client.Tunnel(ctx, executionID, targetSlot)
 	if err != nil {
 		return fmt.Errorf("tunnel: %w", err)
 	}

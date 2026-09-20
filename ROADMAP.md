@@ -212,7 +212,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > connection. The direction stays client→allocator — the client connects to the container, never the
 > other way around; there is no reverse/listen/publish surface.
 
-- **Status:** ⏳ planned
+- **Status:** ✅ landed (2026-09)
 - **Done when:** `r1s tunnel <execution-id>` stays the only user-facing tunnel command and exposes
   the execution as many addressable logical streams (named target or plain pipe, always
   client→allocator) over one authenticated pair of node keys; targets are allocator-resolved slot
@@ -235,10 +235,11 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   allocator-side edge inside `r1sd` gives the authenticated execution owner a direct Yggdrasil
   tunnel to a running execution over an embedded yggdrasil-go node, independent of artifact
   transfer, without Yggdrasil-specific protocol types or a new global state source.
-- [F19](#f19-universal-tunnel-rework) is the next tunnel vertical: it reworks the F14 single
-  interactive byte pipe into a multiplexed, addressable stream transport — several named streams,
-  always client→allocator, over one authenticated mesh connection, with allocator-resolved target
-  slots and no core/Yggdrasil coupling.
+- [F19](#f19-universal-tunnel-rework) landed (2026-09): the F14 single interactive byte pipe is
+  reworked into a multiplexed, addressable stream transport — several named streams, always
+  client→allocator, over one authenticated mesh connection, with allocator-resolved target slots
+  and no core/Yggdrasil coupling. `r1s tunnel <id> --target <slot>` opens a named slot's stream;
+  without `--target` it stays the F14 interactive pipe. See [F19-01](./roadmap/f19-tunnel-rework/f19-01-universal-tunnel.md).
 - [F16](#f16-node-capabilities-and-placement) landed (2026): allocators advertise bounded
   OS/arch/runtime/device/resource-profile/label capabilities in offers and a compact RNS announce
   summary; clients express exact-match `--constraints`, and only compatible allocators receive the

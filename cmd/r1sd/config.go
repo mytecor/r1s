@@ -75,37 +75,72 @@ func parseCapacity(value string) (map[string]uint32, error) {
 	return capacity, nil
 }
 
-// ParseTunnelTargets parses a comma-separated per-resource-class tunnel target
-// map, for example "default=127.0.0.1:9000,gpu=127.0.0.1:9001". The target is
-// allocator-local and resolved at grant time; it is never a client-supplied
-// destination.
-func ParseTunnelTargets(value string) (map[string]tunnel.Target, error) {
-	targets := make(map[string]tunnel.Target)
+// ParseTunnelTargets parses a per-resource-class tunnel target slot map, for
+// example "default=ssh@127.0.0.1:2222;http@127.0.0.1:8080,gpu=9001". A class
+// may carry several named slots separated by `;`: each slot is `host:port`
+// (an unnamed default slot) or `name@host:port` (a named slot the client
+// references with --target). A class with one unnamed slot keeps the F14
+// single-target shape. Targets are allocator-local and resolved at grant time;
+// they are never a client-supplied destination.
+func ParseTunnelTargets(value string) (map[string][]tunnel.Target, error) {
+	targets := make(map[string][]tunnel.Target)
 	if strings.TrimSpace(value) == "" {
 		return targets, nil
 	}
 	for _, entry := range strings.Split(value, ",") {
 		parts := strings.SplitN(entry, "=", 2)
 		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" {
-			return nil, fmt.Errorf("invalid tunnel target %q: expected class=host:port", entry)
+			return nil, fmt.Errorf("invalid tunnel target %q: expected class=slot[;slot...]", entry)
 		}
-		target, err := ParseTunnelTarget(parts[1])
+		slots, err := ParseTunnelTargetSlots(parts[1])
 		if err != nil {
 			return nil, fmt.Errorf("invalid tunnel target %q: %w", entry, err)
+		}
+		if len(slots) == 0 {
+			return nil, fmt.Errorf("invalid tunnel target %q: at least one slot is required", entry)
 		}
 		class := strings.TrimSpace(parts[0])
 		if _, duplicate := targets[class]; duplicate {
 			return nil, fmt.Errorf("invalid tunnel target %q: duplicate class", entry)
 		}
-		targets[class] = target
+		targets[class] = slots
 	}
 	return targets, nil
 }
 
-// ParseTunnelTarget parses a single host:port target. A missing port is an
-// error: the tunnel must always terminate at a concrete local endpoint.
+// ParseTunnelTargetSlots parses one class's `;`-separated slot list. Each slot
+// is a host:port, optionally named with a leading `name@`.
+func ParseTunnelTargetSlots(value string) ([]tunnel.Target, error) {
+	var slots []tunnel.Target
+	for _, slot := range strings.Split(value, ";") {
+		trimmed := strings.TrimSpace(slot)
+		if trimmed == "" {
+			continue
+		}
+		target, err := ParseTunnelTarget(trimmed)
+		if err != nil {
+			return nil, err
+		}
+		slots = append(slots, target)
+	}
+	return slots, nil
+}
+
+// ParseTunnelTarget parses a single host:port target, optionally named with a
+// leading `name@`. A missing port is an error: the tunnel must always terminate
+// at a concrete local endpoint.
 func ParseTunnelTarget(value string) (tunnel.Target, error) {
-	host, portText, err := net.SplitHostPort(strings.TrimSpace(value))
+	original := strings.TrimSpace(value)
+	id := ""
+	hostPort := original
+	if at := strings.LastIndex(original, "@"); at >= 0 {
+		id = strings.TrimSpace(original[:at])
+		hostPort = strings.TrimSpace(original[at+1:])
+		if id == "" {
+			return tunnel.Target{}, fmt.Errorf("expected name@host:port")
+		}
+	}
+	host, portText, err := net.SplitHostPort(hostPort)
 	if err != nil {
 		return tunnel.Target{}, fmt.Errorf("expected host:port")
 	}
@@ -116,7 +151,7 @@ func ParseTunnelTarget(value string) (tunnel.Target, error) {
 	if strings.TrimSpace(host) == "" {
 		return tunnel.Target{}, fmt.Errorf("host is required")
 	}
-	return tunnel.Target{Host: host, Port: uint16(port)}, nil
+	return tunnel.Target{ID: id, Host: host, Port: uint16(port)}, nil
 }
 
 // parseHexBytes decodes an opaque hex-encoded value, allowing an empty string.

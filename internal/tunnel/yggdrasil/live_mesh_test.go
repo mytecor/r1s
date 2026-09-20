@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"net/url"
 	"testing"
 	"time"
@@ -12,41 +11,14 @@ import (
 	"github.com/mytecor/r1s/internal/tunnel"
 )
 
-// TestLiveMeshRoundTrip is the F14-02 live-mesh acceptance leg: two embedded
+// TestLiveMeshRoundTrip is the F19-01 live-mesh acceptance leg: two embedded
 // Yggdrasil nodes peer over a local TCP link, the client dials the allocator's
 // overlay address with a pinned key, the routing preamble and an accept frame
-// cross the mesh, and a payload larger than one packet round-trips. The mesh
-// (not RNS) carries every tunnel byte; no RNS process participates.
+// cross the mesh, and a payload larger than one packet round-trips over the
+// default stream. The mesh (not RNS) carries every tunnel byte.
 func TestLiveMeshRoundTrip(t *testing.T) {
-	clientSeed := []byte("live-mesh-client-seed-0000000000000000000000")
-	allocatorSeed := []byte("live-mesh-allocator-seed-000000000000000000")
+	clientNode, allocatorNode := newLiveMeshPair(t)
 
-	clientNode, err := NewNode(clientSeed, ClientNodeKeyContext, NodeOptions{})
-	if err != nil {
-		t.Fatalf("client node: %v", err)
-	}
-	defer func() { _ = clientNode.Close() }()
-	allocatorNode, err := NewNode(allocatorSeed, AllocatorNodeKeyContext, NodeOptions{})
-	if err != nil {
-		t.Fatalf("allocator node: %v", err)
-	}
-	defer func() { _ = allocatorNode.Close() }()
-
-	// Peer the two nodes over a local TCP link: the allocator listens, the
-	// client calls it once. This stands in for the overlay bootstrap; in a
-	// real deployment the peer URIs come from edge configuration.
-	linkListener, err := allocatorNode.Core().Listen(&url.URL{Scheme: "tcp", Host: "localhost:0"}, "")
-	if err != nil {
-		t.Fatalf("allocator link listen: %v", err)
-	}
-	defer linkListener.Cancel()
-	if err := clientNode.Core().CallPeer(&url.URL{Scheme: "tcp", Host: linkListener.Addr().String()}, ""); err != nil {
-		t.Fatalf("client call peer: %v", err)
-	}
-	waitForMesh(t, clientNode, allocatorNode)
-
-	// The allocator edge listens on its overlay address; the client dials it
-	// with the pinned key from the (would-be) grant advertisement.
 	allocatorListener, err := NewListener(allocatorNode)
 	if err != nil {
 		t.Fatalf("allocator listener: %v", err)
@@ -58,7 +30,7 @@ func TestLiveMeshRoundTrip(t *testing.T) {
 	}
 
 	acceptDone := make(chan error, 1)
-	allocatorConn := make(chan tunnel.Conn, 1)
+	var allocatorPair *pairConn
 	go func() {
 		incoming, err := allocatorListener.Accept()
 		if err != nil {
@@ -73,11 +45,11 @@ func TestLiveMeshRoundTrip(t *testing.T) {
 			acceptDone <- errors.New("peer key mismatch")
 			return
 		}
-		if err := incoming.Promote(); err != nil {
+		if err := incoming.Promote(liveSession(clientNode.PublicKey())); err != nil {
 			acceptDone <- err
 			return
 		}
-		allocatorConn <- incoming.Conn()
+		allocatorPair = incoming.pair
 		acceptDone <- nil
 	}()
 
@@ -100,6 +72,12 @@ func TestLiveMeshRoundTrip(t *testing.T) {
 		t.Fatalf("accept side: %v", err)
 	}
 
+	// The allocator side surfaces the default stream opened by WritePreamble.
+	stream, err := allocatorPair.AcceptStream()
+	if err != nil {
+		t.Fatalf("accept stream: %v", err)
+	}
+
 	// Payload round-trip, larger than one packet: the mesh segments and
 	// reassembles through the stream adapter.
 	payload := bytes.Repeat([]byte("r1s-live-mesh-payload|"), 400) // ~8.8 KB > packet MTU
@@ -112,20 +90,13 @@ func TestLiveMeshRoundTrip(t *testing.T) {
 		writeDone <- conn.CloseWrite()
 	}()
 
-	stream := <-allocatorConn
 	var got []byte
 	buf := make([]byte, 4096)
-	for {
-		n, err := stream.Read(buf)
+	for len(got) < len(payload) {
+		n, err := stream.Conn.Read(buf)
 		got = append(got, buf[:n]...)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
 			t.Fatalf("allocator read after %d bytes: %v", len(got), err)
-		}
-		if len(got) >= len(payload) {
-			break
 		}
 	}
 	if !bytes.Equal(got, payload) {
@@ -136,15 +107,169 @@ func TestLiveMeshRoundTrip(t *testing.T) {
 	}
 }
 
+// TestLiveMeshTwoStreams is the F19-01 multi-stream live leg: one authenticated
+// pair carries two concurrent streams over the live mesh, both round-tripping
+// >MTU payloads.
+func TestLiveMeshTwoStreams(t *testing.T) {
+	clientNode, allocatorNode := newLiveMeshPair(t)
+
+	allocatorListener, err := NewListener(allocatorNode)
+	if err != nil {
+		t.Fatalf("allocator listener: %v", err)
+	}
+	defer func() { _ = allocatorListener.Close() }()
+	advertisement := tunnel.Endpoint{
+		Address: allocatorNode.AddressBytes(),
+		PubKey:  append([]byte(nil), allocatorNode.PublicKey()...),
+	}
+
+	acceptDone := make(chan error, 1)
+	var allocatorPair *pairConn
+	go func() {
+		incoming, err := allocatorListener.Accept()
+		if err != nil {
+			acceptDone <- err
+			return
+		}
+		if err := incoming.Promote(liveSession(clientNode.PublicKey())); err != nil {
+			acceptDone <- err
+			return
+		}
+		allocatorPair = incoming.pair
+		acceptDone <- nil
+	}()
+
+	dialer, err := NewDialer(clientNode)
+	if err != nil {
+		t.Fatalf("dialer: %v", err)
+	}
+	conn, err := dialer.Dial(context.Background(), advertisement)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	if err := conn.(tunnel.PreambleWriter).WritePreamble(tunnel.Preamble{ExecutionID: "live-exec", GrantID: "live-grant"}); err != nil {
+		t.Fatalf("write preamble: %v", err)
+	}
+	if err := <-acceptDone; err != nil {
+		t.Fatalf("accept side: %v", err)
+	}
+
+	// The default stream (from WritePreamble) plus a named http stream.
+	httpConn, err := conn.(tunnel.StreamOpener).OpenStream("http")
+	if err != nil {
+		t.Fatalf("open http stream: %v", err)
+	}
+
+	streams := make([]*IncomingStream, 2)
+	collectDone := make(chan error, 1)
+	go func() {
+		for i := 0; i < 2; i++ {
+			s, err := allocatorPair.AcceptStream()
+			if err != nil {
+				collectDone <- err
+				return
+			}
+			streams[i] = s
+		}
+		collectDone <- nil
+	}()
+	if err := <-collectDone; err != nil {
+		t.Fatalf("collect streams: %v", err)
+	}
+
+	var allocHTTP, allocDefault tunnel.Conn
+	for _, s := range streams {
+		if s.Target.ID == "http" {
+			allocHTTP = s.Conn
+		} else {
+			allocDefault = s.Conn
+		}
+	}
+	if allocHTTP == nil || allocDefault == nil {
+		t.Fatal("expected one http stream and one default stream")
+	}
+
+	payloadA := bytes.Repeat([]byte("live-a-|"), 300)
+	payloadB := bytes.Repeat([]byte("live-b-|"), 350)
+	writeErr := make(chan error, 2)
+	go func() { _, err := httpConn.Write(payloadA); writeErr <- err }()
+	go func() { _, err := conn.Write(payloadB); writeErr <- err }()
+
+	gotA := readAllLive(t, allocHTTP, len(payloadA))
+	gotB := readAllLive(t, allocDefault, len(payloadB))
+	if !bytes.Equal(gotA, payloadA) {
+		t.Fatalf("http payload mismatch: got %d bytes", len(gotA))
+	}
+	if !bytes.Equal(gotB, payloadB) {
+		t.Fatalf("default payload mismatch: got %d bytes", len(gotB))
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-writeErr; err != nil {
+			t.Fatalf("live concurrent write: %v", err)
+		}
+	}
+}
+
+// liveSession builds the allocator-validated session for a live-mesh test.
+func liveSession(clientPubKey []byte) *tunnel.Session {
+	return &tunnel.Session{
+		ExecutionID:   "live-exec",
+		PeerKey:       append([]byte(nil), clientPubKey...),
+		Targets:       []tunnel.Target{{ID: "", Host: "127.0.0.1", Port: 9000}, {ID: "http", Host: "127.0.0.1", Port: 8080}},
+		DefaultTarget: tunnel.Target{Host: "127.0.0.1", Port: 9000},
+	}
+}
+
+func readAllLive(t *testing.T, conn tunnel.Conn, want int) []byte {
+	t.Helper()
+	var got []byte
+	buf := make([]byte, 2048)
+	for len(got) < want {
+		n, err := conn.Read(buf)
+		got = append(got, buf[:n]...)
+		if err != nil {
+			t.Fatalf("read after %d/%d bytes: %v", len(got), want, err)
+		}
+	}
+	return got
+}
+
+// newLiveMeshPair starts two embedded nodes peered over a local TCP link.
+func newLiveMeshPair(t *testing.T) (*Node, *Node) {
+	t.Helper()
+	clientSeed := []byte("live-mesh-client-seed-0000000000000000000000")
+	allocatorSeed := []byte("live-mesh-allocator-seed-000000000000000000")
+
+	clientNode, err := NewNode(clientSeed, ClientNodeKeyContext, NodeOptions{})
+	if err != nil {
+		t.Fatalf("client node: %v", err)
+	}
+	t.Cleanup(func() { _ = clientNode.Close() })
+	allocatorNode, err := NewNode(allocatorSeed, AllocatorNodeKeyContext, NodeOptions{})
+	if err != nil {
+		t.Fatalf("allocator node: %v", err)
+	}
+	t.Cleanup(func() { _ = allocatorNode.Close() })
+
+	linkListener, err := allocatorNode.Core().Listen(&url.URL{Scheme: "tcp", Host: "localhost:0"}, "")
+	if err != nil {
+		t.Fatalf("allocator link listen: %v", err)
+	}
+	t.Cleanup(linkListener.Cancel)
+	if err := clientNode.Core().CallPeer(&url.URL{Scheme: "tcp", Host: linkListener.Addr().String()}, ""); err != nil {
+		t.Fatalf("client call peer: %v", err)
+	}
+	waitForMesh(t, clientNode, allocatorNode)
+	return clientNode, allocatorNode
+}
+
 // waitForMesh blocks until both nodes have each other in their tree, or the
-// test times out. The tree reflects the mesh's routing knowledge; a session
-// dial before the tree converges would wait at the mesh layer instead.
+// test times out.
 func waitForMesh(t *testing.T, client, allocator *Node) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		if len(client.Core().GetTree()) > 1 && len(allocator.Core().GetTree()) > 1 {
-			// Paths settle shortly after the tree converges.
 			time.Sleep(500 * time.Millisecond)
 			return
 		}

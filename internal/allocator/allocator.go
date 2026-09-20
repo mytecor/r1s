@@ -223,9 +223,11 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 		},
 	}
 	// Copy the target map so callers cannot mutate tunnel targets concurrently.
-	result.tunnelConfig.TargetByClass = make(map[string]tunnel.Target, len(config.Tunnel.TargetByClass))
-	for class, target := range config.Tunnel.TargetByClass {
-		result.tunnelConfig.TargetByClass[class] = target
+	result.tunnelConfig.TargetByClass = make(map[string][]tunnel.Target, len(config.Tunnel.TargetByClass))
+	for class, targets := range config.Tunnel.TargetByClass {
+		targetList := make([]tunnel.Target, len(targets))
+		copy(targetList, targets)
+		result.tunnelConfig.TargetByClass[class] = targetList
 	}
 	result.tunnels, err = tunnel.NewRegistry(tunnel.RegistryConfig{NewID: config.NewID})
 	if err != nil {

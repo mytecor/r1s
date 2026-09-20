@@ -13,38 +13,37 @@ import (
 // The node's packet interface is process-wide: every embedded node has one
 // ReadFrom/WriteTo pair, and packets from every remote peer arrive through it.
 // The mux owns ReadFrom and demultiplexes packets by remote key (ironwood's
-// types.Addr, the remote's ed25519 public key).
+// types.Addr, the remote's ed25519 public key) into one pairConn per remote key.
 //
 // Session identity is the remote node key (Model A, BACKLOG resolved decision
-// 16): one live tunnel per pair of node keys. The allocator registry enforces
-// one live session per execution and the client holds one tunnel session at a
-// time, so the mux maps one remote key to at most one stream.
+// 16): one authenticated mesh connection per pair of node keys. F19-01 lets a
+// single such connection carry many logical streams (a tunnelMux), so the mux
+// maps one remote key to exactly one pair, and the pair routes frames by stream
+// id to individual streams.
 //
-// Inbound sessions: the first packet from a previously unseen peer opens a
-// bounded pending session keyed by that peer. The routing preamble rides as
-// the first frame; Accept hands the pending session to the listener, whose
-// caller validates it against the allocator core and promotes the session
-// into the payload map (the same conn, moved between maps). An
-// unauthenticated peer can at worst allocate one small pending buffer that
-// expires.
+// Inbound pairs: the first packet from a previously unseen peer opens a bounded
+// pending pair keyed by that peer. The routing preamble rides as the pair's
+// first frame; Accept hands the pending pair to the listener, whose caller
+// validates it against the allocator core and Authorizes it. An unauthenticated
+// peer can at worst allocate one small pending buffer that expires.
 type mux struct {
 	pkt packetIO
 
-	mu       sync.Mutex
-	sessions map[string]*streamConn // payload sessions by remote key
-	pending  map[string]*pendingSession
-	inbound  chan *pendingSession
-	closed   bool
-	closeCh  chan struct{}
+	mu      sync.Mutex
+	pairs   map[string]*pairConn // mesh connections by remote key
+	pending map[string]*pendingPair
+	inbound chan *pendingPair
+	closed  bool
+	closeCh chan struct{}
 }
 
 var tracePackets = os.Getenv("R1S_TRACE") != ""
 
-// pendingSession is an inbound session whose first frame (the routing
-// preamble) is arriving but has not yet been validated by the allocator core.
-// Promote moves the same conn into the payload map after validation.
-type pendingSession struct {
-	conn     *streamConn
+// pendingPair is an inbound pair whose first frame (the routing preamble) is
+// arriving but has not yet been validated by the allocator core. Promote moves
+// the same pair into the payload map after validation.
+type pendingPair struct {
+	pair     *pairConn
 	remote   string // the remote key; also the pending map's key
 	deadline time.Time
 }
@@ -52,18 +51,17 @@ type pendingSession struct {
 // newMux wraps a packet interface; the caller starts one readLoop per mux.
 func newMux(pkt packetIO) *mux {
 	return &mux{
-		pkt:      pkt,
-		sessions: make(map[string]*streamConn),
-		pending:  make(map[string]*pendingSession),
-		inbound:  make(chan *pendingSession, maxPendingSessions),
-		closeCh:  make(chan struct{}),
+		pkt:     pkt,
+		pairs:   make(map[string]*pairConn),
+		pending: make(map[string]*pendingPair),
+		inbound: make(chan *pendingPair, maxPendingSessions),
+		closeCh: make(chan struct{}),
 	}
 }
 
 // readLoop owns the packet interface's ReadFrom until the mux closes. Each
-// packet is routed to the registered session for its remote key; a packet
-// from an unknown peer opens a bounded pending inbound session keyed by that
-// peer.
+// packet is routed to the pair for its remote key; a packet from an unknown
+// peer opens a bounded pending inbound pair keyed by that peer.
 func (m *mux) readLoop() {
 	buf := make([]byte, maxPacketPayload)
 	for {
@@ -82,32 +80,30 @@ func (m *mux) readLoop() {
 		packet := append([]byte(nil), buf[:n]...)
 
 		if tracePackets {
-			println("readLoop from=", len(remote), "sess=", len(m.sessions), "pend=", len(m.pending), "n=", n)
+			println("readLoop from=", len(remote), "pairs=", len(m.pairs), "pend=", len(m.pending), "n=", n)
 		}
 		m.mu.Lock()
 		if m.closed {
 			m.mu.Unlock()
 			return
 		}
-		session := m.sessions[string(remote)]
+		pair := m.pairs[string(remote)]
 		pending := m.pending[string(remote)]
 		m.mu.Unlock()
 
 		switch {
-		case session != nil:
-			session.ingest(packet)
+		case pair != nil:
+			pair.ingest(packet)
 		case pending != nil:
-			pending.conn.ingest(packet)
+			pending.pair.ingest(packet)
 		default:
 			m.openPending(remote, packet)
 		}
 	}
 }
 
-// openPending registers a pending inbound session for a previously unseen
-// remote key, feeds it the first packet, and queues it for Accept. The
-// unauthenticated peer can do nothing with it except send a preamble the
-// allocator core will validate — or the deadline drops it.
+// openPending registers a pending inbound pair for a previously unseen remote
+// key, feeds it the first packet, and queues it for Accept.
 func (m *mux) openPending(remote iwt.Addr, packet []byte) {
 	key := string(remote)
 	m.mu.Lock()
@@ -115,12 +111,12 @@ func (m *mux) openPending(remote iwt.Addr, packet []byte) {
 		m.mu.Unlock()
 		return
 	}
-	conn := newStreamConn(m.pkt, remote, remote, m)
-	pending := &pendingSession{conn: conn, remote: key, deadline: time.Now().Add(pendingSessionTimeout)}
+	pair := newPair(m.pkt, remote, remote, m)
+	pending := &pendingPair{pair: pair, remote: key, deadline: time.Now().Add(pendingSessionTimeout)}
 	m.pending[key] = pending
 	m.mu.Unlock()
 
-	pending.conn.ingest(packet)
+	pair.ingest(packet)
 	select {
 	case m.inbound <- pending:
 	case <-time.After(pendingSessionTimeout):
@@ -129,32 +125,31 @@ func (m *mux) openPending(remote iwt.Addr, packet []byte) {
 	}
 }
 
-// remove deletes a session or pending record by remote key; it is the onEnd
-// hook (wired in end) for every session the mux creates.
-func (m *mux) remove(key string) {
+// removePair deletes a pair or pending record by remote key; it is the onEnd
+// hook (wired in endAll) for every pair the mux creates.
+func (m *mux) removePair(key string) {
 	m.mu.Lock()
-	delete(m.sessions, key)
+	delete(m.pairs, key)
 	delete(m.pending, key)
 	m.mu.Unlock()
 }
 
-// dropPending removes and ends one pending session.
+// dropPending removes and ends one pending pair.
 func (m *mux) dropPending(key string) {
 	m.mu.Lock()
 	pending := m.pending[key]
 	delete(m.pending, key)
 	m.mu.Unlock()
 	if pending != nil {
-		pending.conn.end(&tunnel.SessionError{Reason: tunnel.ReasonSessionFailed, Detail: "accept timed out"})
+		pending.pair.endAll(&tunnel.SessionError{Reason: tunnel.ReasonSessionFailed, Detail: "accept timed out"})
 	}
 }
 
-// promote moves a validated pending session into the payload map. Called by
-// the listener's caller after the allocator core validated the grant and
-// preamble; the pending conn keeps buffering and its Read serves payload from
-// here on. A pending record that was already superseded (dropped for its
-// deadline and re-created) rejects the stale validation.
-func (m *mux) promote(p *pendingSession) error {
+// promote moves a validated pending pair into the payload map. Called by the
+// listener's caller after the allocator core validated the grant and preamble.
+// A pending record already superseded (dropped for its deadline and re-created)
+// rejects the stale validation.
+func (m *mux) promote(p *pendingPair) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
@@ -163,18 +158,17 @@ func (m *mux) promote(p *pendingSession) error {
 	if m.pending[p.remote] != p {
 		return tunnel.ErrSessionBusy
 	}
-	if _, busy := m.sessions[p.remote]; busy {
+	if _, busy := m.pairs[p.remote]; busy {
 		return tunnel.ErrSessionBusy
 	}
 	delete(m.pending, p.remote)
-	m.sessions[p.remote] = p.conn
+	m.pairs[p.remote] = p.pair
 	return nil
 }
 
-// accept removes and returns the oldest pending inbound session, or blocks
-// until one arrives or the mux closes. Expired pending sessions are dropped
-// lazily as they surface.
-func (m *mux) accept() (*pendingSession, error) {
+// accept removes and returns the oldest pending inbound pair, or blocks until
+// one arrives or the mux closes. Expired pending pairs are dropped lazily.
+func (m *mux) accept() (*pendingPair, error) {
 	for {
 		select {
 		case p := <-m.inbound:
@@ -189,9 +183,8 @@ func (m *mux) accept() (*pendingSession, error) {
 	}
 }
 
-// close ends every live and pending session and marks the mux closed. The
-// read loop exits on the next packet-interface failure (the node close
-// unblocks ReadFrom).
+// close ends every pair and marks the mux closed. The read loop exits on the
+// next packet-interface failure (the node close unblocks ReadFrom).
 func (m *mux) close() {
 	m.mu.Lock()
 	if m.closed {
@@ -204,44 +197,37 @@ func (m *mux) close() {
 	m.endAll(&tunnel.SessionError{Reason: tunnel.ReasonMeshUnreachable, Detail: "edge closed"})
 }
 
-// endAll ends every live and pending session with a classified reason. Used
-// on packet-interface failure and on mux close.
+// endAll ends every pair with a classified reason. Used on packet-interface
+// failure and on mux close.
 func (m *mux) endAll(sessionErr error) {
 	m.mu.Lock()
-	sessions := make([]*streamConn, 0, len(m.sessions))
-	for _, session := range m.sessions {
-		sessions = append(sessions, session)
+	pairs := make([]*pairConn, 0, len(m.pairs))
+	for _, pair := range m.pairs {
+		pairs = append(pairs, pair)
 	}
-	pending := make([]*pendingSession, 0, len(m.pending))
-	for _, p := range m.pending {
-		pending = append(pending, p)
-	}
-	m.sessions = make(map[string]*streamConn)
-	m.pending = make(map[string]*pendingSession)
+	m.pairs = make(map[string]*pairConn)
+	m.pending = make(map[string]*pendingPair)
 	m.mu.Unlock()
-	for _, session := range sessions {
-		session.end(sessionErr)
-	}
-	for _, p := range pending {
-		p.conn.end(sessionErr)
+	for _, pair := range pairs {
+		pair.endAll(sessionErr)
 	}
 }
 
-// register adds an outbound (client-side) session for a remote peer key. The
+// register adds an outbound (client-side) pair for a remote peer key. The
 // dialing side knows the preamble comes next (the caller writes it through
-// PreambleWriter); until then the session receives no packets from unknown
-// peers because it is registered up front. It fails if the mux is closing or
-// a session for that key already exists (Model A: one mesh path per tunnel).
-func (m *mux) register(remote []byte) (*streamConn, error) {
+// WritePreamble); until then the pair receives no packets from unknown peers
+// because it is registered up front. It fails if the mux is closing or a pair
+// for that key already exists (Model A: one mesh connection per tunnel).
+func (m *mux) register(remote []byte) (*pairConn, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
 		return nil, ErrEdgeClosed
 	}
-	if _, busy := m.sessions[string(remote)]; busy {
+	if _, busy := m.pairs[string(remote)]; busy {
 		return nil, tunnel.ErrSessionBusy
 	}
-	conn := newStreamConn(m.pkt, remote, remote, m)
-	m.sessions[string(remote)] = conn
-	return conn, nil
+	pair := newPair(m.pkt, remote, remote, m)
+	m.pairs[string(remote)] = pair
+	return pair, nil
 }

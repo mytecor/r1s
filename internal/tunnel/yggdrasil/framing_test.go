@@ -2,6 +2,7 @@ package yggdrasil
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"testing"
 
@@ -9,27 +10,30 @@ import (
 )
 
 // TestFrameRoundTrip verifies one frame survives append+parse round-trip for
-// every frame type.
+// every frame type, including the F19 stream-open and window-update headers.
 func TestFrameRoundTrip(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		typ     byte
-		payload []byte
+		name     string
+		typ      byte
+		streamID uint32
+		payload  []byte
 	}{
-		{"data", frameTypeData, []byte("hello tunnel")},
-		{"empty-eof", frameTypeEOF, nil},
-		{"close", frameTypeClose, closePayload(tunnel.ReasonExecutionEnded, "container exited")},
-		{"preamble", frameTypePreamble, encodePreamble(tunnel.Preamble{ExecutionID: "exec-1", GrantID: "grant-1"})},
-		{"accept", frameTypeAccept, nil},
+		{"data", frameTypeData, 1, []byte("hello tunnel")},
+		{"empty-eof", frameTypeEOF, 2, nil},
+		{"close", frameTypeClose, 3, closePayload(tunnel.ReasonExecutionEnded, "container exited")},
+		{"preamble", frameTypePreamble, streamIDNone, encodePreamble(tunnel.Preamble{ExecutionID: "exec-1", GrantID: "grant-1"})},
+		{"accept", frameTypeAccept, streamIDNone, nil},
+		{"stream-open", frameTypeStreamOpen, 4, encodeStreamOpen("http")},
+		{"window-update", frameTypeWindowUpdate, 5, streamWindowPayload(8192)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			frameBytes := appendFrame(nil, tc.typ, tc.payload)
+			frameBytes := appendFrame(nil, tc.typ, tc.streamID, tc.payload)
 			f, consumed, ok, err := parseFrame(frameBytes)
 			if err != nil || !ok {
 				t.Fatalf("parseFrame: ok=%v err=%v", ok, err)
 			}
-			if f.typ != tc.typ || !bytes.Equal(f.payload, tc.payload) {
-				t.Fatalf("decoded frame %+v, want type 0x%02x payload %q", f, tc.typ, tc.payload)
+			if f.typ != tc.typ || f.streamID != tc.streamID || !bytes.Equal(f.payload, tc.payload) {
+				t.Fatalf("decoded frame %+v, want type 0x%02x sid %d payload %q", f, tc.typ, tc.streamID, tc.payload)
 			}
 			if consumed != frameHeaderSize+len(tc.payload) {
 				t.Fatalf("consumed = %d; want %d", consumed, frameHeaderSize+len(tc.payload))
@@ -41,11 +45,13 @@ func TestFrameRoundTrip(t *testing.T) {
 // TestParseFrameUnknownType verifies malformed input is detected as an error
 // (and the session dies rather than desynchronizing).
 func TestFrameUnknownType(t *testing.T) {
-	if _, _, _, err := parseFrame([]byte{0x7f, 0x00, 0x00}); err == nil {
+	if _, _, _, err := parseFrame([]byte{0x7f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}); err == nil {
 		t.Fatal("unknown frame type accepted")
 	}
-	if _, _, _, err := parseFrame([]byte{frameTypeData, 0xff, 0xff}); err == nil {
-		t.Fatal("oversized frame length accepted")
+	oversized := appendFrame(nil, frameTypeData, 1, make([]byte, maxPacketPayload+1))
+	f, _, _, err := parseFrame(oversized)
+	if err == nil {
+		t.Fatalf("oversized length accepted (frame=%+v)", f)
 	}
 }
 
@@ -78,6 +84,33 @@ func TestPreambleRoundTrip(t *testing.T) {
 	// An empty preamble is a protocol violation.
 	if _, err := decodePreamble(encodePreamble(tunnel.Preamble{})); err == nil {
 		t.Fatal("empty preamble accepted")
+	}
+}
+
+// TestStreamOpenRoundTrip verifies a stream-open header survives the wire and
+// that an empty slot means the default (interactive pipe).
+func TestStreamOpenRoundTrip(t *testing.T) {
+	if got := decodeStreamOpen(encodeStreamOpen("http")); got != "http" {
+		t.Fatalf("decodeStreamOpen = %q; want http", got)
+	}
+	if got := decodeStreamOpen(encodeStreamOpen("")); got != "" {
+		t.Fatalf("decodeStreamOpen(empty) = %q; want empty default", got)
+	}
+}
+
+// TestWindowUpdateRoundTrip verifies the flow-control increment survives the
+// wire as big-endian bytes.
+func TestWindowUpdateRoundTrip(t *testing.T) {
+	payload := streamWindowPayload(8192)
+	if got := parseWindowPayload(payload); got != 8192 {
+		t.Fatalf("parseWindowPayload = %d; want 8192", got)
+	}
+	var decoded uint32
+	if err := binary.Read(bytes.NewReader(payload), binary.BigEndian, &decoded); err != nil {
+		t.Fatalf("decode window payload: %v", err)
+	}
+	if decoded != 8192 {
+		t.Fatalf("window increment = %d; want 8192", decoded)
 	}
 }
 

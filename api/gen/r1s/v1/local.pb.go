@@ -921,8 +921,14 @@ func (*LocalTunnelMessage_Close) isLocalTunnelMessage_Payload() {}
 // LocalTunnelOpen is the one-time routing header sent first on a LocalTunnel
 // stream.
 type LocalTunnelOpen struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	// target_slot names the allocator-resolved target slot this stream is spliced
+	// to. Empty selects the unnamed default slot (the interactive pipe). The
+	// value is only a slot reference; the allocator resolves it against its
+	// grant-time slot list, never a client-supplied raw (host, port) — an
+	// unknown slot is rejected with ReasonUnauthorized before any payload moves.
+	TargetSlot    string `protobuf:"bytes,2,opt,name=target_slot,json=targetSlot,proto3" json:"target_slot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -960,6 +966,13 @@ func (*LocalTunnelOpen) Descriptor() ([]byte, []int) {
 func (x *LocalTunnelOpen) GetExecutionId() string {
 	if x != nil {
 		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *LocalTunnelOpen) GetTargetSlot() string {
+	if x != nil {
+		return x.TargetSlot
 	}
 	return ""
 }
@@ -1096,9 +1109,11 @@ const file_r1s_v1_local_proto_rawDesc = "" +
 	"\x04open\x18\x01 \x01(\v2\x17.r1s.v1.LocalTunnelOpenH\x00R\x04open\x12\x14\n" +
 	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x120\n" +
 	"\x05close\x18\x03 \x01(\v2\x18.r1s.v1.LocalTunnelCloseH\x00R\x05closeB\t\n" +
-	"\apayload\"4\n" +
+	"\apayload\"U\n" +
 	"\x0fLocalTunnelOpen\x12!\n" +
-	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\"V\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x1f\n" +
+	"\vtarget_slot\x18\x02 \x01(\tR\n" +
+	"targetSlot\"V\n" +
 	"\x10LocalTunnelClose\x12\x12\n" +
 	"\x04half\x18\x01 \x01(\bR\x04half\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x16\n" +

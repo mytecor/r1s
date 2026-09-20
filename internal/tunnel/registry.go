@@ -20,15 +20,19 @@ type Grant struct {
 	ExpiresAt   time.Time
 }
 
-// Session is the single live tunnel session for one execution, opened at
-// accept and bound to the execution lifecycle. It carries the authenticated
-// peer key reported by the edge and the allocator-local target the edge shall
-// splice to.
+// Session is the single live tunnel session (mesh connection) for one
+// execution, opened at accept and bound to the execution lifecycle. It
+// carries the authenticated peer key reported by the edge and the
+// allocator-resolved target slot list the edge may splice streams to. Each
+// opening stream references exactly one slot (or the default); every slot
+// was resolved from allocator-local configuration before the grant was
+// minted.
 type Session struct {
-	ExecutionID string
-	PeerKey     []byte
-	Target      Target
-	Endpoint    Endpoint
+	ExecutionID   string
+	PeerKey       []byte
+	Targets       []Target
+	DefaultTarget Target
+	Endpoint      Endpoint
 }
 
 type grantState struct {
@@ -39,12 +43,13 @@ type grantState struct {
 
 // record is the grant-and-session state for one execution.
 type record struct {
-	executionID string
-	peerKey     []byte
-	target      Target
-	endpoint    Endpoint
-	grant       *grantState
-	session     *Session
+	executionID   string
+	peerKey       []byte
+	targets       []Target
+	defaultTarget Target
+	endpoint      Endpoint
+	grant         *grantState
+	session       *Session
 }
 
 // Registry is the allocator-side in-memory registry of per-execution tunnel
@@ -76,18 +81,25 @@ func NewRegistry(config RegistryConfig) (*Registry, error) {
 }
 
 // Mint creates the outstanding grant for one execution, or replaces a
-// previously minted, still-unconsumed grant. The peer key, target, and endpoint
-// from the grant request are pinned into the record; a repeat mint with new
-// values repins all three. A mint while a session is active replaces the
-// outstanding grant without disturbing the session — the per-execution cap of
-// one session is enforced at accept. Expiry is granted from now; a TTL is not
-// tracked in the record because it is evaluated lazily at accept.
-func (r *Registry) Mint(executionID string, peerKey []byte, target Target, endpoint Endpoint, ttl time.Duration, now time.Time) (Grant, error) {
+// previously minted, still-unconsumed grant. The peer key, target slot list,
+// and endpoint from the grant request are pinned into the record; a repeat
+// mint with new values repins all three. A mint while a session is active
+// replaces the outstanding grant without disturbing the session — the
+// per-execution cap of one session is enforced at accept. Expiry is granted
+// from now; a TTL is not tracked in the record because it is evaluated lazily
+// at accept.
+//
+// targets is the allocator-resolved slot list; defaultTarget is the slot a
+// stream with no target_slot references is spliced to (the interactive pipe).
+func (r *Registry) Mint(executionID string, peerKey []byte, targets []Target, defaultTarget Target, endpoint Endpoint, ttl time.Duration, now time.Time) (Grant, error) {
 	if executionID == "" {
 		return Grant{}, errors.New("invalid tunnel grant: execution ID is required")
 	}
 	if ttl <= 0 {
 		return Grant{}, errors.New("invalid tunnel grant: grant TTL must be positive")
+	}
+	if len(targets) == 0 {
+		return Grant{}, errors.New("invalid tunnel grant: at least one target slot is required")
 	}
 	id := r.newID()
 	if id == "" {
@@ -102,7 +114,8 @@ func (r *Registry) Mint(executionID string, peerKey []byte, target Target, endpo
 		r.records[executionID] = rec
 	}
 	rec.peerKey = append([]byte(nil), peerKey...)
-	rec.target = target
+	rec.targets = cloneTargets(targets)
+	rec.defaultTarget = defaultTarget
 	// Clone the endpoint slices: the caller owns the backing arrays and may
 	// reuse them, and the record outlives the Mint call. peerKey is cloned
 	// above for the same reason.
@@ -165,9 +178,10 @@ func (r *Registry) Accept(executionID, grantID string, peerKey []byte, now time.
 	}
 	grant.consumed = true
 	session := &Session{
-		ExecutionID: executionID,
-		PeerKey:     append([]byte(nil), peerKey...),
-		Target:      rec.target,
+		ExecutionID:   executionID,
+		PeerKey:       append([]byte(nil), peerKey...),
+		Targets:       cloneTargets(rec.targets),
+		DefaultTarget: rec.defaultTarget,
 		Endpoint: Endpoint{
 			Address: append([]byte(nil), rec.endpoint.Address...),
 			PubKey:  append([]byte(nil), rec.endpoint.PubKey...),
@@ -211,4 +225,30 @@ func (r *Registry) Invalidate(executionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.records, executionID)
+}
+
+// cloneTargets deep-copies a target slot list so the caller's backing slice is
+// never aliased by a long-lived record or session.
+func cloneTargets(targets []Target) []Target {
+	if targets == nil {
+		return nil
+	}
+	cloned := make([]Target, len(targets))
+	copy(cloned, targets)
+	return cloned
+}
+
+// ResolveTarget returns the target slot for the given slot ID, or the default
+// slot when id is empty. An unknown non-empty id reports false, so the edge
+// can reject the stream with ReasonUnauthorized before any payload byte moves.
+func (s *Session) ResolveTarget(id string) (Target, bool) {
+	if id == "" {
+		return s.DefaultTarget, true
+	}
+	for _, target := range s.Targets {
+		if target.ID == id {
+			return target, true
+		}
+	}
+	return Target{}, false
 }

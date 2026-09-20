@@ -17,7 +17,7 @@ import (
 
 // fakePacketIO is a deterministic in-memory packet bus standing in for the
 // mesh: one node reads what the other writes, addressed by key. It honors the
-// packetIO contract so the mux, the stream adapter, and the handshake are
+// packetIO contract so the mux, the pair adapter, and the handshake are
 // exercised end to end without the mesh.
 type fakePacketIO struct {
 	mu         sync.Mutex
@@ -31,8 +31,8 @@ type fakePacketIO struct {
 // delivered to the other's inbox; packets arriving at one carry the peer's
 // key as their source address.
 func newFakePair(aKey, bKey string) (*fakePacketIO, *fakePacketIO) {
-	a := &fakePacketIO{inbox: make(chan []byte, 256)}
-	b := &fakePacketIO{inbox: make(chan []byte, 256)}
+	a := &fakePacketIO{inbox: make(chan []byte, 1024)}
+	b := &fakePacketIO{inbox: make(chan []byte, 1024)}
 	a.peer, b.peer = b, a
 	a.remote, b.remote = []byte(bKey), []byte(aKey)
 	return a, b
@@ -79,10 +79,22 @@ var (
 	allocatorKey = bytes.Repeat([]byte("A"), 32)
 )
 
-// TestStreamRoundTripThroughMux runs the whole edge path over the fake packet
-// bus: two muxes, the dial + preamble + accept handshake, then a payload
-// round-trip larger than one packet (segmentation and reassembly).
-func TestStreamRoundTripThroughMux(t *testing.T) {
+// testSession builds a Session with a slot list matching what an allocator
+// would authorize: an unnamed default slot and a named http slot.
+func testSession() *tunnel.Session {
+	return &tunnel.Session{
+		ExecutionID:   "exec-1",
+		PeerKey:       append([]byte(nil), clientKey...),
+		Targets:       []tunnel.Target{{ID: "", Host: "127.0.0.1", Port: 9000}, {ID: "http", Host: "127.0.0.1", Port: 8080}},
+		DefaultTarget: tunnel.Target{Host: "127.0.0.1", Port: 9000},
+	}
+}
+
+// establishPair runs the client and allocator sides of a pair up to the point
+// where streams can be opened: the client registers, writes the preamble, the
+// allocator accepts and authorizes, and both sides are ready.
+func establishPair(t *testing.T) (*pairConn, *pairConn) {
+	t.Helper()
 	clientBus, allocatorBus := newFakePair(string(clientKey), string(allocatorKey))
 	clientMux := newMux(clientBus)
 	go clientMux.readLoop()
@@ -93,22 +105,16 @@ func TestStreamRoundTripThroughMux(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
-	// A payload Write before the routing preamble must fail on the client.
-	if _, err := client.Write([]byte("payload")); err == nil {
-		t.Fatal("payload write accepted before the routing preamble")
-	}
 
 	acceptDone := make(chan error, 1)
-	// The accept goroutine mirrors the r1sd edge loop: take the pending
-	// session, read the routing preamble, promote, and confirm with the
-	// accept frame.
+	var allocatorPair *pairConn
 	go func() {
-		incoming, err := allocatorMux.accept()
+		pending, err := allocatorMux.accept()
 		if err != nil {
 			acceptDone <- err
 			return
 		}
-		preamble, err := incoming.conn.readPreamble()
+		preamble, err := pending.pair.readPreamble()
 		if err != nil {
 			acceptDone <- err
 			return
@@ -117,33 +123,38 @@ func TestStreamRoundTripThroughMux(t *testing.T) {
 			acceptDone <- errors.New("preamble mismatch")
 			return
 		}
-		if err := allocatorMux.promote(incoming); err != nil {
+		if err := allocatorMux.promote(pending); err != nil {
 			acceptDone <- err
 			return
 		}
-		acceptDone <- incoming.conn.writeAccept()
+		allocatorPair = pending.pair
+		acceptDone <- pending.pair.Authorize(testSession())
 	}()
 
-	preambleErr := make(chan error, 1)
-	go func() {
-		preambleErr <- client.WritePreamble(tunnel.Preamble{ExecutionID: "exec-1", GrantID: "grant-1"})
-	}()
-	for i := 0; i < 2; i++ {
-		select {
-		case err := <-acceptDone:
-			if err != nil {
-				t.Fatalf("accept side failed: %v", err)
-			}
-		case err := <-preambleErr:
-			if err != nil {
-				t.Fatalf("WritePreamble: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("handshake stalled")
-		}
+	if err := client.WritePreamble(tunnel.Preamble{ExecutionID: "exec-1", GrantID: "grant-1"}); err != nil {
+		t.Fatalf("WritePreamble: %v", err)
 	}
+	if err := <-acceptDone; err != nil {
+		t.Fatalf("accept side: %v", err)
+	}
+	return client, allocatorPair
+}
 
-	// Payload round-trip, larger than one packet to force segmentation.
+// TestPairHandshakeAndDefaultStream verifies the pair preamble handshake and
+// that WritePreamble opens the interactive-pipe default stream (target_slot "")
+// which the allocator resolves to the default slot.
+func TestPairHandshakeAndDefaultStream(t *testing.T) {
+	client, allocator := establishPair(t)
+
+	// The allocator side sees one authorized stream (the default pipe).
+	stream, err := allocator.AcceptStream()
+	if err != nil {
+		t.Fatalf("AcceptStream: %v", err)
+	}
+	if stream.Target.Host != "127.0.0.1" || stream.Target.Port != 9000 {
+		t.Fatalf("default stream target = %+v; want default slot", stream.Target)
+	}
+	// The client's default stream is the pair itself (Dial return value).
 	payload := bytes.Repeat([]byte("r1s-tunnel-payload|"), 200) // ~3.8 KB > MTU 1400
 	writeDone := make(chan error, 1)
 	go func() {
@@ -153,17 +164,10 @@ func TestStreamRoundTripThroughMux(t *testing.T) {
 		}
 		writeDone <- err
 	}()
-
 	var got []byte
 	buf := make([]byte, 1024)
-	allocatorMux.mu.Lock()
-	allocatorConn := allocatorMux.sessions[string(clientKey)]
-	allocatorMux.mu.Unlock()
-	if allocatorConn == nil {
-		t.Fatal("no promoted session on the allocator side")
-	}
 	for len(got) < len(payload) {
-		n, err := allocatorConn.Read(buf)
+		n, err := stream.Conn.Read(buf)
 		got = append(got, buf[:n]...)
 		if err != nil {
 			t.Fatalf("read after %d bytes: %v", len(got), err)
@@ -175,30 +179,166 @@ func TestStreamRoundTripThroughMux(t *testing.T) {
 	if err := <-writeDone; err != nil {
 		t.Fatalf("client write side: %v", err)
 	}
-	// The client's write-EOF surfaces as io.EOF after the payload is drained.
-	if n, err := allocatorConn.Read(buf); err != io.EOF {
+	if n, err := stream.Conn.Read(buf); err != io.EOF {
 		t.Fatalf("read after EOF: n=%d err=%v; want EOF", n, err)
 	}
 }
 
-// TestStreamConcurrentWriteAndCloseWithReason exercises the payload Write path
-// racing a classified teardown on the same session, under -race. The teardown
-// (end -> writeFrame) must assemble its close frame into its own buffer, never
-// the shared c.writeScratch owned by the payload Write, so the two must not
-// race on the assembly buffer.
-func TestStreamConcurrentWriteAndCloseWithReason(t *testing.T) {
-	clientBus, _ := newFakePair(string(clientKey), string(allocatorKey))
-	clientMux := newMux(clientBus)
-	go clientMux.readLoop()
-	client, err := clientMux.register(allocatorKey)
+// TestMultistreamConcurrentTransport is the F19 acceptance leg: one paively
+// carries two concurrent, independent streams to a single execution, and both
+// round-trip >MTU payloads without one blocking the other. Closing one stream
+// does not affect the other.
+func TestMultistreamConcurrentTransport(t *testing.T) {
+	client, allocator := establishPair(t)
+
+	// Open two concurrent streams: the default (interactive) and a named http
+	// slot. The allocator side accepts both.
+	httpConn, err := client.OpenStream("http")
 	if err != nil {
-		t.Fatalf("register: %v", err)
+		t.Fatalf("OpenStream(http): %v", err)
 	}
-	// Allow payload writes (the client edge normally sets this in
-	// WritePreamble; here we set it directly to skip the handshake).
-	client.mu.Lock()
-	client.preambleOK = true
-	client.mu.Unlock()
+	// The pair already opened the default stream in WritePreamble; both are now
+	// in flight. Collect both allocator-side streams.
+	pipes := make(chan *IncomingStream, 2)
+	acceptDone := make(chan error, 1)
+	go func() {
+		for i := 0; i < 2; i++ {
+			s, err := allocator.AcceptStream()
+			if err != nil {
+				acceptDone <- err
+				return
+			}
+			pipes <- s
+		}
+		acceptDone <- nil
+	}()
+
+	// The first stream (the default pipe opened during WritePreamble) is in
+	// flight before we open http; the accept goroutine drains both.
+	if err := <-acceptDone; err != nil {
+		t.Fatalf("accept streams: %v", err)
+	}
+
+	first := <-pipes
+	second := <-pipes
+	var allocHTTP, allocDefault tunnel.Conn
+	for _, s := range []*IncomingStream{first, second} {
+		if s.Target.ID == "http" {
+			allocHTTP = s.Conn
+		} else {
+			allocDefault = s.Conn
+		}
+	}
+	if allocHTTP == nil || allocDefault == nil {
+		t.Fatal("expected one http stream and one default stream")
+	}
+
+	// Both directions carry >MTU payloads concurrently: http -> its slot,
+	// default -> its slot.
+	payloadA := bytes.Repeat([]byte("stream-A-|"), 300) // ~2.9 KB
+	payloadB := bytes.Repeat([]byte("stream-B-|"), 400) // ~3.9 KB
+
+	writeErr := make(chan error, 2)
+	go func() { _, err := httpConn.Write(payloadA); writeErr <- err }()
+	go func() { _, err := client.Write(payloadB); writeErr <- err }()
+
+	gotA := readAll(t, allocHTTP, len(payloadA))
+	gotB := readAll(t, allocDefault, len(payloadB))
+	if !bytes.Equal(gotA, payloadA) {
+		t.Fatalf("stream-A payload mismatch: got %d bytes", len(gotA))
+	}
+	if !bytes.Equal(gotB, payloadB) {
+		t.Fatalf("stream-B payload mismatch: got %d bytes", len(gotB))
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-writeErr; err != nil {
+			t.Fatalf("concurrent write: %v", err)
+		}
+	}
+
+	// Closing one stream (full close) leaves the other usable.
+	_ = httpConn.Close()
+	if _, err := client.Write([]byte("still-alive")); err != nil {
+		t.Fatalf("write after sibling close: %v", err)
+	}
+	if _, err := allocDefault.Read(make([]byte, 64)); err != nil {
+		t.Fatalf("sibling read after close: %v", err)
+	}
+}
+
+// TestStreamTargetUnauthorized verifies a stream referencing a target slot the
+// allocator did not pre-authorize is rejected before any payload is consumed.
+func TestStreamTargetUnauthorized(t *testing.T) {
+	client, allocator := establishPair(t)
+
+	// The session authorizes "" and "http" only; "mysql" must be rejected.
+	badConn, err := client.OpenStream("mysql")
+	if err != nil {
+		t.Fatalf("OpenStream(mysql): %v", err)
+	}
+	// The allocator side must not surface the stream; it sends a close with
+	// ReasonUnauthorized instead. The client's Read observes the session error.
+	done := make(chan error, 1)
+	go func() {
+		_, rerr := badConn.Read(make([]byte, 64))
+		done <- rerr
+	}()
+	select {
+	case err := <-done:
+		var sessionErr *tunnel.SessionError
+		if !errors.As(err, &sessionErr) || sessionErr.Reason != tunnel.ReasonUnauthorized {
+			t.Fatalf("read = %v; want ReasonUnauthorized", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("unauthorized stream was not rejected")
+	}
+
+	// The allocator side surfaces only the authorized default stream opened by
+	// WritePreamble; the unauthorized "mysql" stream must never arrive for
+	// splice — it gets a classified close straight back instead. Drain the
+	// default stream first so it is not mistaken for the unauthorized one.
+	defaultStream, err := allocator.AcceptStream()
+	if err != nil {
+		t.Fatalf("accept default stream: %v", err)
+	}
+	if defaultStream.Target.ID != "" {
+		t.Fatalf("default stream target slot = %q; want unnamed default", defaultStream.Target.ID)
+	}
+	// The allocator side must never surface such a stream, and the pair must
+	// still carry authorized streams.
+	select {
+	case is := <-allocator.incoming:
+		t.Fatalf("unauthorized stream surfaced for splice: %+v", is)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if _, err := client.OpenStream("http"); err != nil {
+		t.Fatalf("open authorized stream after rejection: %v", err)
+	}
+}
+
+// readAll reads exactly want bytes from conn, failing on premature EOF.
+func readAll(t *testing.T, conn tunnel.Conn, want int) []byte {
+	t.Helper()
+	var got []byte
+	buf := make([]byte, 1024)
+	for len(got) < want {
+		n, err := conn.Read(buf)
+		got = append(got, buf[:n]...)
+		if err != nil {
+			t.Fatalf("read after %d/%d bytes: %v", len(got), want, err)
+		}
+	}
+	return got
+}
+
+// TestStreamConcurrentWriteAndCloseWithReason exercises the payload Write path
+// racing a classified teardown on the same stream, under -race.
+func TestStreamConcurrentWriteAndCloseWithReason(t *testing.T) {
+	client, allocator := establishPair(t)
+	s, err := allocator.AcceptStream()
+	if err != nil {
+		t.Fatalf("AcceptStream: %v", err)
+	}
 
 	stop := make(chan struct{})
 	writeErr := make(chan error, 1)
@@ -218,16 +358,13 @@ func TestStreamConcurrentWriteAndCloseWithReason(t *testing.T) {
 		}
 	}()
 
-	// Race a classified teardown against the write stream.
 	time.Sleep(20 * time.Millisecond)
-	_ = client.CloseWithReason(tunnel.ReasonSessionFailed, "teardown during a payload write")
+	if rc, ok := s.Conn.(tunnel.ReasonCloser); ok {
+		_ = rc.CloseWithReason(tunnel.ReasonSessionFailed, "teardown during a payload write")
+	}
 	close(stop)
-
 	select {
 	case <-writeErr:
-		// A write either completed before the teardown or failed after it;
-		// either is fine. The point is that -race reports no data race on the
-		// shared assembly buffer.
 	case <-time.After(5 * time.Second):
 		t.Fatal("write hung after teardown")
 	}

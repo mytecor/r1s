@@ -2,10 +2,11 @@
 
 Corresponds to a future milestone in [ROADMAP.md](../../ROADMAP.md#f19-universal-tunnel-rework).
 
-**Status:** ⏳ Planned — the F14 direct-access tunnel (`r1s tunnel`) is done, but it is a single
-interactive byte pipe (SSH-oriented): one live session per execution, one target per grant, and only
-a client→allocator direction. F19 reworks the tunnel from an SSH relay into a general-purpose,
-addressable, multiplexed stream transport **behind a single `r1s tunnel` command** (ngrok-style UX).
+**Status:** ✅ Complete — the F14 direct-access tunnel (`r1s tunnel`) is reworked from a single
+interactive byte pipe (SSH-oriented: one live session per execution, one target per grant) into a
+general-purpose, addressable, multiplexed stream transport **behind a single `r1s tunnel`
+command** (ngrok-style UX, client→allocator only). See
+[F19-01](./f19-01-universal-tunnel.md); `make check` passes.
 
 ## Outcome
 

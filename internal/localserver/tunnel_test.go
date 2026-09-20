@@ -27,7 +27,7 @@ func TestTunnelRelayOverMemory(t *testing.T) {
 
 	backend := &fakeBackend{
 		executions: map[string]*r1sv1.ExecutionState{},
-		tunnelConn: func(ctx context.Context, executionID string) (tunnel.Conn, string, error) {
+		tunnelConn: func(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
 			if executionID != "exec-1" {
 				return nil, "", errors.New("tunnel: unknown execution")
 			}
@@ -124,13 +124,52 @@ func TestTunnelRelayOverMemory(t *testing.T) {
 	}
 }
 
+// TestTunnelTargetSlotPropagates verifies the named target slot in the open
+// message reaches the serve backend unchanged, and stays only a slot reference:
+// the serve process never resolves it to a raw endpoint.
+func TestTunnelTargetSlotPropagates(t *testing.T) {
+	var gotSlot string
+	broker := tunnel.NewMemoryBroker()
+	allocatorKey := []byte("alloc-key-0000000000000000000000000")
+	clientKey := []byte("client-key-0000000000000000000000000")
+	allocatorListener := broker.Listen([]byte("ygg-addr"), nil)
+	defer allocatorListener.Close()
+
+	backend := &fakeBackend{
+		executions: map[string]*r1sv1.ExecutionState{},
+		tunnelConn: func(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
+			gotSlot = targetSlot
+			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
+			return conn, "grant-1", err
+		},
+	}
+
+	clientConn := r1sv1.NewLocalClientClient(dialConn(t, backend))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := clientConn.Tunnel(ctx)
+	if err != nil {
+		t.Fatalf("Tunnel: %v", err)
+	}
+	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{ExecutionId: "exec-1", TargetSlot: "http"}}}); err != nil {
+		t.Fatalf("send open: %v", err)
+	}
+	if _, err := allocatorListener.Accept(); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	if gotSlot != "http" {
+		t.Fatalf("backend target slot = %q; want http", gotSlot)
+	}
+}
+
 // TestTunnelSetupFailureSurfacesAsError verifies that a backend tunnel failure
 // (unknown execution, missing grant target) is surfaced as a stream error
 // before any payload is relayed.
 func TestTunnelSetupFailureSurfacesAsError(t *testing.T) {
 	backend := &fakeBackend{
 		executions: map[string]*r1sv1.ExecutionState{},
-		tunnelConn: func(ctx context.Context, executionID string) (tunnel.Conn, string, error) {
+		tunnelConn: func(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
 			return nil, "", errors.New("tunnel: no grant for execution")
 		},
 	}

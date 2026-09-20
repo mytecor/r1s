@@ -139,12 +139,16 @@ func (c *Client) Watch(ctx context.Context, after uint64) (r1sv1.LocalClient_Wat
 // execution; after that it carries raw payload bytes (data) and close
 // half-close/full-close signals in both directions. Setup failures surface as a
 // stream error before any payload is relayed.
-func (c *Client) Tunnel(ctx context.Context, executionID string) (r1sv1.LocalClient_TunnelClient, error) {
+//
+// targetSlot selects the allocator-resolved target slot the stream is spliced
+// to; empty selects the unnamed default slot (the interactive pipe). It is a
+// slot reference only, resolved by the allocator, never a raw (host, port).
+func (c *Client) Tunnel(ctx context.Context, executionID, targetSlot string) (r1sv1.LocalClient_TunnelClient, error) {
 	stream, err := c.local.Tunnel(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{ExecutionId: executionID}}}); err != nil {
+	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{ExecutionId: executionID, TargetSlot: targetSlot}}}); err != nil {
 		_ = stream.CloseSend()
 		return nil, err
 	}

@@ -11,40 +11,40 @@ import (
 )
 
 // TestListenerAcceptSurvivesMalformedPreamble is the regression guard for the
-// F14-02 accept-loop means of failure: a peer sending a malformed first frame
-// used to terminate the r1sd accept loop for every peer. Here two inbound
-// sessions from two different peer keys are queued — one garbage, one valid —
-// and a single Listener.Accept must drain the garbage (drop it as a malformed
-// preamble) and continue to return the valid session, instead of surfacing the
-// garbage error and terminating the loop.
+// accept-loop means of failure: a peer sending a malformed first frame used to
+// terminate the r1sd accept loop for every peer. Here two inbound pairs from two
+// different peer keys are queued — one garbage, one valid — and a single
+// Listener.Accept must drain the garbage (drop it as a malformed preamble) and
+// continue to return the valid pair, instead of surfacing the garbage error and
+// terminating the loop.
 func TestListenerAcceptSurvivesMalformedPreamble(t *testing.T) {
-	// A bare mux is enough: Listener.Accept only touches edge.mux.accept and
-	// the pending conns' readPreamble; no packet bus or Node is involved.
-	// The conns need a packetIO only for its MTU (read at construction) and a
-	// safe WriteTo (the garbage session's teardown writes a close frame), so a
-	// stub supplies those without a real bus.
+	// A bare mux is enough: Listener.Accept only touches edge.mux.accept and the
+	// pending pairs' readPreamble; no packet bus or Node is involved. The pairs
+	// need a packetIO only for its MTU (read at construction) and a safe WriteTo
+	// (the garbage pair's teardown writes a close frame), so a stub supplies
+	// those without a real bus.
 	m := newMux(nil)
 	l := &Listener{edge: &edge{node: nil, mux: m}}
 
 	garbageKey := []byte("garbage-peer-key-0000000000000000000")
-	garbageConn := newStreamConn(newTestPacketIO(), garbageKey, garbageKey, m)
-	garbageConn.mu.Lock()
-	garbageConn.raw = []byte{'g', 0x7f, 0xff, 0x00, 0x01} // not a valid frame
-	garbageConn.mu.Unlock()
-	garbage := &pendingSession{
-		conn:     garbageConn,
+	garbagePair := newPair(newTestPacketIO(), garbageKey, garbageKey, m)
+	garbagePair.mu.Lock()
+	garbagePair.raw = []byte{'g', 0x7f, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00} // not a valid frame
+	garbagePair.mu.Unlock()
+	garbage := &pendingPair{
+		pair:     garbagePair,
 		remote:   string(garbageKey),
 		deadline: time.Now().Add(pendingSessionTimeout),
 	}
 
 	validKey := []byte("valid-peer-key-00000000000000000000")
-	validConn := newStreamConn(newTestPacketIO(), validKey, validKey, m)
+	validPair := newPair(newTestPacketIO(), validKey, validKey, m)
 	validPreamble := encodePreamble(tunnel.Preamble{ExecutionID: "exec-1", GrantID: "grant-1"})
-	validConn.mu.Lock()
-	validConn.raw = appendFrame(nil, frameTypePreamble, validPreamble)
-	validConn.mu.Unlock()
-	valid := &pendingSession{
-		conn:     validConn,
+	validPair.mu.Lock()
+	validPair.raw = appendFrame(nil, frameTypePreamble, streamIDNone, validPreamble)
+	validPair.mu.Unlock()
+	valid := &pendingPair{
+		pair:     validPair,
 		remote:   string(validKey),
 		deadline: time.Now().Add(pendingSessionTimeout),
 	}
@@ -54,7 +54,7 @@ func TestListenerAcceptSurvivesMalformedPreamble(t *testing.T) {
 	m.inbound <- garbage
 	m.inbound <- valid
 
-	// The single Accept call must skip the garbage and return the valid peer.
+	// The single Accept call must skip the garbage and return the valid pair.
 	done := make(chan error, 1)
 	go func() {
 		sess, err := l.Accept()
@@ -70,7 +70,7 @@ func TestListenerAcceptSurvivesMalformedPreamble(t *testing.T) {
 			done <- fmt.Errorf("peer key mismatch")
 			return
 		}
-		done <- sess.Promote()
+		done <- sess.Promote(testSession())
 	}()
 
 	select {
@@ -85,13 +85,13 @@ func TestListenerAcceptSurvivesMalformedPreamble(t *testing.T) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.pending[garbage.remote]; ok {
-		t.Fatal("garbage pending session was not dropped")
+		t.Fatal("garbage pending pair was not dropped")
 	}
 	if _, ok := m.pending[valid.remote]; ok {
-		t.Fatal("valid pending session was not promoted")
+		t.Fatal("valid pending pair was not promoted")
 	}
-	if _, ok := m.sessions[valid.remote]; !ok {
-		t.Fatal("valid session was not promoted into the payload map")
+	if _, ok := m.pairs[valid.remote]; !ok {
+		t.Fatal("valid pair was not promoted into the payload map")
 	}
 }
 

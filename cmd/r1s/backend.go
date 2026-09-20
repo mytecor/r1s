@@ -417,18 +417,24 @@ func (a *application) SubscribeWatch(ctx context.Context, observer func(client.W
 	return a.client.SubscribeWatch(observer)
 }
 
-// Tunnel mints an F14 access grant for the running execution and dials the
+// Tunnel mints an F14/F19 access grant for the running execution and dials the
 // allocator edge, returning the connected byte pipe the serve process relays to
 // the CLI, plus the minted grant ID. It is the service-backed path for
 // `r1s tunnel`: only a serve process holds the F17 keep-alive intent that keeps
 // the execution alive for the session, so a direct-mode client is rejected
 // before this point.
 //
+// targetSlot selects the allocator-resolved target slot the returned pipe is
+// spliced to; empty is the unnamed default slot (the interactive pipe). After
+// the preamble is accepted, a non-empty targetSlot opens that named slot's
+// stream on the multiplexed pair; empty returns the pair (whose WritePreamble
+// already opened the default stream), exactly as F14.
+//
 // The grant ID is surfaced (not dropped) so a preamble-aware edge can write the
 // one-time routing header; a Conn that implements tunnel.PreambleWriter is
 // handed the preamble here, before any payload byte is relayed. The in-memory
 // fake does not implement it, keeping the test relay byte-clean.
-func (a *application) Tunnel(ctx context.Context, executionID string) (tunnel.Conn, string, error) {
+func (a *application) Tunnel(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
 	if a.tunnelDialer == nil {
 		return nil, "", errors.New("tunnel: client edge is not configured; start 'r1s serve' with the tunnel edge enabled")
 	}
@@ -462,6 +468,22 @@ func (a *application) Tunnel(ctx context.Context, executionID string) (tunnel.Co
 			_ = conn.Close()
 			return nil, "", fmt.Errorf("tunnel: write routing preamble: %w", err)
 		}
+	}
+	// A named target slot opens its own multiplexed stream on the pair and that
+	// stream becomes the returned pipe; empty (the interactive pipe) returns
+	// the pair whose WritePreamble already opened the default stream.
+	if targetSlot != "" {
+		so, ok := conn.(tunnel.StreamOpener)
+		if !ok {
+			_ = conn.Close()
+			return nil, "", fmt.Errorf("tunnel: target slot %q requested but the transport cannot open streams", targetSlot)
+		}
+		stream, err := so.OpenStream(targetSlot)
+		if err != nil {
+			_ = conn.Close()
+			return nil, "", fmt.Errorf("tunnel: open target slot %q: %w", targetSlot, err)
+		}
+		return stream, ack.GetGrantId(), nil
 	}
 	return conn, ack.GetGrantId(), nil
 }

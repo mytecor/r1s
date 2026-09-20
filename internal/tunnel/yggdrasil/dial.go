@@ -15,10 +15,13 @@ import (
 // advertisement.
 //
 // The routing preamble is written through the Conn's PreambleWriter: Dial
-// establishes the mesh session, and WritePreamble sends the one-time routing
-// preamble as the first frame and waits for the allocator's accept frame, so
-// a rejected or unauthenticated session fails before a single payload byte is
-// sent.
+// establishes the mesh pair, and WritePreamble sends the one-time routing
+// preamble as the pair's first frame and waits for the allocator's accept
+// frame, so a rejected or unauthenticated session fails before a single stream
+// (and thus a payload byte) is opened. The returned pair is also a
+// tunnel.StreamOpener (F19-01): one authenticated pair carries many logical
+// streams; the interactive pipe is the default stream, and OpenStream opens
+// additional named streams.
 type Dialer struct {
 	node *Node
 	edge *edge
@@ -35,12 +38,12 @@ func NewDialer(node *Node) (*Dialer, error) {
 
 // Dial implements tunnel.Dialer: it connects to the remote edge at endpoint
 // (whose Address is the allocator's node key and whose PubKey the dialer pins
-// against the mesh-authenticated peer) and returns the session in the
+// against the mesh-authenticated peer) and returns the mesh pair in the
 // handshake-pending state. The caller writes the routing preamble through
-// tunnel.PreambleWriter (the backend has the grant ID); the first payload
-// Write after the preamble completes the handshake by waiting for the
-// allocator's accept frame, so a rejected or unauthenticated session fails
-// before any payload byte is sent.
+// tunnel.PreambleWriter (the backend has the grant ID), which on acceptance
+// opens the interactive-pipe default stream; OpenStream (tunnel.StreamOpener)
+// opens additional named streams on the same pair, so a rejected or
+// unauthenticated session fails before any payload byte is sent.
 func (d *Dialer) Dial(ctx context.Context, endpoint tunnel.Endpoint) (tunnel.Conn, error) {
 	if ctx == nil {
 		ctx = context.Background()

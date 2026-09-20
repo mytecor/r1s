@@ -32,7 +32,7 @@ func newTunnelAllocator(t *testing.T, clock *fakeClock, runtime *fakeRuntime) *A
 		Tunnel: TunnelConfig{
 			Enabled:       true,
 			GrantTTL:      time.Minute,
-			TargetByClass: map[string]tunnel.Target{"default": {Host: "127.0.0.1", Port: 9000}},
+			TargetByClass: map[string][]tunnel.Target{"default": {{Host: "127.0.0.1", Port: 9000}}},
 			DefaultTarget: &tunnel.Target{Host: "127.0.0.1", Port: 9001},
 			Endpoint:      tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
 		},
@@ -159,7 +159,7 @@ func TestTunnelGrantMintRespectsConfig(t *testing.T) {
 	// Enabled but no endpoint: the edge is not ready (the unique
 	// configuration-failure case not covered by TestTunnelGrantCommandErrorCodes;
 	// disabled and no-target are asserted there).
-	noEndpoint, err := New(funcCfg(base, TunnelConfig{Enabled: true, GrantTTL: time.Minute, TargetByClass: map[string]tunnel.Target{"default": {Host: "127.0.0.1", Port: 9000}}, DefaultTarget: &tunnel.Target{Host: "127.0.0.1", Port: 9001}}), newFakeRuntime())
+	noEndpoint, err := New(funcCfg(base, TunnelConfig{Enabled: true, GrantTTL: time.Minute, TargetByClass: map[string][]tunnel.Target{"default": {{Host: "127.0.0.1", Port: 9000}}}, DefaultTarget: &tunnel.Target{Host: "127.0.0.1", Port: 9001}}), newFakeRuntime())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,8 +180,8 @@ func TestTunnelGrantResolvesClassTargetOverDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcceptTunnel: %v", err)
 	}
-	if session.Target.Host != "127.0.0.1" || session.Target.Port != 9000 {
-		t.Fatalf("target = %+v; want default-class 127.0.0.1:9000", session.Target)
+	if session.DefaultTarget.Host != "127.0.0.1" || session.DefaultTarget.Port != 9000 {
+		t.Fatalf("target = %+v; want default-class 127.0.0.1:9000", session.DefaultTarget)
 	}
 	if string(session.Endpoint.Address) != testEndpoint || string(session.Endpoint.PubKey) != testPubKey {
 		t.Fatalf("session endpoint = %+v", session.Endpoint)
@@ -296,7 +296,7 @@ func TestTunnelRestartInvalidatesGrants(t *testing.T) {
 		OfferTTL: 30 * time.Second, Now: clock.Now, NewID: sequenceIDs(), Store: store,
 		Tunnel: TunnelConfig{
 			Enabled: true, GrantTTL: time.Minute,
-			TargetByClass: map[string]tunnel.Target{"default": {Host: "127.0.0.1", Port: 9000}},
+			TargetByClass: map[string][]tunnel.Target{"default": {{Host: "127.0.0.1", Port: 9000}}},
 			DefaultTarget: &tunnel.Target{Host: "127.0.0.1", Port: 9001},
 			Endpoint:      tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
 		},
@@ -324,7 +324,7 @@ func TestTunnelRestartInvalidatesGrants(t *testing.T) {
 		OfferTTL: 30 * time.Second, Now: clock.Now, NewID: sequenceIDs(), Store: secondStore,
 		Tunnel: TunnelConfig{
 			Enabled: true, GrantTTL: time.Minute,
-			TargetByClass: map[string]tunnel.Target{"default": {Host: "127.0.0.1", Port: 9000}},
+			TargetByClass: map[string][]tunnel.Target{"default": {{Host: "127.0.0.1", Port: 9000}}},
 			DefaultTarget: &tunnel.Target{Host: "127.0.0.1", Port: 9001},
 			Endpoint:      tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
 		},

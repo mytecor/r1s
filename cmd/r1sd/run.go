@@ -35,7 +35,7 @@ type commandLine struct {
 	clusterArguments      []string
 	tunnelEnabled         bool
 	tunnelGrantTTL        time.Duration
-	tunnelTargets         map[string]tunnel.Target
+	tunnelTargets         map[string][]tunnel.Target
 	tunnelDefaultTarget   tunnel.Target
 	tunnelEndpoint        []byte
 	tunnelEndpointPubKey  []byte

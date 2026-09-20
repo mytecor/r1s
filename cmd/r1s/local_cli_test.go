@@ -30,7 +30,7 @@ type cliWorkflowBackend struct {
 	clientCore *client.Client
 	allocator  *allocator.Allocator
 	now        time.Time
-	tunnelConn func(ctx context.Context, executionID string) (tunnel.Conn, string, error)
+	tunnelConn func(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error)
 }
 
 func (b *cliWorkflowBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration, constraints *r1sv1.PlacementConstraints) (string, string, []byte, error) {
@@ -155,9 +155,9 @@ func (b *cliWorkflowBackend) SubscribeWatch(ctx context.Context, observer func(c
 
 // Tunnel is not exercised by the workflow equivalence tests unless a tunnel
 // connector is injected.
-func (b *cliWorkflowBackend) Tunnel(ctx context.Context, executionID string) (tunnel.Conn, string, error) {
+func (b *cliWorkflowBackend) Tunnel(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
 	if b.tunnelConn != nil {
-		return b.tunnelConn(ctx, executionID)
+		return b.tunnelConn(ctx, executionID, targetSlot)
 	}
 	return nil, "", fmt.Errorf("tunnel: not exercised")
 }

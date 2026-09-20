@@ -53,7 +53,7 @@ func TestCLITunnelRelaysBytes(t *testing.T) {
 	defer allocatorListener.Close()
 
 	backend := &cliWorkflowBackend{
-		tunnelConn: func(ctx context.Context, executionID string) (tunnel.Conn, string, error) {
+		tunnelConn: func(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
 			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
 			return conn, "grant-1", err
 		},
@@ -149,7 +149,7 @@ func TestCLITunnelSurfacesAbnormalReason(t *testing.T) {
 	defer allocatorListener.Close()
 
 	backend := &cliWorkflowBackend{
-		tunnelConn: func(ctx context.Context, executionID string) (tunnel.Conn, string, error) {
+		tunnelConn: func(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
 			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
 			return conn, "grant-1", err
 		},
@@ -201,6 +201,103 @@ func TestCLITunnelSurfacesAbnormalReason(t *testing.T) {
 	}
 	if n := len(stdout.Bytes()); n != 0 {
 		t.Fatalf("stdout was not byte-clean on abnormal teardown: %q", stdout.String())
+	}
+}
+
+// TestCLITunnelTargetSlot verifies `r1s tunnel <exec> --target <slot>` passes
+// the named slot through the local API to the serve backend, and the named
+// slot's stream reaches stdout byte-clean. Diagnostics never touch stdout.
+func TestCLITunnelTargetSlot(t *testing.T) {
+	broker := tunnel.NewMemoryBroker()
+	allocatorKey := []byte("alloc-key-0000000000000000000000000")
+	clientKey := []byte("client-key-0000000000000000000000000")
+	allocatorListener := broker.Listen([]byte("ygg-addr"), nil)
+	defer allocatorListener.Close()
+
+	var gotSlot string
+	backend := &cliWorkflowBackend{
+		tunnelConn: func(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
+			gotSlot = targetSlot
+			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
+			return conn, "grant-1", err
+		},
+	}
+	_, socket := serveBackend(t, backend)
+
+	api, err := localapi.Dial(socket)
+	if err != nil {
+		t.Fatalf("localapi dial: %v", err)
+	}
+	defer api.Close()
+
+	stdin, writeStdin, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer stdin.Close()
+
+	var stdout syncBuffer
+	var stderr syncBuffer
+	cli := &localCLI{ctx: context.Background(), stdout: &stdout, stdin: stdin, socketPath: socket, client: api}
+
+	result := make(chan error, 1)
+	go func() { result <- cli.tunnel([]string{"exec-1", "--target", "http"}, &stderr) }()
+
+	// The serve backend dials the mesh asynchronously; whoever finishes first
+	// (the CLI failing setup, or the allocator edge being dialed) tells us how
+	// the test proceeds.
+	allocReady := make(chan tunnel.Conn, 1)
+	acceptErr := make(chan error, 1)
+	go func() {
+		conn, err := allocatorListener.Accept()
+		if err == nil {
+			allocReady <- conn
+		}
+		acceptErr <- err
+	}()
+	var allocatorConn tunnel.Conn
+	select {
+	case err := <-result:
+		t.Fatalf("cli.tunnel exited early with error: %v (stderr=%q)", err, stderr.String())
+	case err := <-acceptErr:
+		if err != nil {
+			t.Fatalf("accept allocator edge: %v", err)
+		}
+		allocatorConn = <-allocReady
+	case <-time.After(3 * time.Second):
+		t.Fatal("neither the CLI tunnel nor the allocator edge arrived")
+	}
+	defer allocatorConn.Close()
+
+	if gotSlot != "http" {
+		t.Fatalf("backend target slot = %q; want http", gotSlot)
+	}
+
+	// The named slot's data reaches stdout byte-clean.
+	if _, err := allocatorConn.Write([]byte("http-stream")); err != nil {
+		t.Fatalf("allocator write: %v", err)
+	}
+	if err := waitFor(2*time.Second, func() bool { return strings.Contains(stdout.String(), "http-stream") }); err != nil {
+		t.Fatalf("stdout did not receive the named-stream payload: %q", stdout.String())
+	}
+
+	// A normal teardown ends the command with no error and byte-clean stdout.
+	if err := writeStdin.Close(); err != nil {
+		t.Fatalf("close stdin: %v", err)
+	}
+	if rc, ok := allocatorConn.(tunnel.ReasonCloser); ok {
+		_ = rc.CloseWithReason(tunnel.ReasonClosed, "")
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("tunnel returned error on clean close: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("tunnel did not exit after clean close")
+	}
+	if !bytes.Equal(stdout.Bytes(), []byte("http-stream")) {
+		t.Fatalf("stdout = %q; want only the named-stream payload", stdout.String())
 	}
 }
 

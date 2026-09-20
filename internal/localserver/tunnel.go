@@ -36,13 +36,16 @@ func (s *Server) Tunnel(stream r1sv1.LocalClient_TunnelServer) error {
 	if executionID == "" {
 		return errors.New("tunnel: execution ID is required")
 	}
+	targetSlot := open.GetTargetSlot()
 
 	// Mint the grant and dial the allocator edge. Any error here is a setup
 	// failure surfaced as a gRPC status; the CLI maps it to a CommandError. The
 	// backend writes the routing preamble (execution ID + grant ID) onto the
 	// edge itself before relaying when the transport supports it; the serve
-	// relay only moves raw bytes after that.
-	conn, _, err := s.backend.Tunnel(stream.Context(), executionID)
+	// relay only moves raw bytes after that. When targetSlot is set, the
+	// backend opens the named slot's stream; otherwise it returns the default
+	// interactive pipe.
+	conn, _, err := s.backend.Tunnel(stream.Context(), executionID, targetSlot)
 	if err != nil {
 		return err
 	}

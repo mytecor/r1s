@@ -43,9 +43,11 @@ func startTunnelEdge(identitySeed []byte, options commandLine) (*tunnelEdge, err
 	return &tunnelEdge{node: node, listener: listener, identitySeed: identitySeed}, nil
 }
 
-// runAcceptLoop validates and splices inbound tunnel sessions until the edge
-// closes. It is started after the allocator core exists, because validation
-// calls into the allocator core.
+// runAcceptLoop accepts inbound tunnel mesh connections until the edge closes.
+// It is started after the allocator core exists, because validation calls into
+// the allocator core. Each accepted pair is validated once (execution + grant +
+// peer key) and promoted; the pair then yields authorized streams, each spliced
+// independently to its allocator-resolved target slot (F19-01).
 func (e *tunnelEdge) runAcceptLoop(ctx context.Context, core *allocator.Allocator) {
 	for {
 		incoming, err := e.listener.Accept()
@@ -61,10 +63,25 @@ func (e *tunnelEdge) runAcceptLoop(ctx context.Context, core *allocator.Allocato
 			_ = incoming.Reject(classifyRejection(err), err.Error())
 			continue
 		}
-		if err := incoming.Promote(); err != nil {
+		if err := incoming.Promote(session); err != nil {
 			continue
 		}
-		go spliceToTarget(incoming.Conn(), session.Target)
+		// Splice every authorized stream this pair opens. A single pair may
+		// carry several concurrent streams (SSH + HTTP + ...); each resolves
+		// its own target slot and fails independently.
+		go e.spliceSessionStreams(ctx, incoming)
+	}
+}
+
+// spliceSessionStreams drains a promoted pair's authorized streams and splices
+// each to its target slot until the pair closes.
+func (e *tunnelEdge) spliceSessionStreams(ctx context.Context, incoming *yggdrasil.IncomingSession) {
+	for {
+		stream, err := incoming.AcceptStream()
+		if err != nil {
+			return
+		}
+		go spliceToTarget(stream.Conn, stream.Target)
 	}
 }
 
@@ -74,7 +91,7 @@ func (e *tunnelEdge) runAcceptLoop(ctx context.Context, core *allocator.Allocato
 // outcomes from lifecycle ones.
 func classifyRejection(err error) tunnel.Reason {
 	switch {
-	case errors.Is(err, allocator.ErrUnauthorized), errors.Is(err, tunnel.ErrPeerKeyMismatch):
+	case errors.Is(err, allocator.ErrUnauthorized), errors.Is(err, tunnel.ErrPeerKeyMismatch), errors.Is(err, tunnel.ErrUnknownTargetSlot):
 		return tunnel.ReasonUnauthorized
 	case errors.Is(err, tunnel.ErrGrantExpired):
 		return tunnel.ReasonGrantExpired
