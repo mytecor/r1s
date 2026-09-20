@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
 )
@@ -70,5 +71,20 @@ func TestTunnelFlagValidation(t *testing.T) {
 	}, &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "invalid tunnel target") {
 		t.Fatalf("error = %v, want invalid tunnel target diagnostic", err)
+	}
+}
+
+// TestTunnelStaticEndpointConflictsWithEdge verifies the daemon rejects a
+// manually supplied static tunnel advertisement together with --tunnel-enabled:
+// the embedded edge derives its own advertisement, and silently preferring it
+// over a configured static value would hide a misconfiguration.
+func TestTunnelStaticEndpointConflictsWithEdge(t *testing.T) {
+	_, err := parseCommandLine([]string{
+		"--rns-config", "unused", "--identity", "unused",
+		"--tunnel-enabled",
+		"--tunnel-endpoint", "deadbeef", "--tunnel-endpoint-pubkey", "cafe",
+	}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "cannot be set together with --tunnel-enabled") {
+		t.Fatalf("error = %v, want conflict with --tunnel-enabled diagnostic", err)
 	}
 }

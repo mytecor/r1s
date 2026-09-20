@@ -125,3 +125,17 @@ func newFlagSet(name string, output io.Writer) *flag.FlagSet {
 	}
 	return flags
 }
+
+// tunnelPeerList parses a comma-separated bootstrap peer URI list for the
+// tunnel edge. Empty entries are dropped; an empty value joins the standard
+// public Yggdrasil overlay. Peering is edge configuration, never a protocol
+// feature.
+func tunnelPeerList(value string) []string {
+	var peers []string
+	for _, peer := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(peer); trimmed != "" {
+			peers = append(peers, trimmed)
+		}
+	}
+	return peers
+}

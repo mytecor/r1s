@@ -203,6 +203,22 @@ This file records unresolved choices so they do not remain implicit in implement
     - **Rejected alternative:** redefining `tunnel.Conn` as packet-based. That would leak message
       boundaries into the core and force SSH/HTTP (byte streams) to cope with framing anyway, plus
       break the in-memory fake for deterministic tests.
+17. **F14-02 stream adapter implementation choices** — closed with the F14-02 implementation
+    (2026-09-20). The adapter in [`internal/tunnel/yggdrasil`](../internal/tunnel/yggdrasil) maps
+    `Core.ReadFrom`/`WriteTo` to `tunnel.Conn` as follows: one frame equals one packet
+    (`[type:1][len:2 BE][payload]`, payload capped at 16 KB — well under the packet MTU), so no
+    byte-level reassembly state machine is needed; ironwood's per-peer ordered queue guarantees
+    frame ordering, so reassembly is pure concatenation. Frame types: data, write-EOF (half-close),
+    close (classified reason + bounded detail over the wire), preamble, accept. A typed packet mux
+    owns the node's single `ReadFrom` and demultiplexes by remote key; the session identity is the
+    remote node key (Model A, decision 16), inbound sessions open as bounded pending records
+    (preamble expected, deadline-bounded, capped count) that promote in place after allocator-core
+    validation. The handshake retries the preamble on a fixed cadence (the mesh silently drops
+    packets sent before a path exists; an unpromoted preamble is safe to repeat) and carries
+    teardown reasons over the wire so `ReasonCloser` holds across the mesh. The client-side edge
+    surface is settled alongside: `r1s serve --tunnel` starts the client edge eagerly (mirroring
+    the allocator policy from decision 15) and `--tunnel-peer` configures bootstrap peer URIs —
+    edge configuration, never a protocol feature; empty joins the public overlay.
 
 ## Deferred
 
@@ -219,29 +235,15 @@ This file records unresolved choices so they do not remain implicit in implement
   in the system at all (see open decision 1 above).
 - Direct-mode client bridge for `r1s tunnel` (no live `r1s serve`): out of v1 scope; the
   service-backed-only model is resolved decision 15.
-- Embedded Yggdrasil network adapter for the allocator edge: deferred to F14-02 (tunnel edge and
-  `r1s tunnel`). F14-01 keeps the wire contract and registry transport-neutral (`allocator_endpoint`
-  / `allocator_endpoint_pubkey` opaque bytes), so the adapter is a pure addition with no schema
-  change and never appears in deterministic tests (an in-memory tunnel fake stands in).
-
-  Partial state (2026-09): the adapter package now holds the real, tested HKDF node-key derivation
-  and the dependency-free node/dialer/listener shapes, and the `r1s serve` dial path is wired but
-  returns a deferred error until the stream adapter lands. The client-side plumbing is now in place:
-  `Backend.Tunnel` mints the grant, threads the grant ID back (it is no longer dropped), checks that
-  an edge exists before minting, and writes the routing preamble onto a preamble-aware Conn via the
-  optional `tunnel.PreambleWriter` (the in-memory fake does not implement it, keeping the test relay
-  byte-clean). What remains in the adapter:
-
-  - The stream-adaptation layer over the Yggdrasil/ironwood packet interface that presents
-    `tunnel.Conn` as a byte stream (reliable, ordered, per-direction half-close) from `Core.ReadFrom`/
-    `WriteTo`. Yggdrasil-go v0.5.14 exposes only a packet-level API, so a thin reassembly/MTU-split/
-    half-close adapter is the substantive deferred piece (see resolved decision 16; it is
-    stream-adaptation, not a reliability/ordering layer — the mesh already delivers ordered and
-    reliable).
-  - The `r1sd` allocator-edge accept loop: with the real `Listener`, read the routing preamble,
-    call `Allocator.AcceptTunnel`, and splice the stream to the granted target on success (see
-    [F14-02](./f14-direct-node-access/f14-02-tunnel-service.md)).
-  - The live mesh acceptance test from F14-02 (a payload round-trip over an embedded mesh proving
-    no tunnel bytes traverse RNS).
 - TCP fallback or NAT-traversal plans for a tunnel edge deployment where the private peer set is
   not reachable.
+- Per-session isolation of the mesh packet pump: the embedded edge's single `readLoop`
+  goroutine both demultiplexes packets and feeds them into per-session cursors, and two shared
+  stops can stall the whole node — inbound `ingest` blocks while a session's decoded inbox is
+  over the high-water mark (a stalled splice consumer throttles every session, not just its own),
+  and `openPending` blocks on the 8-slot inbound queue while the accept loop is busy. Malformed
+  preambles no longer kill the accept loop (resolved decision 17), but a flood of distinct foreign
+  keys can still hold `readLoop` for up to `pendingSessionTimeout`. A future refactor should move
+  per-session feed and pending-open off the shared pump (per-session read goroutines or a
+  non-blocking pending queue) so one slow or abusive peer cannot throttle the allocator's whole
+  tunnel edge.

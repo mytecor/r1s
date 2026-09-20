@@ -140,13 +140,13 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > An execution owner opens an authenticated tunnel from their client to a running execution over
 > Yggdrasil and carries arbitrary traffic inside it, independent of any artifact model.
 
-- **Status:** 🚧 in progress — F14-01 (execution-scoped access grants) is implemented; F14-02 is
-  part-way: the transport-neutral tunnel stream contract, in-memory fake, node-key derivation,
-  `LocalTunnel` bidi RPC, the serve-side relay, the client grant mint, and the service-backed
-  `r1s tunnel` command are landed (`make check` passes; deterministic tests through the in-memory
-  fake plus node-key derivation tests). The Yggdrasil stream-adaptation layer (over a `Core` node
-  used as `net.PacketConn`), the `r1sd` edge splice loop, and the live mesh test are deferred
-  (BACKLOG, resolved decision 16).
+- **Status:** ✅ done — F14-01 (execution-scoped access grants) and F14-02 (tunnel edge and the
+  `r1s tunnel` command) are implemented: the transport-neutral tunnel stream contract, in-memory
+  fake, node-key derivation, `LocalTunnel` bidi RPC, the serve-side relay, the client grant mint,
+  the service-backed `r1s tunnel` command, the Yggdrasil stream-adaptation layer (framing, packet
+  mux, stream adapter over the embedded `Core`), the `r1sd` edge splice loop, and the live mesh
+  test (`make check` passes; the live mesh test peers two embedded nodes over a local link and
+  round-trips a multi-packet payload).
 - **Done when:** a client tunnels to a running execution through Yggdrasil, only the authenticated
   execution owner can open or keep the tunnel, and the core and protocol stay free of
   Yggdrasil-specific types while carrying no tunnel bytes over RNS. `r1s tunnel` is service-backed
@@ -214,7 +214,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   pinning after lease loss. A manifest-driven `r1s deploy` (named multi-deployment state, revision
   diffing, create-before-destroy replacement, removal) is deferred in
   [BACKLOG.md](./roadmap/BACKLOG.md).
-- [F14](#f14-direct-node-access-r1s-tunneld) is the next vertical: `r1s tunnel` with the
+- [F14](#f14-direct-node-access-r1s-tunneld) landed (2026-09): `r1s tunnel` with the
   allocator-side edge inside `r1sd` gives the authenticated execution owner a direct Yggdrasil
   tunnel to a running execution over an embedded yggdrasil-go node, independent of artifact
   transfer, without Yggdrasil-specific protocol types or a new global state source.

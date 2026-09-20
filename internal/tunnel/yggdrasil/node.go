@@ -6,15 +6,9 @@
 // Process topology: each process runs an embedded yggdrasil-go node; there is
 // no host-level Yggdrasil daemon and no separate r1s-tunneld binary. The
 // allocator edge (a Listener) and the client edge (a Dialer) both live in this
-// package, sharing the generic stream contract from internal/tunnel.
-//
-// This pass deliberately does NOT import yggdrasil-go: the reliable ordered
-// byte stream the tunnel requires (SSH/HTTP payload) does not exist in
-// yggdrasil's packet-level API, so a framing/reliability layer must be built
-// on top of the encryption layer before the edge can connect. That layer is
-// deferred (BACKLOG); what is real and testable here is the node-key
-// derivation both edges depend on, held dependency-free so the rest of the
-// tree never needs the overlay library.
+// package, sharing the generic stream contract from internal/tunnel. The mesh
+// below ironwood delivers packets ordered and reliable; the stream adapter
+// (stream.go) turns packets into the tunnel byte stream.
 package yggdrasil
 
 import (
@@ -22,6 +16,8 @@ import (
 	"crypto/hkdf"
 	"crypto/sha256"
 	"fmt"
+
+	"github.com/yggdrasil-network/yggdrasil-go/src/core"
 )
 
 // NodeKeyContext selects the HKDF derivation domain for a node key. Client and
@@ -69,24 +65,44 @@ func NodePubKey(identitySeed []byte, context NodeKeyContext) (ed25519.PublicKey,
 	return key.Public().(ed25519.PublicKey), nil
 }
 
-// Node is the dependency-free shape of an embedded yggdrasil node: the derived
-// private key plus the overlay address that derives from it. It holds what both
-// edges need this pass (key for pinning, address for the advertisement) without
-// importing yggdrasil-go; the live node lifecycle (core.New over the packet
-// interface) arrives with the deferred framing/reliability layer.
+// Node is the process's embedded yggdrasil node. The key is HKDF-derived from
+// the persistent identity seed (no key files to create, back up, or rotate), a
+// stable key means a stable overlay address, and the Core is used as a
+// net.PacketConn: the mesh supplies an encrypted, ordered, reliable packet
+// path, and the stream adapter (stream.go) turns packets into the tunnel byte
+// stream. A host-level Yggdrasil daemon may run independently on the same
+// machine; the r1s node is a separate overlay identity and never touches a
+// host tun device.
 type Node struct {
 	context NodeKeyContext
 	key     ed25519.PrivateKey
-	address []byte
+	core    *core.Core
 }
 
-// NewNode derives a node for a context from a persistent identity seed.
-func NewNode(identitySeed []byte, context NodeKeyContext) (*Node, error) {
+// NodeOptions tunes the embedded node at construction.
+type NodeOptions struct {
+	// Peers are the bootstrap peer URIs ("tcp://host:port"). Empty joins the
+	// standard public Yggdrasil overlay; private meshes set their own set.
+	// Peering is edge configuration, never a protocol feature.
+	Peers []string
+	// LogSink receives node diagnostics; nil discards them.
+	LogSink Logger
+}
+
+// NewNode derives a node for a context from a persistent identity seed and
+// starts the embedded mesh node. The derived key is fed to the Core as an
+// ed25519 TLS certificate (yggdrasil-go's node identity), so the overlay
+// address is a pure function of the persistent identity.
+func NewNode(identitySeed []byte, context NodeKeyContext, options NodeOptions) (*Node, error) {
 	key, err := NodeKeyFromSeed(identitySeed, context)
 	if err != nil {
 		return nil, err
 	}
-	return &Node{context: context, key: key, address: nodeAddress(key.Public().(ed25519.PublicKey))}, nil
+	nodeCore, err := startCore(key, options)
+	if err != nil {
+		return nil, err
+	}
+	return &Node{context: context, key: key, core: nodeCore}, nil
 }
 
 // PrivateKey returns the derived node private key.
@@ -95,9 +111,33 @@ func (n *Node) PrivateKey() ed25519.PrivateKey { return n.key }
 // PublicKey returns the derived node public key.
 func (n *Node) PublicKey() ed25519.PublicKey { return n.key.Public().(ed25519.PublicKey) }
 
-// AddressBytes returns the node's overlay address as opaque bytes. It is the
-// transport-neutral destination the client dials (internal/tunnel.Endpoint).
-func (n *Node) AddressBytes() []byte { return append([]byte(nil), n.address...) }
+// AddressBytes returns the node's overlay address as opaque bytes: ironwood's
+// packet-layer peer address is the full ed25519 public key, and the
+// transport-neutral Endpoint.Address carries the same bytes everywhere, so the
+// client dials the same key the allocator accepts at.
+func (n *Node) AddressBytes() []byte {
+	if n.core == nil {
+		return nodeAddress(n.key.Public().(ed25519.PublicKey))
+	}
+	return append([]byte(nil), n.core.PublicKey()...)
+}
+
+// PacketIO exposes the node's packet interface for the edge machinery. The
+// Core is the net.PacketConn the mux and the stream adapter run over.
+func (n *Node) PacketIO() packetIO { return n.core }
+
+// Core returns the embedded node's core for peering (edge configuration and
+// tests only: peers join the node, never sessions).
+func (n *Node) Core() *core.Core { return n.core }
+
+// Close stops the embedded node.
+func (n *Node) Close() error {
+	if n.core != nil {
+		n.core.Stop()
+		n.core = nil
+	}
+	return nil
+}
 
 // nodeAddress returns the node's overlay address used at the yggdrasil packet
 // layer. Yggdrasil's ironwood encryption layer uses the full ed25519 public

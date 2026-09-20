@@ -3,9 +3,12 @@ module github.com/mytecor/r1s
 go 1.27.1
 
 require (
+	github.com/Arceliar/ironwood v0.0.0-20260613025018-d50055b11f5e
 	github.com/Quad4-Software/Reticulum-Go v1.2.0
 	github.com/containerd/containerd/v2 v2.3.5
 	github.com/containerd/errdefs v1.0.0
+	github.com/gologme/log v1.3.0
+	github.com/yggdrasil-network/yggdrasil-go v0.5.14
 	go.etcd.io/bbolt v1.4.3
 	golang.org/x/term v0.46.0
 	google.golang.org/grpc v1.80.0
@@ -13,12 +16,16 @@ require (
 )
 
 require (
+	github.com/Arceliar/phony v0.0.0-20220903101357-530938a4b13d // indirect
 	github.com/Microsoft/go-winio v0.6.3-0.20251027160822-ad3df93bed29 // indirect
 	github.com/Microsoft/hcsshim v0.15.0-rc.1 // indirect
 	github.com/Quad4-Software/bzip2 v1.0.1 // indirect
 	github.com/Quad4-Software/msgpack/v5 v5.9.1 // indirect
 	github.com/Quad4-Software/tagparser/v2 v2.2.1 // indirect
+	github.com/bits-and-blooms/bitset v1.24.5 // indirect
+	github.com/bits-and-blooms/bloom/v3 v3.7.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/containerd/cgroups/v3 v3.1.3 // indirect
 	github.com/containerd/containerd/api v1.11.1 // indirect
 	github.com/containerd/continuity v0.5.0 // indirect
@@ -38,6 +45,7 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
+	github.com/hjson/hjson-go/v4 v4.6.0 // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/landlock-lsm/go-landlock v0.10.1 // indirect
 	github.com/mdlayher/socket v0.6.0 // indirect

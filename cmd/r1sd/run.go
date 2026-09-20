@@ -38,6 +38,7 @@ type commandLine struct {
 	tunnelDefaultTarget   tunnel.Target
 	tunnelEndpoint        []byte
 	tunnelEndpointPubKey  []byte
+	tunnelPeers           []string
 }
 
 func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) error {
@@ -89,6 +90,7 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	tunnelDefaultTarget := flags.String("tunnel-default-target", "", "mandatory fallback tunnel target for classes without an explicit target")
 	tunnelEndpoint := flags.String("tunnel-endpoint", "", "opaque transport-neutral allocator endpoint advertisement (hex); set automatically by the F14-02 edge")
 	tunnelEndpointPubKey := flags.String("tunnel-endpoint-pubkey", "", "opaque transport-neutral allocator edge public key (hex); set automatically by the F14-02 edge")
+	tunnelPeers := flags.String("tunnel-peer", "", "comma-separated bootstrap peer URIs for the tunnel edge (defaults to the public Yggdrasil overlay)")
 	if err := flags.Parse(arguments); err != nil {
 		return commandLine{}, err
 	}
@@ -133,6 +135,14 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	if err != nil {
 		return commandLine{}, err
 	}
+	// The embedded edge derives and advertises its own endpoint when it is
+	// enabled; a manually supplied static advertisement is only meaningful in
+	// the edge-off static mode. Silently preferring the derived value over a
+	// configured static one would hide a misconfiguration, so reject the
+	// combination.
+	if *tunnelEnabled && (len(tunnelEndpointBytes) > 0 || len(tunnelEndpointPubKeyBytes) > 0) {
+		return commandLine{}, errors.New("--tunnel-endpoint/--tunnel-endpoint-pubkey cannot be set together with --tunnel-enabled: the embedded edge derives its own advertisement")
+	}
 	return commandLine{
 		configPath: *configPath, identitySource: *identitySource, capacity: capacity,
 		announceInterval: *announceInterval, containerdAddress: *containerdAddress,
@@ -143,5 +153,6 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		tunnelEnabled: *tunnelEnabled, tunnelGrantTTL: *tunnelGrantTTL,
 		tunnelTargets: tunnelTargets, tunnelDefaultTarget: defaultTarget,
 		tunnelEndpoint: tunnelEndpointBytes, tunnelEndpointPubKey: tunnelEndpointPubKeyBytes,
+		tunnelPeers: tunnelPeerList(*tunnelPeers),
 	}, nil
 }

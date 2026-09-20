@@ -2,13 +2,12 @@
 
 Corresponds to [milestone F14](../../ROADMAP.md#f14-direct-node-access-r1s-tunneld).
 
-**Status:** 🚧 In progress — F14-01 (access grant + endpoint + grant-and-session registry) is
-implemented; F14-02 is part-way: the transport-neutral tunnel stream contract, in-memory fake,
-node-key derivation, `LocalTunnel` bidi RPC, the serve-side relay, the client grant mint, and the
-service-backed `r1s tunnel` command are landed (`make check` passes; deterministic tests through
-the in-memory fake). The Yggdrasil stream-adaptation layer (over a `Core` node used as
-`net.PacketConn`), the `r1sd` edge splice loop, and the live mesh test are deferred
-(BACKLOG, resolved decision 16).
+**Status:** ✅ Done — F14-01 (access grant + endpoint + grant-and-session registry) and F14-02
+(tunnel edge and the `r1s tunnel` command) are implemented: the transport-neutral tunnel stream
+contract, in-memory fake, node-key derivation, `LocalTunnel` bidi RPC, the serve-side relay, the
+client grant mint, the service-backed `r1s tunnel` command, the Yggdrasil stream-adaptation layer
+(framing, packet mux, stream adapter over the embedded `Core`), the `r1sd` edge splice loop, and
+the live mesh test (`make check` passes).
 
 ## Outcome
 

@@ -31,6 +31,22 @@ type daemon struct {
 	runtime       *runtimecontainerd.Adapter
 	stateStore    *statebolt.Store
 	sweepInterval time.Duration
+	// tunnel is the embedded tunnel edge (node + listener + accept loop). Nil
+	// unless --tunnel-enabled.
+	tunnel *tunnelEdge
+	// tunnelStaticEndpoint carries an explicitly configured advertisement when
+	// the embedded edge is off (--tunnel-endpoint/--tunnel-endpoint-pubkey).
+	tunnelStaticEndpoint tunnel.Endpoint
+}
+
+// tunnelEndpointAdvertisement returns the endpoint advertisement handed to
+// minted grants: the running edge's address and node key when the edge is on,
+// the explicitly configured static value otherwise.
+func (d *daemon) tunnelEndpointAdvertisement() tunnel.Endpoint {
+	if d.tunnel != nil {
+		return d.tunnel.listener.Endpoint()
+	}
+	return d.tunnelStaticEndpoint
 }
 
 func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writer) (*daemon, error) {
@@ -107,13 +123,27 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 		result.close()
 		return nil, err
 	}
+	if options.tunnelEnabled {
+		identitySeed, seedErr := rns.IdentitySeed(options.identitySource)
+		if seedErr != nil {
+			result.close()
+			return nil, fmt.Errorf("load tunnel edge identity: %w", seedErr)
+		}
+		result.tunnel, err = startTunnelEdge(identitySeed, options)
+		if err != nil {
+			result.close()
+			return nil, fmt.Errorf("start tunnel edge: %w", err)
+		}
+	} else {
+		result.tunnelStaticEndpoint = tunnel.Endpoint{Address: options.tunnelEndpoint, PubKey: options.tunnelEndpointPubKey}
+	}
 	result.core, err = allocator.New(allocator.Config{
 		Identity: identityHash, Capacity: options.capacity, Store: result.stateStore,
 		Admission: admission, Logs: logs, MaxRecords: options.maxRecords,
 		Tunnel: allocator.TunnelConfig{
 			Enabled: options.tunnelEnabled, GrantTTL: options.tunnelGrantTTL,
 			TargetByClass: options.tunnelTargets,
-			Endpoint:      tunnel.Endpoint{Address: options.tunnelEndpoint, PubKey: options.tunnelEndpointPubKey},
+			Endpoint:      result.tunnelEndpointAdvertisement(),
 			DefaultTarget: func() *tunnel.Target {
 				if options.tunnelDefaultTarget.Host == "" && options.tunnelDefaultTarget.Port == 0 {
 					return nil
@@ -175,6 +205,10 @@ func (d *daemon) serve(ctx context.Context) error {
 		return err
 	}
 	fmt.Fprintf(d.stdout, "r1sd ready identity=%s destination=%s\n", d.endpoint.Name(), d.endpoint.Destination())
+	if d.tunnel != nil {
+		fmt.Fprintf(d.stdout, "r1sd tunnel edge ready address=%x pubkey=%x\n", d.tunnel.node.AddressBytes(), d.tunnel.node.PublicKey())
+		go d.tunnel.runAcceptLoop(ctx, d.core)
+	}
 	ticker := time.NewTicker(d.sweepInterval)
 	defer ticker.Stop()
 	for {
@@ -190,6 +224,9 @@ func (d *daemon) serve(ctx context.Context) error {
 }
 
 func (d *daemon) close() {
+	if d.tunnel != nil {
+		_ = d.tunnel.listener.Close()
+	}
 	if d.endpoint != nil {
 		_ = d.endpoint.Close()
 	}

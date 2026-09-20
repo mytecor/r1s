@@ -1,11 +1,12 @@
 # F14-02 — Tunnel edge and the `r1s tunnel` command
 
-**Status:** 🚧 In progress — the transport-neutral stream contract, in-memory fake, node-key
-derivation, `LocalTunnel` bidi stream, the serve-side relay, the client grant mint, and the
-service-backed `r1s tunnel` command are landed and covered by deterministic tests through the
-in-memory fake plus the node-key derivation tests. The Yggdrasil stream-adaptation layer (over a
-`Core` node) and the `r1sd` accept-loop splice remain (BACKLOG, resolved decision 16); the live
-mesh test is also pending.
+**Status:** ✅ Done — the transport-neutral stream contract, in-memory fake, node-key derivation,
+`LocalTunnel` bidi stream, the serve-side relay, the client grant mint, the service-backed
+`r1s tunnel` command, the Yggdrasil stream-adaptation layer (framing, packet mux, stream adapter
+over the embedded `Core`), the `r1sd` accept-loop splice, and the live mesh test are landed and
+covered by tests; `make check` passes. The client-side edge surface is settled: `r1s serve --tunnel`
+enables the client edge (eager start, mirroring the allocator policy) and `--tunnel-peer` sets the
+bootstrap peer URIs (edge configuration, repeated or comma-separated).
 
 ## Outcome
 
@@ -77,6 +78,11 @@ internal/tunnel/            generic tunnel contract, no network library
     memory.go               deterministic in-memory fake for tests
 internal/tunnel/yggdrasil/  the Yggdrasil edge adapter (the only package importing yggdrasil-go)
     node.go                 embedded node lifecycle: HKDF-derived node key, bootstrap policy
+    core.go                 node construction over yggdrasil-go config/core (self-signed cert, peers)
+    framing.go              wire frames over one packet (data/EOF/close/preamble/accept)
+    mux.go                  the packet demultiplexer owning the node's ReadFrom
+    stream.go               the stream adapter: packets -> tunnel.Conn byte stream
+    edge.go                 shared edge machinery (node + mux) behind listener and dialer
     listen.go               allocator-side overlay listener, exposes authenticated peer key
     dial.go                 client-side overlay dial with peer-key pinning
 ```
@@ -108,6 +114,13 @@ half-close) lives in `internal/tunnel/yggdrasil` (see resolved decision 16 in
   F14-01 advertisement). Both ends pin the peer node public key — the client pins the allocator's
   key from the ack, the allocator pins the client's key from the grant — so a man-in-the-middle or
   a relay has nothing usable even if it sees the advertisement.
+- The handshake over the mesh: the routing preamble is the first frame of the session, and the
+  client repeats it on a fixed cadence until the allocator's accept frame arrives, bounded by a
+  handshake timeout. The mesh silently drops packets sent before a path to the destination exists
+  (path discovery is triggered by the first packet), so a single-shot preamble would be lost;
+  repeating an unpromoted preamble is safe (an unpromoted pending session has consumed nothing),
+  and the accept frame is idempotent. A rejected session returns a classified reason instead of
+  an accept, before any payload byte is sent.
 - Containers need no overlay address: the tunnel terminates on the allocator at the grant-time
   `(host, port)` target (host namespace), so no per-container subnet allocation is required.
 
@@ -188,8 +201,6 @@ Resolved simplification decisions carried into the docs:
 
 Still open during implementation and covered by [BACKLOG.md](../BACKLOG.md):
 
-- The exact `tunnel.enabled` configuration surface on the client (`r1s serve`) side and whether the
-  client serve starts its edge eagerly at startup or lazily on the first tunnel session.
 - Whether the target configuration surface needs a per-identity override beyond the per-resource-class
   map and default.
 - TCP-fallback or NAT-traversal plans if a private peer set is not reachable in a future deployment.
