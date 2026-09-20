@@ -73,6 +73,18 @@ func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.Execu
 	if a.capacity.available(class) == 0 {
 		return nil, fmt.Errorf("%w: resource class %q", ErrCapacityExhausted, class)
 	}
+	// Placement is applied before any capacity is taken or an offer is issued:
+	// an incompatible node neither reserves capacity nor returns an offer. The
+	// resource class must also be one of the declared profiles when the node
+	// advertises them (the class-indexed capacity ledger is the authority for
+	// slots, but an advertised node that omits the class would mislead the
+	// client about placement).
+	if !protocol.PlacementMatches(request.GetConstraints(), a.node) {
+		return nil, fmt.Errorf("%w: %s", ErrIncompatible, protocol.PlacementConflictDetails(request.GetConstraints(), a.node))
+	}
+	if a.node != nil && !protocol.Contains(a.node.GetResourceProfiles(), class) {
+		return nil, fmt.Errorf("%w: resource class %q", ErrAdmission, class)
+	}
 	offerID := a.newID()
 	if offerID == "" {
 		return nil, fmt.Errorf("%w: empty offer ID", ErrInvalidConfig)
@@ -85,6 +97,7 @@ func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.Execu
 		RequestId:     request.GetRequestId(),
 		ResourceClass: class,
 		ExpiresAt:     timestamppb.New(now.Add(a.offerTTL)),
+		Node:          proto.Clone(a.node).(*r1sv1.NodeCapabilities),
 	}
 	response, err := a.offerEnvelopeLocked(offer, envelope.GetMessageId(), now)
 	if err != nil {

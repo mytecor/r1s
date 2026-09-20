@@ -21,6 +21,8 @@ func (a *Allocator) errorResponse(command *r1sv1.Envelope, err error) []*r1sv1.E
 		code, detail = "NOT_FOUND", "resource unavailable to this identity"
 	case errors.Is(err, ErrCapacityExhausted), errors.Is(err, ErrReplayCapacity):
 		code, detail, retry = "CAPACITY", "allocator capacity or command queue exhausted", true
+	case errors.Is(err, ErrIncompatible):
+		code, detail = "INCOMPATIBLE", err.Error()
 	case errors.Is(err, ErrOfferExpired), errors.Is(err, ErrOfferReleased), errors.Is(err, ErrResultExpired), errors.Is(err, ErrCommandExpired):
 		code, detail = "EXPIRED", "reservation or retained result expired"
 	case errors.Is(err, ErrExecutionConflict), errors.Is(err, ErrReplayConflict), errors.Is(err, ErrOfferAlreadyAssigned):

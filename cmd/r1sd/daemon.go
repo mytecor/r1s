@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport/rns"
 	"github.com/mytecor/r1s/internal/tunnel"
+	"google.golang.org/protobuf/proto"
 )
 
 type daemon struct {
@@ -73,10 +75,22 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 	}
 	reticulumConfig.ConfigPath = filepath.Join(identityDirectory, "reticulum")
 
+	node := options.node
+	if node != nil {
+		clone := proto.Clone(node).(*r1sv1.NodeCapabilities)
+		if clone.GetOs() == "" {
+			clone.Os = runtime.GOOS
+		}
+		if clone.GetArch() == "" {
+			clone.Arch = runtime.GOARCH
+		}
+		node = clone
+	}
+
 	result := &daemon{stdout: stdout, logger: log.New(stderr, "r1sd: ", log.LstdFlags|log.Lmsgprefix), sweepInterval: options.sweepInterval}
 	result.endpoint, err = rns.New(rns.Config{
 		Reticulum: reticulumConfig, IdentitySource: options.identitySource, ClusterKey: clusterKey,
-		Capacity: options.capacity, AnnounceInterval: options.announceInterval,
+		Capacity: options.capacity, AnnounceInterval: options.announceInterval, Node: node,
 	}, result.handleEnvelope)
 	if err != nil {
 		return nil, err
@@ -139,7 +153,7 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 	}
 	result.core, err = allocator.New(allocator.Config{
 		Identity: identityHash, Capacity: options.capacity, Store: result.stateStore,
-		Admission: admission, Logs: logs, MaxRecords: options.maxRecords,
+		Admission: admission, Logs: logs, MaxRecords: options.maxRecords, Node: node,
 		Tunnel: allocator.TunnelConfig{
 			Enabled: options.tunnelEnabled, GrantTTL: options.tunnelGrantTTL,
 			TargetByClass: options.tunnelTargets,

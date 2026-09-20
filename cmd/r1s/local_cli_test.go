@@ -33,10 +33,10 @@ type cliWorkflowBackend struct {
 	tunnelConn func(ctx context.Context, executionID string) (tunnel.Conn, string, error)
 }
 
-func (b *cliWorkflowBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (string, string, []byte, error) {
+func (b *cliWorkflowBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration, constraints *r1sv1.PlacementConstraints) (string, string, []byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	requestID, request, err := b.clientCore.CreateRequest(workload, policy, resourceClass)
+	requestID, request, err := b.clientCore.CreateRequestWithConstraints(workload, policy, resourceClass, constraints)
 	if err != nil {
 		return "", "", nil, err
 	}

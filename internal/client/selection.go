@@ -22,7 +22,7 @@ func (o *Client) Select(requestID string) (string, *r1sv1.Envelope, error) {
 		return execution.destination, o.assignmentEnvelopeLocked(execution), nil
 	}
 	now := o.now().UTC()
-	selected, allocator, ok := o.allocators.choose(record.offers, now)
+	selected, allocator, ok := o.allocators.chooseWithPreferences(record.offers, now, record.request.GetConstraints(), record.request.GetWorkload().GetImage())
 	if !ok {
 		return "", nil, ErrNoOffer
 	}

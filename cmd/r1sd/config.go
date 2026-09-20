@@ -10,9 +10,12 @@ import (
 	"strconv"
 	"strings"
 
+	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/cluster"
+	"github.com/mytecor/r1s/internal/protocol"
 	"github.com/mytecor/r1s/internal/transport/rns"
 	"github.com/mytecor/r1s/internal/tunnel"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 func allocatorClusterSource(value string) (string, error) {
@@ -20,6 +23,25 @@ func allocatorClusterSource(value string) (string, error) {
 		return value, nil
 	}
 	return cluster.DefaultPath()
+}
+
+// parseNodeCapabilities decodes and validates an optional --node JSON
+// advertisement. An empty value means no placement advertisement. The decoded
+// message is validated against the same bounded-capability contract the
+// protocol enforces, so an oversized or malformed advertisement fails startup
+// instead of being propagated.
+func parseNodeCapabilities(value string) (*r1sv1.NodeCapabilities, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	node := new(r1sv1.NodeCapabilities)
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal([]byte(value), node); err != nil {
+		return nil, fmt.Errorf("--node: decode JSON: %w", err)
+	}
+	if err := protocol.ValidateCapabilities(node); err != nil {
+		return nil, fmt.Errorf("--node: %w", err)
+	}
+	return node, nil
 }
 
 func identityDataDirectory(source string) (string, error) {

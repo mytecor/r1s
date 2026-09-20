@@ -8,6 +8,7 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/protocol"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 	"google.golang.org/protobuf/proto"
 )
@@ -54,6 +55,16 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 			return nil, nil
 		}
 		return nil, fmt.Errorf("%w: %q", ErrExecutionConflict, assign.GetExecutionId())
+	}
+
+	// Re-validate placement against current local capabilities at assignment.
+	// The node may have changed since the offer was minted (advertisement
+	// updates, policy edits, restart under a different configuration). An
+	// incompatible assignment is an explicit rejection, never an invalid start:
+	// the runtime must not attempt to run a workload its node no longer matches.
+	if !protocol.PlacementMatches(offer.request.GetConstraints(), a.node) {
+		a.mu.Unlock()
+		return nil, fmt.Errorf("%w: %s", ErrIncompatible, protocol.PlacementConflictDetails(offer.request.GetConstraints(), a.node))
 	}
 
 	if err := a.admitLocked(envelope.GetSender(), true); err != nil {

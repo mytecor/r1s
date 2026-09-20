@@ -50,7 +50,7 @@ func (a *application) request(arguments []string, stderr io.Writer) error {
 	if *holdAlive {
 		hold = *lease
 	}
-	requestID, executionID, allocator, err := a.runRequest(a.ctx, request.GetWorkload(), request.GetPolicy(), request.GetResourceClass(), *offerWait, allocators, hold)
+	requestID, executionID, allocator, err := a.runRequest(a.ctx, request.GetWorkload(), request.GetPolicy(), request.GetResourceClass(), *offerWait, allocators, hold, request.GetConstraints())
 	if err != nil {
 		return err
 	}

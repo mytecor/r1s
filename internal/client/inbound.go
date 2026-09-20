@@ -46,8 +46,15 @@ func (o *Client) handleOfferLocked(envelope *r1sv1.Envelope, offer *r1sv1.Execut
 	if record.messageID != envelope.GetCorrelationId() || offer.GetResourceClass() != record.request.GetResourceClass() {
 		return ErrConflict
 	}
-	if _, ok := o.allocators.lookup(envelope.GetSender()); !ok {
+	if allocator, ok := o.allocators.lookup(envelope.GetSender()); !ok {
 		return ErrUnauthorized
+	} else if offer.GetNode() != nil && !protocol.CapabilitiesEqual(allocator.Node, offer.GetNode()) {
+		// The offer carries the freshest capability evidence, so refresh the
+		// catalog entry in place (without a separate persist); selection ranks
+		// on the offer's own node when present.
+		refresh := cloneAllocator(allocator)
+		refresh.Node = proto.Clone(offer.GetNode()).(*r1sv1.NodeCapabilities)
+		o.allocators.put(refresh)
 	}
 	if existing := record.offers[offer.GetOfferId()]; existing != nil {
 		if !bytes.Equal(existing.allocatorID, envelope.GetSender()) || !proto.Equal(existing.offer, offer) {

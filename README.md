@@ -12,8 +12,9 @@ The `r1s` client publishes workload demand, collects offers from independent `r1
 selects where to run each workload. There is no global API server, scheduler, registry, or shared
 state.
 
-1. A client broadcasts an execution request.
-2. Allocators with available capacity return time-limited offers.
+1. A client broadcasts an execution request — optionally with exact-match placement constraints.
+2. Allocators with available capacity (and, when constrained, only those whose advertised
+   capabilities match) return time-limited offers.
 3. The client selects one offer and releases the others.
 4. The selected allocator starts the OCI workload and reports its state.
 

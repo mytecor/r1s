@@ -586,19 +586,216 @@ func (x *ExecutionPolicy) GetResultRetention() *durationpb.Duration {
 	return nil
 }
 
+// NodeCapabilities is the allocator's normalized, bounded description of what
+// its node can run. Identity strings are lowercase ASCII with bounded lengths;
+// devices, labels, profiles, and image-cache entries are bounded in count and
+// size. The message rides allocator offers (authoritative at assignment) and
+// is summarized by the RNS announce descriptor, which is far more compact and
+// advisory because the announce app-data budget is small (255 bytes).
+// Capability metadata is a hint for client placement, never a substitute for
+// allocator-local admission and runtime policy.
+type NodeCapabilities struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Os      string                 `protobuf:"bytes,1,opt,name=os,proto3" json:"os,omitempty"`
+	Arch    string                 `protobuf:"bytes,2,opt,name=arch,proto3" json:"arch,omitempty"`
+	Runtime string                 `protobuf:"bytes,3,opt,name=runtime,proto3" json:"runtime,omitempty"`
+	// resource_profiles lists the admission resource classes this allocator
+	// supports; the requested resource class must be one of them.
+	ResourceProfiles []string `protobuf:"bytes,4,rep,name=resource_profiles,json=resourceProfiles,proto3" json:"resource_profiles,omitempty"`
+	// devices lists device names the allocator declares it can expose. The list
+	// is authoritative local admission; a client constraint can only require a
+	// subset of what is declared, never ask for an undeclared device.
+	Devices []string `protobuf:"bytes,5,rep,name=devices,proto3" json:"devices,omitempty"`
+	// labels are operator-defined node labels (for example region=eu).
+	Labels map[string]string `protobuf:"bytes,6,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// cached_images is a purely advisory image-cache hint owned by the issuing
+	// allocator: it never bounds or authorizes anything.
+	CachedImages  []string `protobuf:"bytes,7,rep,name=cached_images,json=cachedImages,proto3" json:"cached_images,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NodeCapabilities) Reset() {
+	*x = NodeCapabilities{}
+	mi := &file_r1s_v1_control_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodeCapabilities) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodeCapabilities) ProtoMessage() {}
+
+func (x *NodeCapabilities) ProtoReflect() protoreflect.Message {
+	mi := &file_r1s_v1_control_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodeCapabilities.ProtoReflect.Descriptor instead.
+func (*NodeCapabilities) Descriptor() ([]byte, []int) {
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *NodeCapabilities) GetOs() string {
+	if x != nil {
+		return x.Os
+	}
+	return ""
+}
+
+func (x *NodeCapabilities) GetArch() string {
+	if x != nil {
+		return x.Arch
+	}
+	return ""
+}
+
+func (x *NodeCapabilities) GetRuntime() string {
+	if x != nil {
+		return x.Runtime
+	}
+	return ""
+}
+
+func (x *NodeCapabilities) GetResourceProfiles() []string {
+	if x != nil {
+		return x.ResourceProfiles
+	}
+	return nil
+}
+
+func (x *NodeCapabilities) GetDevices() []string {
+	if x != nil {
+		return x.Devices
+	}
+	return nil
+}
+
+func (x *NodeCapabilities) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *NodeCapabilities) GetCachedImages() []string {
+	if x != nil {
+		return x.CachedImages
+	}
+	return nil
+}
+
+// PlacementConstraints expresses the client's exact-match node requirements.
+// Every present field must equal a declared node capability: a non-empty
+// os/arch/runtime must match exactly, every label key/value pair must be
+// present in the node's labels, and every device must be declared by the
+// allocator. An empty message matches any node that offers the requested
+// resource class. The allocator applies the same predicates at request time
+// (so it neither reserves capacity nor returns an offer for an incompatible
+// node) and again at assignment (so a capability change since the offer is an
+// explicit rejection, never an invalid start).
+type PlacementConstraints struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Os      string                 `protobuf:"bytes,1,opt,name=os,proto3" json:"os,omitempty"`
+	Arch    string                 `protobuf:"bytes,2,opt,name=arch,proto3" json:"arch,omitempty"`
+	Runtime string                 `protobuf:"bytes,3,opt,name=runtime,proto3" json:"runtime,omitempty"`
+	// labels requires exact key=value matches; the node must contain every pair.
+	Labels map[string]string `protobuf:"bytes,4,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// devices requires every listed device to be declared by the allocator.
+	Devices       []string `protobuf:"bytes,5,rep,name=devices,proto3" json:"devices,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlacementConstraints) Reset() {
+	*x = PlacementConstraints{}
+	mi := &file_r1s_v1_control_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlacementConstraints) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlacementConstraints) ProtoMessage() {}
+
+func (x *PlacementConstraints) ProtoReflect() protoreflect.Message {
+	mi := &file_r1s_v1_control_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlacementConstraints.ProtoReflect.Descriptor instead.
+func (*PlacementConstraints) Descriptor() ([]byte, []int) {
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *PlacementConstraints) GetOs() string {
+	if x != nil {
+		return x.Os
+	}
+	return ""
+}
+
+func (x *PlacementConstraints) GetArch() string {
+	if x != nil {
+		return x.Arch
+	}
+	return ""
+}
+
+func (x *PlacementConstraints) GetRuntime() string {
+	if x != nil {
+		return x.Runtime
+	}
+	return ""
+}
+
+func (x *PlacementConstraints) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *PlacementConstraints) GetDevices() []string {
+	if x != nil {
+		return x.Devices
+	}
+	return nil
+}
+
 type ExecutionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	Workload      *Workload              `protobuf:"bytes,2,opt,name=workload,proto3" json:"workload,omitempty"`
 	Policy        *ExecutionPolicy       `protobuf:"bytes,3,opt,name=policy,proto3" json:"policy,omitempty"`
 	ResourceClass string                 `protobuf:"bytes,4,opt,name=resource_class,json=resourceClass,proto3" json:"resource_class,omitempty"`
+	// constraints narrows which allocators may offer. Omit for any-node requests.
+	Constraints   *PlacementConstraints `protobuf:"bytes,5,opt,name=constraints,proto3" json:"constraints,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecutionRequest) Reset() {
 	*x = ExecutionRequest{}
-	mi := &file_r1s_v1_control_proto_msgTypes[3]
+	mi := &file_r1s_v1_control_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -610,7 +807,7 @@ func (x *ExecutionRequest) String() string {
 func (*ExecutionRequest) ProtoMessage() {}
 
 func (x *ExecutionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[3]
+	mi := &file_r1s_v1_control_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -623,7 +820,7 @@ func (x *ExecutionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionRequest.ProtoReflect.Descriptor instead.
 func (*ExecutionRequest) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{3}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ExecutionRequest) GetRequestId() string {
@@ -654,19 +851,29 @@ func (x *ExecutionRequest) GetResourceClass() string {
 	return ""
 }
 
+func (x *ExecutionRequest) GetConstraints() *PlacementConstraints {
+	if x != nil {
+		return x.Constraints
+	}
+	return nil
+}
+
 type ExecutionOffer struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OfferId       string                 `protobuf:"bytes,1,opt,name=offer_id,json=offerId,proto3" json:"offer_id,omitempty"`
 	RequestId     string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	ResourceClass string                 `protobuf:"bytes,3,opt,name=resource_class,json=resourceClass,proto3" json:"resource_class,omitempty"`
 	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// node is the issuing allocator's bounded capability metadata, captured at
+	// offer time so the client can rank offers without another round trip.
+	Node          *NodeCapabilities `protobuf:"bytes,5,opt,name=node,proto3" json:"node,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecutionOffer) Reset() {
 	*x = ExecutionOffer{}
-	mi := &file_r1s_v1_control_proto_msgTypes[4]
+	mi := &file_r1s_v1_control_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -678,7 +885,7 @@ func (x *ExecutionOffer) String() string {
 func (*ExecutionOffer) ProtoMessage() {}
 
 func (x *ExecutionOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[4]
+	mi := &file_r1s_v1_control_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -691,7 +898,7 @@ func (x *ExecutionOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionOffer.ProtoReflect.Descriptor instead.
 func (*ExecutionOffer) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{4}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ExecutionOffer) GetOfferId() string {
@@ -722,6 +929,13 @@ func (x *ExecutionOffer) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ExecutionOffer) GetNode() *NodeCapabilities {
+	if x != nil {
+		return x.Node
+	}
+	return nil
+}
+
 type ExecutionAssign struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -733,7 +947,7 @@ type ExecutionAssign struct {
 
 func (x *ExecutionAssign) Reset() {
 	*x = ExecutionAssign{}
-	mi := &file_r1s_v1_control_proto_msgTypes[5]
+	mi := &file_r1s_v1_control_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -745,7 +959,7 @@ func (x *ExecutionAssign) String() string {
 func (*ExecutionAssign) ProtoMessage() {}
 
 func (x *ExecutionAssign) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[5]
+	mi := &file_r1s_v1_control_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -758,7 +972,7 @@ func (x *ExecutionAssign) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionAssign.ProtoReflect.Descriptor instead.
 func (*ExecutionAssign) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{5}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ExecutionAssign) GetRequestId() string {
@@ -794,7 +1008,7 @@ type ExecutionOfferRelease struct {
 
 func (x *ExecutionOfferRelease) Reset() {
 	*x = ExecutionOfferRelease{}
-	mi := &file_r1s_v1_control_proto_msgTypes[6]
+	mi := &file_r1s_v1_control_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -806,7 +1020,7 @@ func (x *ExecutionOfferRelease) String() string {
 func (*ExecutionOfferRelease) ProtoMessage() {}
 
 func (x *ExecutionOfferRelease) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[6]
+	mi := &file_r1s_v1_control_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -819,7 +1033,7 @@ func (x *ExecutionOfferRelease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionOfferRelease.ProtoReflect.Descriptor instead.
 func (*ExecutionOfferRelease) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{6}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ExecutionOfferRelease) GetRequestId() string {
@@ -847,7 +1061,7 @@ type ExecutionOfferReleaseAck struct {
 
 func (x *ExecutionOfferReleaseAck) Reset() {
 	*x = ExecutionOfferReleaseAck{}
-	mi := &file_r1s_v1_control_proto_msgTypes[7]
+	mi := &file_r1s_v1_control_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -859,7 +1073,7 @@ func (x *ExecutionOfferReleaseAck) String() string {
 func (*ExecutionOfferReleaseAck) ProtoMessage() {}
 
 func (x *ExecutionOfferReleaseAck) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[7]
+	mi := &file_r1s_v1_control_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -872,7 +1086,7 @@ func (x *ExecutionOfferReleaseAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionOfferReleaseAck.ProtoReflect.Descriptor instead.
 func (*ExecutionOfferReleaseAck) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{7}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ExecutionOfferReleaseAck) GetRequestId() string {
@@ -906,7 +1120,7 @@ type ExecutionCancel struct {
 
 func (x *ExecutionCancel) Reset() {
 	*x = ExecutionCancel{}
-	mi := &file_r1s_v1_control_proto_msgTypes[8]
+	mi := &file_r1s_v1_control_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -918,7 +1132,7 @@ func (x *ExecutionCancel) String() string {
 func (*ExecutionCancel) ProtoMessage() {}
 
 func (x *ExecutionCancel) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[8]
+	mi := &file_r1s_v1_control_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -931,7 +1145,7 @@ func (x *ExecutionCancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionCancel.ProtoReflect.Descriptor instead.
 func (*ExecutionCancel) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{8}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ExecutionCancel) GetExecutionId() string {
@@ -959,7 +1173,7 @@ type ExecutionInspect struct {
 
 func (x *ExecutionInspect) Reset() {
 	*x = ExecutionInspect{}
-	mi := &file_r1s_v1_control_proto_msgTypes[9]
+	mi := &file_r1s_v1_control_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -971,7 +1185,7 @@ func (x *ExecutionInspect) String() string {
 func (*ExecutionInspect) ProtoMessage() {}
 
 func (x *ExecutionInspect) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[9]
+	mi := &file_r1s_v1_control_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -984,7 +1198,7 @@ func (x *ExecutionInspect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionInspect.ProtoReflect.Descriptor instead.
 func (*ExecutionInspect) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{9}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ExecutionInspect) GetExecutionId() string {
@@ -1009,7 +1223,7 @@ type ExecutionState struct {
 
 func (x *ExecutionState) Reset() {
 	*x = ExecutionState{}
-	mi := &file_r1s_v1_control_proto_msgTypes[10]
+	mi := &file_r1s_v1_control_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1021,7 +1235,7 @@ func (x *ExecutionState) String() string {
 func (*ExecutionState) ProtoMessage() {}
 
 func (x *ExecutionState) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[10]
+	mi := &file_r1s_v1_control_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1034,7 +1248,7 @@ func (x *ExecutionState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionState.ProtoReflect.Descriptor instead.
 func (*ExecutionState) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{10}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ExecutionState) GetExecutionId() string {
@@ -1092,7 +1306,7 @@ type CommandError struct {
 
 func (x *CommandError) Reset() {
 	*x = CommandError{}
-	mi := &file_r1s_v1_control_proto_msgTypes[11]
+	mi := &file_r1s_v1_control_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1104,7 +1318,7 @@ func (x *CommandError) String() string {
 func (*CommandError) ProtoMessage() {}
 
 func (x *CommandError) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[11]
+	mi := &file_r1s_v1_control_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1117,7 +1331,7 @@ func (x *CommandError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandError.ProtoReflect.Descriptor instead.
 func (*CommandError) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{11}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CommandError) GetCode() string {
@@ -1154,7 +1368,7 @@ type ExecutionLogsRequest struct {
 
 func (x *ExecutionLogsRequest) Reset() {
 	*x = ExecutionLogsRequest{}
-	mi := &file_r1s_v1_control_proto_msgTypes[12]
+	mi := &file_r1s_v1_control_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1166,7 +1380,7 @@ func (x *ExecutionLogsRequest) String() string {
 func (*ExecutionLogsRequest) ProtoMessage() {}
 
 func (x *ExecutionLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[12]
+	mi := &file_r1s_v1_control_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1179,7 +1393,7 @@ func (x *ExecutionLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionLogsRequest.ProtoReflect.Descriptor instead.
 func (*ExecutionLogsRequest) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{12}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ExecutionLogsRequest) GetExecutionId() string {
@@ -1226,7 +1440,7 @@ type ExecutionLogsResponse struct {
 
 func (x *ExecutionLogsResponse) Reset() {
 	*x = ExecutionLogsResponse{}
-	mi := &file_r1s_v1_control_proto_msgTypes[13]
+	mi := &file_r1s_v1_control_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1238,7 +1452,7 @@ func (x *ExecutionLogsResponse) String() string {
 func (*ExecutionLogsResponse) ProtoMessage() {}
 
 func (x *ExecutionLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[13]
+	mi := &file_r1s_v1_control_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1251,7 +1465,7 @@ func (x *ExecutionLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionLogsResponse.ProtoReflect.Descriptor instead.
 func (*ExecutionLogsResponse) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{13}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ExecutionLogsResponse) GetExecutionId() string {
@@ -1326,7 +1540,7 @@ type ExecutionLeaseRenew struct {
 
 func (x *ExecutionLeaseRenew) Reset() {
 	*x = ExecutionLeaseRenew{}
-	mi := &file_r1s_v1_control_proto_msgTypes[14]
+	mi := &file_r1s_v1_control_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1338,7 +1552,7 @@ func (x *ExecutionLeaseRenew) String() string {
 func (*ExecutionLeaseRenew) ProtoMessage() {}
 
 func (x *ExecutionLeaseRenew) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[14]
+	mi := &file_r1s_v1_control_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1351,7 +1565,7 @@ func (x *ExecutionLeaseRenew) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionLeaseRenew.ProtoReflect.Descriptor instead.
 func (*ExecutionLeaseRenew) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{14}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ExecutionLeaseRenew) GetExecutionId() string {
@@ -1379,7 +1593,7 @@ type ExecutionLeaseRenewAck struct {
 
 func (x *ExecutionLeaseRenewAck) Reset() {
 	*x = ExecutionLeaseRenewAck{}
-	mi := &file_r1s_v1_control_proto_msgTypes[15]
+	mi := &file_r1s_v1_control_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1391,7 +1605,7 @@ func (x *ExecutionLeaseRenewAck) String() string {
 func (*ExecutionLeaseRenewAck) ProtoMessage() {}
 
 func (x *ExecutionLeaseRenewAck) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[15]
+	mi := &file_r1s_v1_control_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1404,7 +1618,7 @@ func (x *ExecutionLeaseRenewAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionLeaseRenewAck.ProtoReflect.Descriptor instead.
 func (*ExecutionLeaseRenewAck) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{15}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ExecutionLeaseRenewAck) GetExecutionId() string {
@@ -1437,7 +1651,7 @@ type ExecutionTunnelGrant struct {
 
 func (x *ExecutionTunnelGrant) Reset() {
 	*x = ExecutionTunnelGrant{}
-	mi := &file_r1s_v1_control_proto_msgTypes[16]
+	mi := &file_r1s_v1_control_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1449,7 +1663,7 @@ func (x *ExecutionTunnelGrant) String() string {
 func (*ExecutionTunnelGrant) ProtoMessage() {}
 
 func (x *ExecutionTunnelGrant) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[16]
+	mi := &file_r1s_v1_control_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1462,7 +1676,7 @@ func (x *ExecutionTunnelGrant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionTunnelGrant.ProtoReflect.Descriptor instead.
 func (*ExecutionTunnelGrant) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{16}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ExecutionTunnelGrant) GetExecutionId() string {
@@ -1496,7 +1710,7 @@ type ExecutionTunnelGrantAck struct {
 
 func (x *ExecutionTunnelGrantAck) Reset() {
 	*x = ExecutionTunnelGrantAck{}
-	mi := &file_r1s_v1_control_proto_msgTypes[17]
+	mi := &file_r1s_v1_control_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1508,7 +1722,7 @@ func (x *ExecutionTunnelGrantAck) String() string {
 func (*ExecutionTunnelGrantAck) ProtoMessage() {}
 
 func (x *ExecutionTunnelGrantAck) ProtoReflect() protoreflect.Message {
-	mi := &file_r1s_v1_control_proto_msgTypes[17]
+	mi := &file_r1s_v1_control_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1521,7 +1735,7 @@ func (x *ExecutionTunnelGrantAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionTunnelGrantAck.ProtoReflect.Descriptor instead.
 func (*ExecutionTunnelGrantAck) Descriptor() ([]byte, []int) {
-	return file_r1s_v1_control_proto_rawDescGZIP(), []int{17}
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ExecutionTunnelGrantAck) GetExecutionId() string {
@@ -1599,20 +1813,42 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"z\n" +
 	"\x0fExecutionPolicy\x12D\n" +
-	"\x10result_retention\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x0fresultRetentionJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\bdeadlineR\vmax_runtime\"\xb7\x01\n" +
+	"\x10result_retention\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x0fresultRetentionJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\bdeadlineR\vmax_runtime\"\xb5\x02\n" +
+	"\x10NodeCapabilities\x12\x0e\n" +
+	"\x02os\x18\x01 \x01(\tR\x02os\x12\x12\n" +
+	"\x04arch\x18\x02 \x01(\tR\x04arch\x12\x18\n" +
+	"\aruntime\x18\x03 \x01(\tR\aruntime\x12+\n" +
+	"\x11resource_profiles\x18\x04 \x03(\tR\x10resourceProfiles\x12\x18\n" +
+	"\adevices\x18\x05 \x03(\tR\adevices\x12<\n" +
+	"\x06labels\x18\x06 \x03(\v2$.r1s.v1.NodeCapabilities.LabelsEntryR\x06labels\x12#\n" +
+	"\rcached_images\x18\a \x03(\tR\fcachedImages\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xeb\x01\n" +
+	"\x14PlacementConstraints\x12\x0e\n" +
+	"\x02os\x18\x01 \x01(\tR\x02os\x12\x12\n" +
+	"\x04arch\x18\x02 \x01(\tR\x04arch\x12\x18\n" +
+	"\aruntime\x18\x03 \x01(\tR\aruntime\x12@\n" +
+	"\x06labels\x18\x04 \x03(\v2(.r1s.v1.PlacementConstraints.LabelsEntryR\x06labels\x12\x18\n" +
+	"\adevices\x18\x05 \x03(\tR\adevices\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf7\x01\n" +
 	"\x10ExecutionRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12,\n" +
 	"\bworkload\x18\x02 \x01(\v2\x10.r1s.v1.WorkloadR\bworkload\x12/\n" +
 	"\x06policy\x18\x03 \x01(\v2\x17.r1s.v1.ExecutionPolicyR\x06policy\x12%\n" +
-	"\x0eresource_class\x18\x04 \x01(\tR\rresourceClass\"\xac\x01\n" +
+	"\x0eresource_class\x18\x04 \x01(\tR\rresourceClass\x12>\n" +
+	"\vconstraints\x18\x05 \x01(\v2\x1c.r1s.v1.PlacementConstraintsR\vconstraints\"\xda\x01\n" +
 	"\x0eExecutionOffer\x12\x19\n" +
 	"\boffer_id\x18\x01 \x01(\tR\aofferId\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tR\trequestId\x12%\n" +
 	"\x0eresource_class\x18\x03 \x01(\tR\rresourceClass\x129\n" +
 	"\n" +
-	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"n\n" +
+	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12,\n" +
+	"\x04node\x18\x05 \x01(\v2\x18.r1s.v1.NodeCapabilitiesR\x04node\"n\n" +
 	"\x0fExecutionAssign\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
@@ -1705,65 +1941,73 @@ func file_r1s_v1_control_proto_rawDescGZIP() []byte {
 }
 
 var file_r1s_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_r1s_v1_control_proto_goTypes = []any{
 	(OfferReleaseOutcome)(0),         // 0: r1s.v1.OfferReleaseOutcome
 	(ExecutionPhase)(0),              // 1: r1s.v1.ExecutionPhase
 	(*Envelope)(nil),                 // 2: r1s.v1.Envelope
 	(*Workload)(nil),                 // 3: r1s.v1.Workload
 	(*ExecutionPolicy)(nil),          // 4: r1s.v1.ExecutionPolicy
-	(*ExecutionRequest)(nil),         // 5: r1s.v1.ExecutionRequest
-	(*ExecutionOffer)(nil),           // 6: r1s.v1.ExecutionOffer
-	(*ExecutionAssign)(nil),          // 7: r1s.v1.ExecutionAssign
-	(*ExecutionOfferRelease)(nil),    // 8: r1s.v1.ExecutionOfferRelease
-	(*ExecutionOfferReleaseAck)(nil), // 9: r1s.v1.ExecutionOfferReleaseAck
-	(*ExecutionCancel)(nil),          // 10: r1s.v1.ExecutionCancel
-	(*ExecutionInspect)(nil),         // 11: r1s.v1.ExecutionInspect
-	(*ExecutionState)(nil),           // 12: r1s.v1.ExecutionState
-	(*CommandError)(nil),             // 13: r1s.v1.CommandError
-	(*ExecutionLogsRequest)(nil),     // 14: r1s.v1.ExecutionLogsRequest
-	(*ExecutionLogsResponse)(nil),    // 15: r1s.v1.ExecutionLogsResponse
-	(*ExecutionLeaseRenew)(nil),      // 16: r1s.v1.ExecutionLeaseRenew
-	(*ExecutionLeaseRenewAck)(nil),   // 17: r1s.v1.ExecutionLeaseRenewAck
-	(*ExecutionTunnelGrant)(nil),     // 18: r1s.v1.ExecutionTunnelGrant
-	(*ExecutionTunnelGrantAck)(nil),  // 19: r1s.v1.ExecutionTunnelGrantAck
-	nil,                              // 20: r1s.v1.Workload.EnvironmentEntry
-	(*timestamppb.Timestamp)(nil),    // 21: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),      // 22: google.protobuf.Duration
+	(*NodeCapabilities)(nil),         // 5: r1s.v1.NodeCapabilities
+	(*PlacementConstraints)(nil),     // 6: r1s.v1.PlacementConstraints
+	(*ExecutionRequest)(nil),         // 7: r1s.v1.ExecutionRequest
+	(*ExecutionOffer)(nil),           // 8: r1s.v1.ExecutionOffer
+	(*ExecutionAssign)(nil),          // 9: r1s.v1.ExecutionAssign
+	(*ExecutionOfferRelease)(nil),    // 10: r1s.v1.ExecutionOfferRelease
+	(*ExecutionOfferReleaseAck)(nil), // 11: r1s.v1.ExecutionOfferReleaseAck
+	(*ExecutionCancel)(nil),          // 12: r1s.v1.ExecutionCancel
+	(*ExecutionInspect)(nil),         // 13: r1s.v1.ExecutionInspect
+	(*ExecutionState)(nil),           // 14: r1s.v1.ExecutionState
+	(*CommandError)(nil),             // 15: r1s.v1.CommandError
+	(*ExecutionLogsRequest)(nil),     // 16: r1s.v1.ExecutionLogsRequest
+	(*ExecutionLogsResponse)(nil),    // 17: r1s.v1.ExecutionLogsResponse
+	(*ExecutionLeaseRenew)(nil),      // 18: r1s.v1.ExecutionLeaseRenew
+	(*ExecutionLeaseRenewAck)(nil),   // 19: r1s.v1.ExecutionLeaseRenewAck
+	(*ExecutionTunnelGrant)(nil),     // 20: r1s.v1.ExecutionTunnelGrant
+	(*ExecutionTunnelGrantAck)(nil),  // 21: r1s.v1.ExecutionTunnelGrantAck
+	nil,                              // 22: r1s.v1.Workload.EnvironmentEntry
+	nil,                              // 23: r1s.v1.NodeCapabilities.LabelsEntry
+	nil,                              // 24: r1s.v1.PlacementConstraints.LabelsEntry
+	(*timestamppb.Timestamp)(nil),    // 25: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),      // 26: google.protobuf.Duration
 }
 var file_r1s_v1_control_proto_depIdxs = []int32{
-	21, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
-	5,  // 1: r1s.v1.Envelope.execution_request:type_name -> r1s.v1.ExecutionRequest
-	6,  // 2: r1s.v1.Envelope.execution_offer:type_name -> r1s.v1.ExecutionOffer
-	7,  // 3: r1s.v1.Envelope.execution_assign:type_name -> r1s.v1.ExecutionAssign
-	10, // 4: r1s.v1.Envelope.execution_cancel:type_name -> r1s.v1.ExecutionCancel
-	12, // 5: r1s.v1.Envelope.execution_state:type_name -> r1s.v1.ExecutionState
-	11, // 6: r1s.v1.Envelope.execution_inspect:type_name -> r1s.v1.ExecutionInspect
-	8,  // 7: r1s.v1.Envelope.execution_offer_release:type_name -> r1s.v1.ExecutionOfferRelease
-	9,  // 8: r1s.v1.Envelope.execution_offer_release_ack:type_name -> r1s.v1.ExecutionOfferReleaseAck
-	13, // 9: r1s.v1.Envelope.command_error:type_name -> r1s.v1.CommandError
-	14, // 10: r1s.v1.Envelope.execution_logs_request:type_name -> r1s.v1.ExecutionLogsRequest
-	15, // 11: r1s.v1.Envelope.execution_logs_response:type_name -> r1s.v1.ExecutionLogsResponse
-	16, // 12: r1s.v1.Envelope.execution_lease_renew:type_name -> r1s.v1.ExecutionLeaseRenew
-	17, // 13: r1s.v1.Envelope.execution_lease_renew_ack:type_name -> r1s.v1.ExecutionLeaseRenewAck
-	18, // 14: r1s.v1.Envelope.execution_tunnel_grant:type_name -> r1s.v1.ExecutionTunnelGrant
-	19, // 15: r1s.v1.Envelope.execution_tunnel_grant_ack:type_name -> r1s.v1.ExecutionTunnelGrantAck
-	20, // 16: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
-	22, // 17: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
-	3,  // 18: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
-	4,  // 19: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
-	21, // 20: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
-	0,  // 21: r1s.v1.ExecutionOfferReleaseAck.outcome:type_name -> r1s.v1.OfferReleaseOutcome
-	1,  // 22: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
-	21, // 23: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
-	22, // 24: r1s.v1.ExecutionLeaseRenew.lease_duration:type_name -> google.protobuf.Duration
-	21, // 25: r1s.v1.ExecutionLeaseRenewAck.expires_at:type_name -> google.protobuf.Timestamp
-	21, // 26: r1s.v1.ExecutionTunnelGrantAck.expires_at:type_name -> google.protobuf.Timestamp
-	27, // [27:27] is the sub-list for method output_type
-	27, // [27:27] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	25, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
+	7,  // 1: r1s.v1.Envelope.execution_request:type_name -> r1s.v1.ExecutionRequest
+	8,  // 2: r1s.v1.Envelope.execution_offer:type_name -> r1s.v1.ExecutionOffer
+	9,  // 3: r1s.v1.Envelope.execution_assign:type_name -> r1s.v1.ExecutionAssign
+	12, // 4: r1s.v1.Envelope.execution_cancel:type_name -> r1s.v1.ExecutionCancel
+	14, // 5: r1s.v1.Envelope.execution_state:type_name -> r1s.v1.ExecutionState
+	13, // 6: r1s.v1.Envelope.execution_inspect:type_name -> r1s.v1.ExecutionInspect
+	10, // 7: r1s.v1.Envelope.execution_offer_release:type_name -> r1s.v1.ExecutionOfferRelease
+	11, // 8: r1s.v1.Envelope.execution_offer_release_ack:type_name -> r1s.v1.ExecutionOfferReleaseAck
+	15, // 9: r1s.v1.Envelope.command_error:type_name -> r1s.v1.CommandError
+	16, // 10: r1s.v1.Envelope.execution_logs_request:type_name -> r1s.v1.ExecutionLogsRequest
+	17, // 11: r1s.v1.Envelope.execution_logs_response:type_name -> r1s.v1.ExecutionLogsResponse
+	18, // 12: r1s.v1.Envelope.execution_lease_renew:type_name -> r1s.v1.ExecutionLeaseRenew
+	19, // 13: r1s.v1.Envelope.execution_lease_renew_ack:type_name -> r1s.v1.ExecutionLeaseRenewAck
+	20, // 14: r1s.v1.Envelope.execution_tunnel_grant:type_name -> r1s.v1.ExecutionTunnelGrant
+	21, // 15: r1s.v1.Envelope.execution_tunnel_grant_ack:type_name -> r1s.v1.ExecutionTunnelGrantAck
+	22, // 16: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
+	26, // 17: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
+	23, // 18: r1s.v1.NodeCapabilities.labels:type_name -> r1s.v1.NodeCapabilities.LabelsEntry
+	24, // 19: r1s.v1.PlacementConstraints.labels:type_name -> r1s.v1.PlacementConstraints.LabelsEntry
+	3,  // 20: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
+	4,  // 21: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
+	6,  // 22: r1s.v1.ExecutionRequest.constraints:type_name -> r1s.v1.PlacementConstraints
+	25, // 23: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
+	5,  // 24: r1s.v1.ExecutionOffer.node:type_name -> r1s.v1.NodeCapabilities
+	0,  // 25: r1s.v1.ExecutionOfferReleaseAck.outcome:type_name -> r1s.v1.OfferReleaseOutcome
+	1,  // 26: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
+	25, // 27: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
+	26, // 28: r1s.v1.ExecutionLeaseRenew.lease_duration:type_name -> google.protobuf.Duration
+	25, // 29: r1s.v1.ExecutionLeaseRenewAck.expires_at:type_name -> google.protobuf.Timestamp
+	25, // 30: r1s.v1.ExecutionTunnelGrantAck.expires_at:type_name -> google.protobuf.Timestamp
+	31, // [31:31] is the sub-list for method output_type
+	31, // [31:31] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_r1s_v1_control_proto_init() }
@@ -1788,14 +2032,14 @@ func file_r1s_v1_control_proto_init() {
 		(*Envelope_ExecutionTunnelGrant)(nil),
 		(*Envelope_ExecutionTunnelGrantAck)(nil),
 	}
-	file_r1s_v1_control_proto_msgTypes[10].OneofWrappers = []any{}
+	file_r1s_v1_control_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_r1s_v1_control_proto_rawDesc), len(file_r1s_v1_control_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   19,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

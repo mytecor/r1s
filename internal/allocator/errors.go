@@ -22,4 +22,5 @@ var (
 	ErrLeaseTooLong         = errors.New("lease duration exceeds the allocator bound")
 	ErrStore                = errors.New("allocator state store failed")
 	ErrRecoveryUnsupported  = errors.New("runtime does not support recovery")
+	ErrIncompatible         = errors.New("node does not satisfy placement constraints")
 )

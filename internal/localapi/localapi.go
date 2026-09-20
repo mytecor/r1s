@@ -79,10 +79,10 @@ func (c *Client) socketAlive() bool {
 // records a lease-holding intent for the assigned execution; the service
 // renewal loop then keeps it alive and re-requests the workload if the lease
 // is ever lost.
-func (c *Client) Request(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (requestID, executionID string, allocator []byte, err error) {
+func (c *Client) Request(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration, constraints *r1sv1.PlacementConstraints) (requestID, executionID string, allocator []byte, err error) {
 	response, err := c.local.Request(ctx, &r1sv1.LocalRequest{
 		Workload: workload, Policy: policy, ResourceClass: resourceClass,
-		OfferWait: durationpb.New(offerWait), Allocators: allocators, KeepAlive: durationpb.New(keepAlive),
+		OfferWait: durationpb.New(offerWait), Allocators: allocators, KeepAlive: durationpb.New(keepAlive), Constraints: constraints,
 	})
 	if err != nil {
 		return "", "", nil, err

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 )
 
 const (
@@ -17,13 +19,19 @@ const (
 var ErrInvalidDescriptor = errors.New("invalid RNS service descriptor")
 
 // Descriptor is the small allocator capability record carried in announce app_data.
+// It must stay within maxDescriptorBytes (the announce app-data budget); the
+// full NodeCapabilities rides allocator offers instead, so the descriptor keeps
+// only the coarse placement summary that fits: os, arch, and runtime.
 type Descriptor struct {
 	Protocol  string            `json:"protocol"`
 	ClusterID string            `json:"cluster_id"`
 	Capacity  map[string]uint32 `json:"capacity"`
+	OS        string            `json:"os,omitempty"`
+	Arch      string            `json:"arch,omitempty"`
+	Runtime   string            `json:"runtime,omitempty"`
 }
 
-func newDescriptor(clusterID []byte, capacity map[string]uint32) (Descriptor, error) {
+func newDescriptor(clusterID []byte, capacity map[string]uint32, node *r1sv1.NodeCapabilities) (Descriptor, error) {
 	if len(clusterID) != 32 {
 		return Descriptor{}, fmt.Errorf("%w: cluster ID must be 32 bytes", ErrInvalidDescriptor)
 	}
@@ -36,6 +44,14 @@ func newDescriptor(clusterID []byte, capacity map[string]uint32) (Descriptor, er
 	}
 	if len(descriptor.Capacity) == 0 {
 		return Descriptor{}, fmt.Errorf("%w: capacity is required", ErrInvalidDescriptor)
+	}
+	// The announce summary is a bounded subset of the node advertisement. Only
+	// normalized values are copied; anything else is rejected by the descriptor
+	// size check below, so a malformed node cannot be advertised.
+	if node != nil {
+		descriptor.OS = node.GetOs()
+		descriptor.Arch = node.GetArch()
+		descriptor.Runtime = node.GetRuntime()
 	}
 	return descriptor, nil
 }
@@ -66,5 +82,10 @@ func parseDescriptor(data []byte) (Descriptor, error) {
 	if err != nil {
 		return Descriptor{}, fmt.Errorf("%w: cluster ID must be hexadecimal", ErrInvalidDescriptor)
 	}
-	return newDescriptor(clusterID, descriptor.Capacity)
+	result, err := newDescriptor(clusterID, descriptor.Capacity, nil)
+	if err != nil {
+		return Descriptor{}, err
+	}
+	result.OS, result.Arch, result.Runtime = descriptor.OS, descriptor.Arch, descriptor.Runtime
+	return result, nil
 }

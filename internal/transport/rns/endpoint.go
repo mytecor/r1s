@@ -45,7 +45,11 @@ type Config struct {
 	ClusterKey []byte
 	// Capacity advertises this endpoint as an allocator. An empty map creates a
 	// passive client endpoint that discovers allocators but does not announce one.
-	Capacity         map[string]uint32
+	Capacity map[string]uint32
+	// Node is the endpoint's bounded placement advertisement. It is optional;
+	// when present, the announce descriptor carries the coarse os/arch/runtime
+	// summary and every offer embeds the full NodeCapabilities.
+	Node             *r1sv1.NodeCapabilities
 	AppName          string
 	Aspect           string
 	AnnounceInterval time.Duration
@@ -99,7 +103,7 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	}
 	var descriptorData []byte
 	if len(config.Capacity) > 0 {
-		descriptor, err := newDescriptor(clusterID, config.Capacity)
+		descriptor, err := newDescriptor(clusterID, config.Capacity, config.Node)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 		}

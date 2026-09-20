@@ -32,6 +32,16 @@ func (a *Allocator) Available(class string) uint32 {
 	return a.capacity.available(class)
 }
 
+// Node returns a clone of the allocator's local capability advertisement.
+func (a *Allocator) Node() *r1sv1.NodeCapabilities {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.node == nil {
+		return nil
+	}
+	return proto.Clone(a.node).(*r1sv1.NodeCapabilities)
+}
+
 // Offer returns a cloned offer snapshot.
 func (a *Allocator) Offer(id string) (OfferSnapshot, bool) {
 	a.mu.Lock()

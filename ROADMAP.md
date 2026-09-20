@@ -174,7 +174,8 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > Allocators advertise bounded OS, architecture, runtime, device, and operator labels so clients can
 > request compatible nodes and still make the final placement decision from returned offers.
 
-- **Status:** ⏳ planned
+- **Status:** ✅ complete; allocator capabilities and client constraints verified under
+  `go test -race` (protocol, allocator, client, socket-contract, RNS descriptor)
 - **Done when:** incompatible allocators do not offer, compatible offers expose useful placement
   metadata, and selection remains client-owned without a global scheduler.
 - **Depends on:** [F4](#f4-client-workflow), [F10](#f10-local-admission-and-resource-limits),
@@ -238,9 +239,12 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   interactive byte pipe into a multiplexed, addressable stream transport — several named streams,
   always client→allocator, over one authenticated mesh connection, with allocator-resolved target
   slots and no core/Yggdrasil coupling.
-- [F16](#f16-node-capabilities-and-placement) can follow [F14](#f14-direct-node-access-r1s-tunneld) or
-  run independently: allocators advertise bounded capability labels, clients express exact-match
-  constraints, and only compatible allocators offer. It does not introduce a scheduler or global state.
+- [F16](#f16-node-capabilities-and-placement) landed (2026): allocators advertise bounded
+  OS/arch/runtime/device/resource-profile/label capabilities in offers and a compact RNS announce
+  summary; clients express exact-match `--constraints`, and only compatible allocators receive the
+  request. Placement never overrides allocator-local admission: incompatible requests are rejected
+  before capacity is reserved, and assignment re-validation emits an explicit `INCOMPATIBLE`
+  rather than an invalid start.
 - [F18](#f18-observability) adds standard local export points and inspection surfaces after the
   client and API surfaces exist.
 

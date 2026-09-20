@@ -92,6 +92,9 @@ func validateRequest(envelope *r1sv1.Envelope, request *r1sv1.ExecutionRequest) 
 	if strings.TrimSpace(request.GetResourceClass()) == "" {
 		return invalid("execution_request.resource_class", "is required")
 	}
+	if err := ValidateConstraints(request.GetConstraints()); err != nil {
+		return err
+	}
 	workload := request.GetWorkload()
 	if workload == nil {
 		return invalid("execution_request.workload", "is required")
@@ -138,6 +141,9 @@ func validateOffer(envelope *r1sv1.Envelope, offer *r1sv1.ExecutionOffer) error 
 	}
 	if !offer.GetExpiresAt().AsTime().After(envelope.GetSentAt().AsTime()) {
 		return invalid("execution_offer.expires_at", "must be after sent_at")
+	}
+	if err := ValidateCapabilities(offer.GetNode()); err != nil {
+		return err
 	}
 	return nil
 }

@@ -30,6 +30,9 @@ message LocalRequest {
   // assigned execution and its renewal loop keeps it alive. Zero means the
   // execution runs on its initial allocator-granted lease only.
   google.protobuf.Duration keep_alive = 6;
+  // constraints narrows which allocators may offer, mirroring the control
+  // plane ExecutionRequest. Omit for any-node requests.
+  r1s.v1.PlacementConstraints constraints = 7;
 }
 
 message LocalRequestResponse {

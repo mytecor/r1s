@@ -13,7 +13,20 @@ import (
 )
 
 // CreateRequest durably creates a request before it is sent to any allocator.
+// It creates an any-node request with no placement constraints.
 func (o *Client) CreateRequest(workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string) (string, *r1sv1.Envelope, error) {
+	return o.createRequest(workload, policy, resourceClass, nil)
+}
+
+// CreateRequestWithConstraints durably creates a request with placement
+// constraints. The constraints are validated and become part of the durable
+// request, so every allocator receives the same narrowing even after restart
+// and re-request.
+func (o *Client) CreateRequestWithConstraints(workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, constraints *r1sv1.PlacementConstraints) (string, *r1sv1.Envelope, error) {
+	return o.createRequest(workload, policy, resourceClass, constraints)
+}
+
+func (o *Client) createRequest(workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, constraints *r1sv1.PlacementConstraints) (string, *r1sv1.Envelope, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	requestID := o.uniqueIDLocked(o.requests)
@@ -24,6 +37,7 @@ func (o *Client) CreateRequest(workload *r1sv1.Workload, policy *r1sv1.Execution
 	now := o.now().UTC()
 	request := &r1sv1.ExecutionRequest{
 		RequestId: requestID, Workload: cloneWorkload(workload), Policy: clonePolicy(policy), ResourceClass: resourceClass,
+		Constraints: constraints,
 	}
 	envelope := o.requestEnvelopeLocked(request, messageID, now)
 	if err := protocol.ValidateEnvelope(envelope); err != nil {

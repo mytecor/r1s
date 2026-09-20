@@ -2,7 +2,7 @@
 
 Corresponds to [milestone F16](../../ROADMAP.md#f16-node-capabilities-and-placement).
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete
 
 ## Outcome
 

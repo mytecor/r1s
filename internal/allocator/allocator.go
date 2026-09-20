@@ -14,6 +14,7 @@ import (
 	"github.com/mytecor/r1s/internal/protocol"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 	"github.com/mytecor/r1s/internal/tunnel"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -47,6 +48,12 @@ type Config struct {
 	// library) and in-memory: grants are never persisted and a restart
 	// invalidates them by construction.
 	Tunnel TunnelConfig
+	// Node is the allocator's bounded local capability metadata. When nil, the
+	// allocator advertises no placement details and only matches empty
+	// constraints (every node accepts every request); an explicit placement
+	// constraint is then rejected so the client is never told a node matches
+	// without evidence.
+	Node *r1sv1.NodeCapabilities
 }
 
 type offerStatus uint8
@@ -126,6 +133,7 @@ type Allocator struct {
 	store     StateStore
 	admission AdmissionPolicy
 	logs      r1sruntime.LogStore
+	node      *r1sv1.NodeCapabilities
 
 	offers     map[string]*offerRecord
 	requests   map[string]string
@@ -172,6 +180,14 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 	if err := config.Admission.validate(capacity.limits); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
+	if err := protocol.ValidateCapabilities(config.Node); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+	}
+	// Copy the node advertisement so callers cannot mutate it concurrently.
+	var node *r1sv1.NodeCapabilities
+	if config.Node != nil {
+		node = proto.Clone(config.Node).(*r1sv1.NodeCapabilities)
+	}
 	// Copy policy maps and slices so callers cannot mutate admission concurrently.
 	policyData, _ := json.Marshal(config.Admission)
 	var admission AdmissionPolicy
@@ -194,6 +210,7 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 		store:      config.Store,
 		admission:  admission,
 		logs:       config.Logs,
+		node:       node,
 		offers:     make(map[string]*offerRecord),
 		requests:   make(map[string]string),
 		executions: make(map[string]*executionRecord),

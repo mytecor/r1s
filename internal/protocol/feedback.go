@@ -13,7 +13,7 @@ const MaxLogBytes = 128
 var ErrorCodes = map[string]bool{
 	"INVALID_REQUEST": true, "CAPACITY": true, "NOT_FOUND": true,
 	"CONFLICT": true, "EXPIRED": true, "UNAVAILABLE": true, "DENIED": true,
-	"INTERNAL": true, "OUTCOME_UNKNOWN": true,
+	"INTERNAL": true, "OUTCOME_UNKNOWN": true, "INCOMPATIBLE": true,
 }
 
 func validateError(e *r1sv1.Envelope, failure *r1sv1.CommandError) error {

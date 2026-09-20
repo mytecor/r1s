@@ -133,6 +133,14 @@ Conflicts are resolved by narrow authority rather than consensus. Only the authe
 that created a request may assign or cancel its execution. Only the allocator may claim its local
 capacity or report local runtime state.
 
+Placement from [F16](./roadmap/f16-node-placement/README.md) extends the client's side of this
+boundary without creating a scheduler. Allocators advertise bounded capabilities (OS, architecture,
+runtime, devices, resource profiles, operator labels) in offers and a compact RNS announce summary;
+clients express exact-match constraints and only compatible allocators receive the request. The
+advertisement is never the authority: incompatible requests are rejected by the allocator before any
+capacity is reserved, and assignment re-validates placement against current local state so a stale or
+false advertisement yields an explicit `INCOMPATIBLE` rejection, never an invalid start.
+
 The RNS adapter must populate `Envelope.sender` from the authenticated link identity. A remote peer
 must not be allowed to assert an arbitrary sender by serializing different bytes in the envelope.
 

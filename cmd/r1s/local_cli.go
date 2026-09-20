@@ -106,7 +106,7 @@ func (l *localCLI) request(args []string, stderr io.Writer) error {
 	}
 	ctx, cancel := context.WithTimeout(l.ctx, *offerWait+30*time.Second)
 	defer cancel()
-	requestID, executionID, allocator, err := l.client.Request(ctx, request.GetWorkload(), request.GetPolicy(), request.GetResourceClass(), *offerWait, allocators, hold)
+	requestID, executionID, allocator, err := l.client.Request(ctx, request.GetWorkload(), request.GetPolicy(), request.GetResourceClass(), *offerWait, allocators, hold, request.GetConstraints())
 	if err != nil {
 		return err
 	}

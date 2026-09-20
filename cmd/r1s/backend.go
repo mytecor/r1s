@@ -10,6 +10,7 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
+	"github.com/mytecor/r1s/internal/protocol"
 	"github.com/mytecor/r1s/internal/tunnel"
 	"github.com/mytecor/r1s/internal/tunnel/yggdrasil"
 )
@@ -20,9 +21,10 @@ import (
 // runRequest runs the full request -> offer collection -> selection ->
 // assignment workflow and returns after the assignment is sent. It mirrors the
 // direct `r1s request` flow without printing, so both the CLI and the local API
-// can present the same outcome.
-func (a *application) runRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (requestID, executionID string, allocator []byte, err error) {
-	requestID, envelope, err := a.client.CreateRequest(workload, policy, resourceClass)
+// can present the same outcome. constraints narrows which allocators may offer;
+// nil requests any node.
+func (a *application) runRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration, constraints *r1sv1.PlacementConstraints) (requestID, executionID string, allocator []byte, err error) {
+	requestID, envelope, err := a.client.CreateRequestWithConstraints(workload, policy, resourceClass, constraints)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -58,8 +60,21 @@ collect:
 			if decodeErr != nil {
 				continue
 			}
-			if err := a.client.RegisterAllocator(client.Allocator{Identity: identity, Destination: service.Destination, Hops: service.Hops, Capacity: service.Descriptor.Capacity}); err != nil {
+			// Register the route with the coarse announce summary so selection
+			// has the freshest node evidence; offers carry the full metadata.
+			node := summaryNode(service.Descriptor.OS, service.Descriptor.Arch, service.Descriptor.Runtime)
+			if err := a.client.RegisterAllocator(client.Allocator{
+				Identity: identity, Destination: service.Destination, Hops: service.Hops,
+				Capacity: service.Descriptor.Capacity, Node: node,
+			}); err != nil {
 				return "", "", nil, err
+			}
+			// Skip sending to a discovery whose summary positively contradicts
+			// the placement constraints. A node without a summary is still tried
+			// (unknown, not incompatible); the allocator's request-time check is
+			// authoritative either way.
+			if !protocol.PlacementCompatible(constraints, node) {
+				continue
 			}
 			if !sent[service.Destination] {
 				if err := a.send(service.Destination, envelope); err != nil {
@@ -202,7 +217,7 @@ func (a *application) reRequestLostLease(ctx context.Context, executionID string
 	if !ok {
 		return "", fmt.Errorf("%w: execution %q has no recorded request to re-request", client.ErrExecutionNotFound, executionID)
 	}
-	_, replacement, _, err := a.runRequest(ctx, request.GetWorkload(), request.GetPolicy(), request.GetResourceClass(), defaultOfferWait, a.client.LeaseIntentAllocators(executionID), 0)
+	_, replacement, _, err := a.runRequest(ctx, request.GetWorkload(), request.GetPolicy(), request.GetResourceClass(), defaultOfferWait, a.client.LeaseIntentAllocators(executionID), 0, request.GetConstraints())
 	if err != nil {
 		return "", fmt.Errorf("re-request after lease expiry: %w", err)
 	}
@@ -344,6 +359,15 @@ func hexDecodeIdentity(identity string) ([]byte, error) {
 	return hex.DecodeString(identity)
 }
 
+// summaryNode builds an advisory NodeCapabilities from the coarse announce
+// descriptor summary. Nil is returned when nothing was advertised.
+func summaryNode(os, arch, runtime string) *r1sv1.NodeCapabilities {
+	if os == "" && arch == "" && runtime == "" {
+		return nil
+	}
+	return &r1sv1.NodeCapabilities{Os: os, Arch: arch, Runtime: runtime}
+}
+
 func errLogTimeout(offset uint64) error {
 	return fmt.Errorf("log request timed out; retry explicitly with --offset %d", offset)
 }
@@ -353,8 +377,8 @@ func errLogTimeout(offset uint64) error {
 // engine the direct CLI uses, so service-backed mode shares authority,
 // persistence, replay, and reconnect behavior with direct mode.
 
-func (a *application) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (string, string, []byte, error) {
-	return a.runRequest(ctx, workload, policy, resourceClass, offerWait, allocators, keepAlive)
+func (a *application) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration, constraints *r1sv1.PlacementConstraints) (string, string, []byte, error) {
+	return a.runRequest(ctx, workload, policy, resourceClass, offerWait, allocators, keepAlive, constraints)
 }
 
 func (a *application) Inspect(ctx context.Context, executionID string, wait time.Duration) (*r1sv1.ExecutionState, error) {

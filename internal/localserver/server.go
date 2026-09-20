@@ -29,7 +29,7 @@ type Backend interface {
 	// assignment workflow and returns after the assignment is sent. A positive
 	// keepAlive durably records a lease-holding intent for the assigned
 	// execution; the service renewal loop keeps it alive.
-	RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration) (requestID, executionID string, allocator []byte, err error)
+	RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration, constraints *r1sv1.PlacementConstraints) (requestID, executionID string, allocator []byte, err error)
 	// Inspect returns the allocator's latest durable state, waiting up to wait.
 	Inspect(ctx context.Context, executionID string, wait time.Duration) (*r1sv1.ExecutionState, error)
 	// Cancel cancels an execution and waits up to wait for its state.
@@ -137,7 +137,7 @@ func (s *Server) Request(ctx context.Context, in *r1sv1.LocalRequest) (*r1sv1.Lo
 	if in.GetKeepAlive().AsDuration() < 0 {
 		return nil, errors.New("request: keep-alive must not be negative")
 	}
-	requestID, executionID, allocator, err := s.backend.RunRequest(ctx, in.GetWorkload(), in.GetPolicy(), in.GetResourceClass(), offerWait, in.GetAllocators(), in.GetKeepAlive().AsDuration())
+	requestID, executionID, allocator, err := s.backend.RunRequest(ctx, in.GetWorkload(), in.GetPolicy(), in.GetResourceClass(), offerWait, in.GetAllocators(), in.GetKeepAlive().AsDuration(), in.GetConstraints())
 	if err != nil {
 		return nil, err
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/allocator"
 	"github.com/mytecor/r1s/internal/cluster"
 	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
@@ -39,6 +40,7 @@ type commandLine struct {
 	tunnelEndpoint        []byte
 	tunnelEndpointPubKey  []byte
 	tunnelPeers           []string
+	node                  *r1sv1.NodeCapabilities
 }
 
 func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) error {
@@ -91,6 +93,7 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	tunnelEndpoint := flags.String("tunnel-endpoint", "", "opaque transport-neutral allocator endpoint advertisement (hex); set automatically by the F14-02 edge")
 	tunnelEndpointPubKey := flags.String("tunnel-endpoint-pubkey", "", "opaque transport-neutral allocator edge public key (hex); set automatically by the F14-02 edge")
 	tunnelPeers := flags.String("tunnel-peer", "", "comma-separated bootstrap peer URIs for the tunnel edge (defaults to the public Yggdrasil overlay)")
+	nodeValue := flags.String("node", "", "JSON node capabilities for placement, for example {\"labels\":{\"region\":\"eu\"}}; os/arch default to the build target")
 	if err := flags.Parse(arguments); err != nil {
 		return commandLine{}, err
 	}
@@ -143,6 +146,10 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	if *tunnelEnabled && (len(tunnelEndpointBytes) > 0 || len(tunnelEndpointPubKeyBytes) > 0) {
 		return commandLine{}, errors.New("--tunnel-endpoint/--tunnel-endpoint-pubkey cannot be set together with --tunnel-enabled: the embedded edge derives its own advertisement")
 	}
+	node, err := parseNodeCapabilities(*nodeValue)
+	if err != nil {
+		return commandLine{}, err
+	}
 	return commandLine{
 		configPath: *configPath, identitySource: *identitySource, capacity: capacity,
 		announceInterval: *announceInterval, containerdAddress: *containerdAddress,
@@ -153,6 +160,6 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		tunnelEnabled: *tunnelEnabled, tunnelGrantTTL: *tunnelGrantTTL,
 		tunnelTargets: tunnelTargets, tunnelDefaultTarget: defaultTarget,
 		tunnelEndpoint: tunnelEndpointBytes, tunnelEndpointPubKey: tunnelEndpointPubKeyBytes,
-		tunnelPeers: tunnelPeerList(*tunnelPeers),
+		tunnelPeers: tunnelPeerList(*tunnelPeers), node: node,
 	}, nil
 }

@@ -28,11 +28,16 @@ type Config struct {
 }
 
 // Allocator describes a discovered allocator and the route used to reach it.
+// Node is the allocator's advertised capability metadata (nil when the source
+// did not advertise any); it is advisory and revalidated by the allocator at
+// assignment, so a stale client-side copy never grants placement that local
+// policy denies.
 type Allocator struct {
 	Identity    []byte
 	Destination string
 	Hops        uint8
 	Capacity    map[string]uint32
+	Node        *r1sv1.NodeCapabilities
 }
 
 type offerRecord struct {

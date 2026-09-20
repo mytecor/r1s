@@ -57,11 +57,58 @@ message ExecutionPolicy {
   google.protobuf.Duration result_retention = 3;
 }
 
+// NodeCapabilities is the allocator's normalized, bounded description of what
+// its node can run. Identity strings are lowercase ASCII with bounded lengths;
+// devices, labels, profiles, and image-cache entries are bounded in count and
+// size. The message rides allocator offers (authoritative at assignment) and
+// is summarized by the RNS announce descriptor, which is far more compact and
+// advisory because the announce app-data budget is small (255 bytes).
+// Capability metadata is a hint for client placement, never a substitute for
+// allocator-local admission and runtime policy.
+message NodeCapabilities {
+  string os = 1;
+  string arch = 2;
+  string runtime = 3;
+  // resource_profiles lists the admission resource classes this allocator
+  // supports; the requested resource class must be one of them.
+  repeated string resource_profiles = 4;
+  // devices lists device names the allocator declares it can expose. The list
+  // is authoritative local admission; a client constraint can only require a
+  // subset of what is declared, never ask for an undeclared device.
+  repeated string devices = 5;
+  // labels are operator-defined node labels (for example region=eu).
+  map<string, string> labels = 6;
+  // cached_images is a purely advisory image-cache hint owned by the issuing
+  // allocator: it never bounds or authorizes anything.
+  repeated string cached_images = 7;
+}
+
+// PlacementConstraints expresses the client's exact-match node requirements.
+// Every present field must equal a declared node capability: a non-empty
+// os/arch/runtime must match exactly, every label key/value pair must be
+// present in the node's labels, and every device must be declared by the
+// allocator. An empty message matches any node that offers the requested
+// resource class. The allocator applies the same predicates at request time
+// (so it neither reserves capacity nor returns an offer for an incompatible
+// node) and again at assignment (so a capability change since the offer is an
+// explicit rejection, never an invalid start).
+message PlacementConstraints {
+  string os = 1;
+  string arch = 2;
+  string runtime = 3;
+  // labels requires exact key=value matches; the node must contain every pair.
+  map<string, string> labels = 4;
+  // devices requires every listed device to be declared by the allocator.
+  repeated string devices = 5;
+}
+
 message ExecutionRequest {
   string request_id = 1;
   Workload workload = 2;
   ExecutionPolicy policy = 3;
   string resource_class = 4;
+  // constraints narrows which allocators may offer. Omit for any-node requests.
+  PlacementConstraints constraints = 5;
 }
 
 message ExecutionOffer {
@@ -69,6 +116,9 @@ message ExecutionOffer {
   string request_id = 2;
   string resource_class = 3;
   google.protobuf.Timestamp expires_at = 4;
+  // node is the issuing allocator's bounded capability metadata, captured at
+  // offer time so the client can rank offers without another round trip.
+  NodeCapabilities node = 5;
 }
 
 message ExecutionAssign {

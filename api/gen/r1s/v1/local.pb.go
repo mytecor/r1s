@@ -37,7 +37,10 @@ type LocalRequest struct {
 	// When set, the service durably records a lease-holding intent for the
 	// assigned execution and its renewal loop keeps it alive. Zero means the
 	// execution runs on its initial allocator-granted lease only.
-	KeepAlive     *durationpb.Duration `protobuf:"bytes,6,opt,name=keep_alive,json=keepAlive,proto3" json:"keep_alive,omitempty"`
+	KeepAlive *durationpb.Duration `protobuf:"bytes,6,opt,name=keep_alive,json=keepAlive,proto3" json:"keep_alive,omitempty"`
+	// constraints narrows which allocators may offer, mirroring the control
+	// plane ExecutionRequest. Omit for any-node requests.
+	Constraints   *PlacementConstraints `protobuf:"bytes,7,opt,name=constraints,proto3" json:"constraints,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -110,6 +113,13 @@ func (x *LocalRequest) GetAllocators() []string {
 func (x *LocalRequest) GetKeepAlive() *durationpb.Duration {
 	if x != nil {
 		return x.KeepAlive
+	}
+	return nil
+}
+
+func (x *LocalRequest) GetConstraints() *PlacementConstraints {
+	if x != nil {
+		return x.Constraints
 	}
 	return nil
 }
@@ -1023,7 +1033,7 @@ var File_r1s_v1_local_proto protoreflect.FileDescriptor
 
 const file_r1s_v1_local_proto_rawDesc = "" +
 	"\n" +
-	"\x12r1s/v1/local.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x14r1s/v1/control.proto\"\xa8\x02\n" +
+	"\x12r1s/v1/local.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x14r1s/v1/control.proto\"\xe8\x02\n" +
 	"\fLocalRequest\x12,\n" +
 	"\bworkload\x18\x01 \x01(\v2\x10.r1s.v1.WorkloadR\bworkload\x12/\n" +
 	"\x06policy\x18\x02 \x01(\v2\x17.r1s.v1.ExecutionPolicyR\x06policy\x12%\n" +
@@ -1034,7 +1044,8 @@ const file_r1s_v1_local_proto_rawDesc = "" +
 	"allocators\x18\x05 \x03(\tR\n" +
 	"allocators\x128\n" +
 	"\n" +
-	"keep_alive\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\tkeepAlive\"v\n" +
+	"keep_alive\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\tkeepAlive\x12>\n" +
+	"\vconstraints\x18\a \x01(\v2\x1c.r1s.v1.PlacementConstraintsR\vconstraints\"v\n" +
 	"\x14LocalRequestResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12!\n" +
@@ -1135,43 +1146,45 @@ var file_r1s_v1_local_proto_goTypes = []any{
 	(*Workload)(nil),             // 16: r1s.v1.Workload
 	(*ExecutionPolicy)(nil),      // 17: r1s.v1.ExecutionPolicy
 	(*durationpb.Duration)(nil),  // 18: google.protobuf.Duration
-	(*ExecutionState)(nil),       // 19: r1s.v1.ExecutionState
+	(*PlacementConstraints)(nil), // 19: r1s.v1.PlacementConstraints
+	(*ExecutionState)(nil),       // 20: r1s.v1.ExecutionState
 }
 var file_r1s_v1_local_proto_depIdxs = []int32{
 	16, // 0: r1s.v1.LocalRequest.workload:type_name -> r1s.v1.Workload
 	17, // 1: r1s.v1.LocalRequest.policy:type_name -> r1s.v1.ExecutionPolicy
 	18, // 2: r1s.v1.LocalRequest.offer_wait:type_name -> google.protobuf.Duration
 	18, // 3: r1s.v1.LocalRequest.keep_alive:type_name -> google.protobuf.Duration
-	18, // 4: r1s.v1.LocalInspectRequest.wait:type_name -> google.protobuf.Duration
-	18, // 5: r1s.v1.LocalResultRequest.wait:type_name -> google.protobuf.Duration
-	19, // 6: r1s.v1.LocalStateResponse.state:type_name -> r1s.v1.ExecutionState
-	18, // 7: r1s.v1.LocalCancelRequest.wait:type_name -> google.protobuf.Duration
-	8,  // 8: r1s.v1.LocalListResponse.requests:type_name -> r1s.v1.LocalRequestView
-	18, // 9: r1s.v1.LocalLogsRequest.wait:type_name -> google.protobuf.Duration
-	19, // 10: r1s.v1.LocalWatchEvent.state:type_name -> r1s.v1.ExecutionState
-	14, // 11: r1s.v1.LocalTunnelMessage.open:type_name -> r1s.v1.LocalTunnelOpen
-	15, // 12: r1s.v1.LocalTunnelMessage.close:type_name -> r1s.v1.LocalTunnelClose
-	0,  // 13: r1s.v1.LocalClient.Request:input_type -> r1s.v1.LocalRequest
-	6,  // 14: r1s.v1.LocalClient.List:input_type -> r1s.v1.LocalListRequest
-	2,  // 15: r1s.v1.LocalClient.Inspect:input_type -> r1s.v1.LocalInspectRequest
-	3,  // 16: r1s.v1.LocalClient.Result:input_type -> r1s.v1.LocalResultRequest
-	5,  // 17: r1s.v1.LocalClient.Cancel:input_type -> r1s.v1.LocalCancelRequest
-	9,  // 18: r1s.v1.LocalClient.Logs:input_type -> r1s.v1.LocalLogsRequest
-	11, // 19: r1s.v1.LocalClient.Watch:input_type -> r1s.v1.LocalWatchRequest
-	13, // 20: r1s.v1.LocalClient.Tunnel:input_type -> r1s.v1.LocalTunnelMessage
-	1,  // 21: r1s.v1.LocalClient.Request:output_type -> r1s.v1.LocalRequestResponse
-	7,  // 22: r1s.v1.LocalClient.List:output_type -> r1s.v1.LocalListResponse
-	4,  // 23: r1s.v1.LocalClient.Inspect:output_type -> r1s.v1.LocalStateResponse
-	4,  // 24: r1s.v1.LocalClient.Result:output_type -> r1s.v1.LocalStateResponse
-	4,  // 25: r1s.v1.LocalClient.Cancel:output_type -> r1s.v1.LocalStateResponse
-	10, // 26: r1s.v1.LocalClient.Logs:output_type -> r1s.v1.LocalLogsResponse
-	12, // 27: r1s.v1.LocalClient.Watch:output_type -> r1s.v1.LocalWatchEvent
-	13, // 28: r1s.v1.LocalClient.Tunnel:output_type -> r1s.v1.LocalTunnelMessage
-	21, // [21:29] is the sub-list for method output_type
-	13, // [13:21] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	19, // 4: r1s.v1.LocalRequest.constraints:type_name -> r1s.v1.PlacementConstraints
+	18, // 5: r1s.v1.LocalInspectRequest.wait:type_name -> google.protobuf.Duration
+	18, // 6: r1s.v1.LocalResultRequest.wait:type_name -> google.protobuf.Duration
+	20, // 7: r1s.v1.LocalStateResponse.state:type_name -> r1s.v1.ExecutionState
+	18, // 8: r1s.v1.LocalCancelRequest.wait:type_name -> google.protobuf.Duration
+	8,  // 9: r1s.v1.LocalListResponse.requests:type_name -> r1s.v1.LocalRequestView
+	18, // 10: r1s.v1.LocalLogsRequest.wait:type_name -> google.protobuf.Duration
+	20, // 11: r1s.v1.LocalWatchEvent.state:type_name -> r1s.v1.ExecutionState
+	14, // 12: r1s.v1.LocalTunnelMessage.open:type_name -> r1s.v1.LocalTunnelOpen
+	15, // 13: r1s.v1.LocalTunnelMessage.close:type_name -> r1s.v1.LocalTunnelClose
+	0,  // 14: r1s.v1.LocalClient.Request:input_type -> r1s.v1.LocalRequest
+	6,  // 15: r1s.v1.LocalClient.List:input_type -> r1s.v1.LocalListRequest
+	2,  // 16: r1s.v1.LocalClient.Inspect:input_type -> r1s.v1.LocalInspectRequest
+	3,  // 17: r1s.v1.LocalClient.Result:input_type -> r1s.v1.LocalResultRequest
+	5,  // 18: r1s.v1.LocalClient.Cancel:input_type -> r1s.v1.LocalCancelRequest
+	9,  // 19: r1s.v1.LocalClient.Logs:input_type -> r1s.v1.LocalLogsRequest
+	11, // 20: r1s.v1.LocalClient.Watch:input_type -> r1s.v1.LocalWatchRequest
+	13, // 21: r1s.v1.LocalClient.Tunnel:input_type -> r1s.v1.LocalTunnelMessage
+	1,  // 22: r1s.v1.LocalClient.Request:output_type -> r1s.v1.LocalRequestResponse
+	7,  // 23: r1s.v1.LocalClient.List:output_type -> r1s.v1.LocalListResponse
+	4,  // 24: r1s.v1.LocalClient.Inspect:output_type -> r1s.v1.LocalStateResponse
+	4,  // 25: r1s.v1.LocalClient.Result:output_type -> r1s.v1.LocalStateResponse
+	4,  // 26: r1s.v1.LocalClient.Cancel:output_type -> r1s.v1.LocalStateResponse
+	10, // 27: r1s.v1.LocalClient.Logs:output_type -> r1s.v1.LocalLogsResponse
+	12, // 28: r1s.v1.LocalClient.Watch:output_type -> r1s.v1.LocalWatchEvent
+	13, // 29: r1s.v1.LocalClient.Tunnel:output_type -> r1s.v1.LocalTunnelMessage
+	22, // [22:30] is the sub-list for method output_type
+	14, // [14:22] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_r1s_v1_local_proto_init() }

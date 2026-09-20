@@ -34,6 +34,7 @@ type persistedAllocator struct {
 	Destination string            `json:"destination"`
 	Hops        uint8             `json:"hops"`
 	Capacity    map[string]uint32 `json:"capacity,omitempty"`
+	Node        []byte            `json:"node,omitempty"`
 }
 
 type persistedRequest struct {
@@ -101,6 +102,12 @@ func (o *Client) loadLocked(ctx context.Context) error {
 			return fmt.Errorf("%w: invalid durable allocator", ErrStore)
 		}
 		candidate := Allocator{Identity: saved.Identity, Destination: saved.Destination, Hops: saved.Hops, Capacity: saved.Capacity}
+		if len(saved.Node) > 0 {
+			candidate.Node = new(r1sv1.NodeCapabilities)
+			if err := proto.Unmarshal(saved.Node, candidate.Node); err != nil {
+				return fmt.Errorf("%w: decode allocator node: %v", ErrStore, err)
+			}
+		}
 		o.allocators.put(candidate)
 	}
 	for _, saved := range state.Requests {
@@ -163,7 +170,15 @@ func (o *Client) persistLocked(ctx context.Context) error {
 	}
 	state := persistedState{Version: stateVersion, Identity: append([]byte(nil), o.identity...), WatchSeq: o.watchSequence}
 	for _, allocator := range o.allocators.all() {
-		state.Allocators = append(state.Allocators, persistedAllocator{Identity: append([]byte(nil), allocator.Identity...), Destination: allocator.Destination, Hops: allocator.Hops, Capacity: allocator.Capacity})
+		saved := persistedAllocator{Identity: append([]byte(nil), allocator.Identity...), Destination: allocator.Destination, Hops: allocator.Hops, Capacity: allocator.Capacity}
+		if allocator.Node != nil {
+			nodeData, err := proto.Marshal(allocator.Node)
+			if err != nil {
+				return errors.Join(ErrStore, err)
+			}
+			saved.Node = nodeData
+		}
+		state.Allocators = append(state.Allocators, saved)
 	}
 	for _, record := range o.requests {
 		requestData, err := proto.Marshal(record.request)
