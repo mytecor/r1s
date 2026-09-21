@@ -26,8 +26,11 @@ replacing the minted-grant flow entirely.
   [`local.proto`](../../api/proto/r1s/v1/local.proto); rework `LocalTunnelOpen` to carry
   `execution_id` + `target_port` only, with no grant-carried target list. Remove
   `Registry.Mint`/`Accept`, grant fields, and `Preamble{ExecutionID, GrantID}` from the core.
-- Preserve existing Protobuf field numbers for any message that survives and evolves additively;
-  the removed grant/ygg fields are dropped (not renumbered).
+- **No backward compatibility is kept**: field numbers and names may be cleaned directly.
+  Removed grant/ygg fields are deleted outright, not reserved; surviving messages are renumbered if
+  that is the simplest representation. This is an explicit, deliberate exception to the
+  renumber/reserve rule in [CONTRIBUTING.md](../../CONTRIBUTING.md), recorded as such because the
+  tunnel switches to a new identity/Open scheme with no supported in-flight users.
 
 ## Acceptance
 

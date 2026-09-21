@@ -237,6 +237,15 @@ This file records unresolved choices so they do not remain implicit in implement
     daemon and namespace-entry permissions; it fails closed on unsupported configurations.
     See [F20](./f20-client-tunnel-targets/README.md).
 
+19. **Proto cleanup without backward compatibility (2026-09-21)** — [F21](./f21-tunnel-rns-dataplane/README.md)
+    replaces the grant/preamble/peer-key tunnel with an identity/Open scheme, and per the spec the
+    tunnel proto is cleaned directly: no backward compatibility is kept, removed fields
+    (`ExecutionTunnelGrant`/`Ack`, `ygg_peer_pubkey`) are deleted outright without reserving, and
+    surviving messages may be renumbered. This is a **deliberate exception** to the
+    `never renumber or reuse` / `reserve removed numbers` rule in
+    [CONTRIBUTING.md](../CONTRIBUTING.md), justified by the tunnel having no supported in-flight
+    users. The general invariant for stable-schema messages outside the tunnel stands.
+
 ## Deferred
 
 - VM and microVM runtime adapters.

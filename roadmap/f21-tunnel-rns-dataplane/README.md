@@ -60,7 +60,10 @@ container network-namespace-isolated `DialExecution` path — is preserved uncha
   the NodeKey contexts and `NodeKeyFromSeed`/`NodePubKey`, peer-key pinning, `PeerKey()`,
   `MaxPeerKeySize`, `ErrPeerKeyMismatch`, `Endpoint.PubKey` (if no longer needed), tunnel grants
   (`ExecutionTunnelGrant`/`Ack`, grant ID, TTL, `Registry.Mint`/`Accept`, single-use semantics),
-  and the `ygg_peer_pubkey` proto field. Clean the proto directly; no backward compatibility.
+  and the `ygg_peer_pubkey` proto field. Clean the proto directly; no backward compatibility is
+  kept — removed fields are deleted outright without reserving, and surviving messages may be
+  renumbered. This is a deliberate exception to the renumber/reserve rule (the tunnel moves to an
+  identity/Open scheme with no in-flight users).
 - Very narrowly cut `tunnel.Conn` to `io.ReadWriteCloser` + `CloseWrite()`; keep `CloseRead()`
   only if the real forwarding path needs it, not for the old tests/adapter. Revisit the old
   `internal/tunnel` generic abstractions (PeerKey, Preamble, PreambleWriter, StreamOpener, old
