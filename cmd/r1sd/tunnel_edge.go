@@ -47,7 +47,7 @@ func startTunnelEdge(identitySeed []byte, options commandLine) (*tunnelEdge, err
 // It is started after the allocator core exists, because validation calls into
 // the allocator core. Each accepted pair is validated once (execution + grant +
 // peer key) and promoted; the pair then yields authorized streams, each spliced
-// independently to its allocator-resolved target slot (F19-01).
+// independently to its client-supplied target slot (F20-01).
 func (e *tunnelEdge) runAcceptLoop(ctx context.Context, core *allocator.Allocator) {
 	for {
 		incoming, err := e.listener.Accept()
@@ -106,9 +106,9 @@ func classifyRejection(err error) tunnel.Reason {
 	}
 }
 
-// spliceToTarget relays bytes between the tunnel session and the granted
-// allocator-local target until either side closes. The target was resolved at
-// grant time from allocator-local configuration and validated at accept; the
+// spliceToTarget relays bytes between the tunnel session and the
+// grant-carried target until either side closes. The target is the
+// client-supplied destination the allocator bound into the minted grant; the
 // relay never interprets the payload.
 func spliceToTarget(conn tunnel.Conn, target tunnel.Target) {
 	defer conn.Close()

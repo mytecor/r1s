@@ -12,10 +12,12 @@ import (
 
 // TunnelGrant creates a fresh request to mint an execution-scoped, single-use
 // F14 direct-access tunnel grant for the execution owner, pinning the client's
-// edge node public key. The grant itself is transient — short-lived and
-// consumed by the awaiting application — so nothing about it is persisted:
-// after an allocator restart the client simply requests a new grant.
-func (o *Client) TunnelGrant(executionID string, peerKey []byte) (string, *r1sv1.Envelope, error) {
+// edge node public key and the client-supplied destination slot list. The grant
+// itself is transient — short-lived and consumed by the awaiting application —
+// so nothing about it is persisted: after an allocator restart the client
+// simply requests a new grant. Targets is the client-owned slot list the
+// allocator binds into the grant; at least one destination is required.
+func (o *Client) TunnelGrant(executionID string, peerKey []byte, targets []tunnel.Target) (string, *r1sv1.Envelope, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	record := o.executions[executionID]
@@ -25,7 +27,11 @@ func (o *Client) TunnelGrant(executionID string, peerKey []byte) (string, *r1sv1
 	if len(peerKey) == 0 || len(peerKey) > tunnel.MaxPeerKeySize {
 		return "", nil, fmt.Errorf("%w: invalid tunnel peer key size %d", ErrInvalidConfig, len(peerKey))
 	}
-	request := &r1sv1.ExecutionTunnelGrant{ExecutionId: executionID, YggPeerPubkey: bytes.Clone(peerKey)}
+	protoTargets := protocol.TargetsToProto(targets)
+	if _, err := protocol.ValidateTunnelTargets(protoTargets); err != nil {
+		return "", nil, err
+	}
+	request := &r1sv1.ExecutionTunnelGrant{ExecutionId: executionID, YggPeerPubkey: bytes.Clone(peerKey), Targets: protoTargets}
 	envelope := &r1sv1.Envelope{
 		MessageId: o.newID(),
 		Sender:    bytes.Clone(o.identity),

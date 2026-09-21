@@ -80,6 +80,7 @@ func TestValidateEveryPayload(t *testing.T) {
 		}}),
 		envelope(now, &r1sv1.Envelope_ExecutionTunnelGrant{ExecutionTunnelGrant: &r1sv1.ExecutionTunnelGrant{
 			ExecutionId: "execution", YggPeerPubkey: []byte("edge-node-public-key"),
+			Targets: []*r1sv1.TunnelTarget{{Host: "127.0.0.1", Port: 22}},
 		}}),
 		envelope(now, &r1sv1.Envelope_ExecutionTunnelGrantAck{ExecutionTunnelGrantAck: &r1sv1.ExecutionTunnelGrantAck{
 			ExecutionId: "execution", GrantId: "grant", ExpiresAt: timestamppb.New(now.Add(time.Minute)),
@@ -126,6 +127,7 @@ func TestValidateTunnelGrant(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	valid := envelope(now, &r1sv1.Envelope_ExecutionTunnelGrant{ExecutionTunnelGrant: &r1sv1.ExecutionTunnelGrant{
 		ExecutionId: "execution", YggPeerPubkey: []byte("edge-node-public-key"),
+		Targets: []*r1sv1.TunnelTarget{{Host: "127.0.0.1", Port: 22}},
 	}})
 	tests := map[string]func(*r1sv1.Envelope){
 		"missing execution ID": func(envelope *r1sv1.Envelope) {
@@ -136,6 +138,18 @@ func TestValidateTunnelGrant(t *testing.T) {
 		},
 		"peer public key too large": func(envelope *r1sv1.Envelope) {
 			envelope.GetExecutionTunnelGrant().YggPeerPubkey = bytes.Repeat([]byte{1}, tunnel.MaxPeerKeySize+1)
+		},
+		"missing targets": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionTunnelGrant().Targets = nil
+		},
+		"empty target host": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionTunnelGrant().Targets = []*r1sv1.TunnelTarget{{Port: 22}}
+		},
+		"zero target port": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionTunnelGrant().Targets = []*r1sv1.TunnelTarget{{Host: "127.0.0.1", Port: 0}}
+		},
+		"target port too large": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionTunnelGrant().Targets = []*r1sv1.TunnelTarget{{Host: "127.0.0.1", Port: 65536}}
 		},
 	}
 	if err := protocol.ValidateEnvelope(valid); err != nil {

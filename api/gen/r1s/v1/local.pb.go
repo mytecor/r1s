@@ -923,12 +923,16 @@ func (*LocalTunnelMessage_Close) isLocalTunnelMessage_Payload() {}
 type LocalTunnelOpen struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	ExecutionId string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
-	// target_slot names the allocator-resolved target slot this stream is spliced
-	// to. Empty selects the unnamed default slot (the interactive pipe). The
-	// value is only a slot reference; the allocator resolves it against its
-	// grant-time slot list, never a client-supplied raw (host, port) — an
-	// unknown slot is rejected with ReasonUnauthorized before any payload moves.
-	TargetSlot    string `protobuf:"bytes,2,opt,name=target_slot,json=targetSlot,proto3" json:"target_slot,omitempty"`
+	// target_slot names the target slot this stream is spliced to. Empty selects
+	// the unnamed default slot (the interactive pipe). The value is only a slot
+	// reference; the allocator resolves it against the client-supplied slot list
+	// carried in the grant — an unknown slot is rejected with
+	// ReasonUnauthorized before any payload moves.
+	TargetSlot string `protobuf:"bytes,2,opt,name=target_slot,json=targetSlot,proto3" json:"target_slot,omitempty"`
+	// targets is the client-owned destination slot list for this tunnel session,
+	// carried through to the tunnel grant request. The client owns these
+	// destinations and the allocator only proxies/splices to them.
+	Targets       []*TunnelTarget `protobuf:"bytes,3,rep,name=targets,proto3" json:"targets,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -975,6 +979,13 @@ func (x *LocalTunnelOpen) GetTargetSlot() string {
 		return x.TargetSlot
 	}
 	return ""
+}
+
+func (x *LocalTunnelOpen) GetTargets() []*TunnelTarget {
+	if x != nil {
+		return x.Targets
+	}
+	return nil
 }
 
 // LocalTunnelClose ends a LocalTunnel stream. A close with reason set is an
@@ -1109,11 +1120,12 @@ const file_r1s_v1_local_proto_rawDesc = "" +
 	"\x04open\x18\x01 \x01(\v2\x17.r1s.v1.LocalTunnelOpenH\x00R\x04open\x12\x14\n" +
 	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x120\n" +
 	"\x05close\x18\x03 \x01(\v2\x18.r1s.v1.LocalTunnelCloseH\x00R\x05closeB\t\n" +
-	"\apayload\"U\n" +
+	"\apayload\"\x85\x01\n" +
 	"\x0fLocalTunnelOpen\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x1f\n" +
 	"\vtarget_slot\x18\x02 \x01(\tR\n" +
-	"targetSlot\"V\n" +
+	"targetSlot\x12.\n" +
+	"\atargets\x18\x03 \x03(\v2\x14.r1s.v1.TunnelTargetR\atargets\"V\n" +
 	"\x10LocalTunnelClose\x12\x12\n" +
 	"\x04half\x18\x01 \x01(\bR\x04half\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x16\n" +
@@ -1163,6 +1175,7 @@ var file_r1s_v1_local_proto_goTypes = []any{
 	(*durationpb.Duration)(nil),  // 18: google.protobuf.Duration
 	(*PlacementConstraints)(nil), // 19: r1s.v1.PlacementConstraints
 	(*ExecutionState)(nil),       // 20: r1s.v1.ExecutionState
+	(*TunnelTarget)(nil),         // 21: r1s.v1.TunnelTarget
 }
 var file_r1s_v1_local_proto_depIdxs = []int32{
 	16, // 0: r1s.v1.LocalRequest.workload:type_name -> r1s.v1.Workload
@@ -1179,27 +1192,28 @@ var file_r1s_v1_local_proto_depIdxs = []int32{
 	20, // 11: r1s.v1.LocalWatchEvent.state:type_name -> r1s.v1.ExecutionState
 	14, // 12: r1s.v1.LocalTunnelMessage.open:type_name -> r1s.v1.LocalTunnelOpen
 	15, // 13: r1s.v1.LocalTunnelMessage.close:type_name -> r1s.v1.LocalTunnelClose
-	0,  // 14: r1s.v1.LocalClient.Request:input_type -> r1s.v1.LocalRequest
-	6,  // 15: r1s.v1.LocalClient.List:input_type -> r1s.v1.LocalListRequest
-	2,  // 16: r1s.v1.LocalClient.Inspect:input_type -> r1s.v1.LocalInspectRequest
-	3,  // 17: r1s.v1.LocalClient.Result:input_type -> r1s.v1.LocalResultRequest
-	5,  // 18: r1s.v1.LocalClient.Cancel:input_type -> r1s.v1.LocalCancelRequest
-	9,  // 19: r1s.v1.LocalClient.Logs:input_type -> r1s.v1.LocalLogsRequest
-	11, // 20: r1s.v1.LocalClient.Watch:input_type -> r1s.v1.LocalWatchRequest
-	13, // 21: r1s.v1.LocalClient.Tunnel:input_type -> r1s.v1.LocalTunnelMessage
-	1,  // 22: r1s.v1.LocalClient.Request:output_type -> r1s.v1.LocalRequestResponse
-	7,  // 23: r1s.v1.LocalClient.List:output_type -> r1s.v1.LocalListResponse
-	4,  // 24: r1s.v1.LocalClient.Inspect:output_type -> r1s.v1.LocalStateResponse
-	4,  // 25: r1s.v1.LocalClient.Result:output_type -> r1s.v1.LocalStateResponse
-	4,  // 26: r1s.v1.LocalClient.Cancel:output_type -> r1s.v1.LocalStateResponse
-	10, // 27: r1s.v1.LocalClient.Logs:output_type -> r1s.v1.LocalLogsResponse
-	12, // 28: r1s.v1.LocalClient.Watch:output_type -> r1s.v1.LocalWatchEvent
-	13, // 29: r1s.v1.LocalClient.Tunnel:output_type -> r1s.v1.LocalTunnelMessage
-	22, // [22:30] is the sub-list for method output_type
-	14, // [14:22] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	21, // 14: r1s.v1.LocalTunnelOpen.targets:type_name -> r1s.v1.TunnelTarget
+	0,  // 15: r1s.v1.LocalClient.Request:input_type -> r1s.v1.LocalRequest
+	6,  // 16: r1s.v1.LocalClient.List:input_type -> r1s.v1.LocalListRequest
+	2,  // 17: r1s.v1.LocalClient.Inspect:input_type -> r1s.v1.LocalInspectRequest
+	3,  // 18: r1s.v1.LocalClient.Result:input_type -> r1s.v1.LocalResultRequest
+	5,  // 19: r1s.v1.LocalClient.Cancel:input_type -> r1s.v1.LocalCancelRequest
+	9,  // 20: r1s.v1.LocalClient.Logs:input_type -> r1s.v1.LocalLogsRequest
+	11, // 21: r1s.v1.LocalClient.Watch:input_type -> r1s.v1.LocalWatchRequest
+	13, // 22: r1s.v1.LocalClient.Tunnel:input_type -> r1s.v1.LocalTunnelMessage
+	1,  // 23: r1s.v1.LocalClient.Request:output_type -> r1s.v1.LocalRequestResponse
+	7,  // 24: r1s.v1.LocalClient.List:output_type -> r1s.v1.LocalListResponse
+	4,  // 25: r1s.v1.LocalClient.Inspect:output_type -> r1s.v1.LocalStateResponse
+	4,  // 26: r1s.v1.LocalClient.Result:output_type -> r1s.v1.LocalStateResponse
+	4,  // 27: r1s.v1.LocalClient.Cancel:output_type -> r1s.v1.LocalStateResponse
+	10, // 28: r1s.v1.LocalClient.Logs:output_type -> r1s.v1.LocalLogsResponse
+	12, // 29: r1s.v1.LocalClient.Watch:output_type -> r1s.v1.LocalWatchEvent
+	13, // 30: r1s.v1.LocalClient.Tunnel:output_type -> r1s.v1.LocalTunnelMessage
+	23, // [23:31] is the sub-list for method output_type
+	15, // [15:23] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_r1s_v1_local_proto_init() }

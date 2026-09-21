@@ -12,6 +12,8 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/protocol"
+	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -140,15 +142,19 @@ func (c *Client) Watch(ctx context.Context, after uint64) (r1sv1.LocalClient_Wat
 // half-close/full-close signals in both directions. Setup failures surface as a
 // stream error before any payload is relayed.
 //
-// targetSlot selects the allocator-resolved target slot the stream is spliced
-// to; empty selects the unnamed default slot (the interactive pipe). It is a
-// slot reference only, resolved by the allocator, never a raw (host, port).
-func (c *Client) Tunnel(ctx context.Context, executionID, targetSlot string) (r1sv1.LocalClient_TunnelClient, error) {
+// targets is the client-owned destination slot list sent in the tunnel grant
+// request; at least one destination is required. targetSlot selects the slot
+// the stream is spliced to from the supplied list; empty selects the unnamed
+// default slot (the interactive pipe). It is a slot reference only, resolved by
+// the allocator against the client-supplied list, never a raw (host, port).
+func (c *Client) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (r1sv1.LocalClient_TunnelClient, error) {
 	stream, err := c.local.Tunnel(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{ExecutionId: executionID, TargetSlot: targetSlot}}}); err != nil {
+	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{
+		ExecutionId: executionID, TargetSlot: targetSlot, Targets: protocol.TargetsToProto(targets),
+	}}}); err != nil {
 		_ = stream.CloseSend()
 		return nil, err
 	}

@@ -7,8 +7,16 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// tunnelTestTargets is the client-owned destination slot list used by the
+// tunnel grant tests.
+var tunnelTestTargets = []tunnel.Target{
+	{ID: "ssh", Host: "127.0.0.1", Port: 2222},
+	{Host: "127.0.0.1", Port: 9000},
+}
 
 // tunnelTestClient builds a client with one running execution owned by the
 // allocator "allocator" at destination "destination", mirroring the workflow
@@ -44,7 +52,7 @@ func TestTunnelGrantMintsForOwner(t *testing.T) {
 	core := tunnelTestClient(t)
 	executionID := firstExecution(t, core)
 
-	destination, envelope, err := core.TunnelGrant(executionID, []byte("client-node-pubkey-32-byte-material"))
+	destination, envelope, err := core.TunnelGrant(executionID, []byte("client-node-pubkey-32-byte-material"), tunnelTestTargets)
 	if err != nil {
 		t.Fatalf("TunnelGrant: %v", err)
 	}
@@ -61,18 +69,27 @@ func TestTunnelGrantMintsForOwner(t *testing.T) {
 	if string(grant.GetYggPeerPubkey()) != "client-node-pubkey-32-byte-material" {
 		t.Fatalf("pinned peer key = %q", grant.GetYggPeerPubkey())
 	}
+	if len(grant.GetTargets()) != len(tunnelTestTargets) {
+		t.Fatalf("grant carries %d targets; want %d", len(grant.GetTargets()), len(tunnelTestTargets))
+	}
+	if grant.GetTargets()[0].GetName() != "ssh" || grant.GetTargets()[0].GetPort() != 2222 {
+		t.Fatalf("first target = %+v; want ssh@:2222", grant.GetTargets()[0])
+	}
 }
 
 // TestTunnelGrantRejectsBadPeerKey verifies peer-key size validation.
 func TestTunnelGrantRejectsBadPeerKey(t *testing.T) {
 	core := tunnelTestClient(t)
 	executionID := firstExecution(t, core)
-	if _, _, err := core.TunnelGrant(executionID, nil); err == nil {
+	if _, _, err := core.TunnelGrant(executionID, nil, tunnelTestTargets); err == nil {
 		t.Fatal("TunnelGrant with empty peer key succeeded")
 	}
 	big := make([]byte, 65)
-	if _, _, err := core.TunnelGrant(executionID, big); err == nil {
+	if _, _, err := core.TunnelGrant(executionID, big, tunnelTestTargets); err == nil {
 		t.Fatal("TunnelGrant with oversized peer key succeeded")
+	}
+	if _, _, err := core.TunnelGrant(executionID, []byte("client-node-pubkey-32-byte-material"), nil); err == nil {
+		t.Fatal("TunnelGrant with no targets succeeded")
 	}
 }
 

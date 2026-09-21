@@ -195,7 +195,7 @@ func decodePreamble(payload []byte) (tunnel.Preamble, error) {
 }
 
 // encodeStreamOpen serializes a stream-open frame payload: the optional
-// allocator-resolved target slot the new stream is spliced to. An empty slot
+// client-supplied target slot the new stream is spliced to. An empty slot
 // means the unnamed default slot (the interactive pipe).
 func encodeStreamOpen(targetSlot string) []byte {
 	return []byte(targetSlot)

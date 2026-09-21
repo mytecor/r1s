@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -14,19 +16,53 @@ import (
 	"golang.org/x/term"
 )
 
+// parseTargetSlot parses one "name@host:port" or bare "host:port" destination
+// slot from the CLI. An empty name makes it the unnamed default slot (the
+// interactive pipe). Parsing validates the host:port shape with
+// net.SplitHostPort so a malformed address is rejected before the client
+// sends it to the allocator.
+func parseTargetSlot(raw string) (tunnel.Target, error) {
+	name := ""
+	hostPort := strings.TrimSpace(raw)
+	if at := strings.LastIndex(hostPort, "@"); at >= 0 {
+		name = strings.TrimSpace(hostPort[:at])
+		hostPort = strings.TrimSpace(hostPort[at+1:])
+		// An explicit but empty name ("@host:port") is an error, not an unnamed
+		// default slot: silently mapping it to the interactive pipe would hide a
+		// typo the user meant as a named slot.
+		if name == "" {
+			return tunnel.Target{}, fmt.Errorf("expected name@host:port")
+		}
+	}
+	host, portStr, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return tunnel.Target{}, fmt.Errorf("expected host:port (name@host:port for a named slot)")
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return tunnel.Target{}, fmt.Errorf("host is required")
+	}
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil || port == 0 {
+		return tunnel.Target{}, fmt.Errorf("port must be a positive uint16")
+	}
+	return tunnel.Target{ID: name, Host: host, Port: uint16(port)}, nil
+}
+
 // tunnel is commandHandler-compatible: service-backed mode relays stdin/stdout
 // over the LocalTunnel stream; direct mode rejects the session with a clear
 // CommandError because only a persistent 'r1s serve' holds the F17 keep-alive
 // intent that keeps the execution alive for the duration of the session.
 func (l *localCLI) tunnel(args []string, stderr io.Writer) error {
-	// The tunnel command has a single flag (--target) and the usage shape from
-	// F19-01 puts the execution ID before flags: `r1s tunnel <id> --target
-	// <slot>`. The stdlib flag package stops at the first positional, so borrow
-	// interspersed parsing here — both `--target <slot> <id>` and
-	// `<id> --target <slot>` (and `--target=<slot>`) are accepted; the first
-	// non-flag token is the execution ID, anything else is rejected as unknown.
+	// The tunnel command has two flag surfaces from F20-01: --target-slot
+	// (repeatable, supplies the client-owned destination list) and --target
+	// (the slot selector kept from F19-01). The usage shape is:
+	//   r1s tunnel <id> [--target-slot <name@host:port>] [--target <name>]
+	// The execution ID is the first non-flag token. The stdlib flag package
+	// stops at the first positional, so borrow interspersed parsing here.
 	var targetSlot string
 	seenTarget := false
+	var targetSlots []string
 	var positional []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -48,9 +84,21 @@ func (l *localCLI) tunnel(args []string, stderr io.Writer) error {
 				return errors.New("tunnel: --target requires a slot name")
 			}
 			seenTarget = true
+		case a == "--target-slot" || a == "-target-slot":
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				return errors.New("tunnel: --target-slot requires a name@host:port or host:port")
+			}
+			targetSlots = append(targetSlots, strings.TrimSpace(args[i+1]))
+			i++
+		case strings.HasPrefix(a, "--target-slot=") || strings.HasPrefix(a, "-target-slot="):
+			slot := strings.TrimPrefix(strings.TrimPrefix(a, "--target-slot="), "-target-slot=")
+			targetSlots = append(targetSlots, strings.TrimSpace(slot))
 		case a == "--help" || a == "-h":
-			fmt.Fprintf(stderr, "Usage: r1s tunnel <execution-id> [--target <slot>]\n\n")
-			fmt.Fprintf(stderr, "  --target <slot>  open a stream to the named allocator-resolved target slot\n                 instead of the interactive pipe\n")
+			fmt.Fprintf(stderr, "Usage: r1s tunnel <execution-id> [--target-slot <name@host:port>] [--target <slot>]")
+			fmt.Fprintf(stderr, "\n\n  --target-slot <addr>  add a client-owned destination slot (repeatable);")
+			fmt.Fprintf(stderr, "\n                       use name@host:port for a named slot, or host:port for the default\n")
+			fmt.Fprintf(stderr, "  --target <slot>       open the named slot (must be in --target-slot list);\n")
+			fmt.Fprintf(stderr, "                       omit for the interactive pipe to the default slot\n")
 			return nil
 		case strings.HasPrefix(a, "-") && a != "-":
 			return fmt.Errorf("tunnel: unknown flag: %s", a)
@@ -65,13 +113,42 @@ func (l *localCLI) tunnel(args []string, stderr io.Writer) error {
 	if executionID == "" {
 		return errors.New("tunnel: execution ID is required")
 	}
+	if len(targetSlots) == 0 {
+		return errors.New("tunnel: at least one --target-slot is required")
+	}
+
+	// Parse the destination slots the client owns.
+	targets := make([]tunnel.Target, 0, len(targetSlots))
+	for _, raw := range targetSlots {
+		target, err := parseTargetSlot(raw)
+		if err != nil {
+			return fmt.Errorf("tunnel: --target-slot %q: %w", raw, err)
+		}
+		targets = append(targets, target)
+	}
+
+	// A --target name must be one of the client-supplied destinations. Reject
+	// an unknown name here (fail-fast) instead of after a network round-trip,
+	// when the edge would refuse the stream with ReasonUnauthorized.
+	if targetSlot != "" {
+		found := false
+		for _, t := range targets {
+			if t.ID == targetSlot {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("tunnel: --target %q is not in the --target-slot list", targetSlot)
+		}
+	}
 
 	ctx, cancel := context.WithCancel(l.ctx)
 	defer cancel()
 
 	// Open the bidirectional LocalTunnel stream. A setup failure surfaces here
 	// as a gRPC error before any payload is relayed; stdout stays byte-clean.
-	stream, err := l.client.Tunnel(ctx, executionID, targetSlot)
+	stream, err := l.client.Tunnel(ctx, executionID, targets, targetSlot)
 	if err != nil {
 		return fmt.Errorf("tunnel: %w", err)
 	}

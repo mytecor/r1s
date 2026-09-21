@@ -48,7 +48,10 @@ never the other way around, so there is no reverse/listen/publish surface.
 - **Multi-destination grants (extends F14-01 registry)** — a grant carries **a list of
   allocator-resolved target slots** instead of a single `(host, port)`. The allocator still resolves
   every slot from its own configuration at mint time; the client opens a stream to any slot the
-  grant names, and each stream consumes an independent grant binding.
+  grant names, and each stream consumes an independent grant binding. (This allocation of
+  responsibility is reversed by
+  [F20-01](../f20-client-tunnel-targets/f20-01-client-supplied-target-slots.md): the client now
+  supplies the slot list and the allocator only binds what the grant carries.)
 
 - **Single command UX** — one `r1s tunnel` process:
 

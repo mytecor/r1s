@@ -220,6 +220,18 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   core/protocol stay transport-neutral and free of Yggdrasil-specific types.
 - **Depends on:** [F14](#f14-direct-node-access-r1s-tunneld), [F13](#f13-local-client-api), [F17](#f17-execution-lease).
 
+## [F20. Client-managed tunnel targets](./roadmap/f20-client-tunnel-targets/README.md)
+
+> The tunnel's target slots stop being hard-coded on the allocator. The `r1s` client owns the
+> destination addresses and passes them raw in the tunnel grant request; the allocator only
+> proxies/splices to grant-carried destinations and keeps its authorization role.
+
+- **Status:** ✅ complete — `r1s` client supplies the raw `(host, port)` slot list in the tunnel
+  grant via `--target-slot`; `r1sd` carries no slot/target configuration (`--tunnel-target` and
+  `--tunnel-default-target` removed); a stream-open to a slot not in the client-supplied list is
+  rejected `ReasonUnauthorized` before any payload byte.
+- **Depends on:** [F19](#f19-universal-tunnel-rework), [F14](#f14-direct-node-access-r1s-tunneld).
+
 ## Current implementation order
 
 - [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
@@ -239,7 +251,13 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   reworked into a multiplexed, addressable stream transport — several named streams, always
   client→allocator, over one authenticated mesh connection, with allocator-resolved target slots
   and no core/Yggdrasil coupling. `r1s tunnel <id> --target <slot>` opens a named slot's stream;
-  without `--target` it stays the F14 interactive pipe. See [F19-01](./roadmap/f19-tunnel-rework/f19-01-universal-tunnel.md).
+  without `--target` it stays the F14 interactive pipe. The allocator-side slot resolution is
+  being reworked as [F20](#f20-client-managed-tunnel-targets) so the client, not `r1sd`, owns the
+  target slots. See [F19-01](./roadmap/f19-tunnel-rework/f19-01-universal-tunnel.md).
+- [F20](#f20-client-managed-tunnel-targets) landed: the slot source of truth moved from allocator
+  config to the `r1s` client — `r1s tunnel --target-slot <name@host:port>` sends the raw
+  `(host, port)` slot list in the grant, `r1sd` drops `--tunnel-target` /
+  `--tunnel-default-target` and becomes a proxy/splice point to grant-carried destinations.
 - [F16](#f16-node-capabilities-and-placement) landed (2026): allocators advertise bounded
   OS/arch/runtime/device/resource-profile/label capabilities in offers and a compact RNS announce
   summary; clients express exact-match `--constraints`, and only compatible allocators receive the

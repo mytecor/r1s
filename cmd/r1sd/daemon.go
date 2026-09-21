@@ -156,15 +156,7 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 		Admission: admission, Logs: logs, MaxRecords: options.maxRecords, Node: node,
 		Tunnel: allocator.TunnelConfig{
 			Enabled: options.tunnelEnabled, GrantTTL: options.tunnelGrantTTL,
-			TargetByClass: options.tunnelTargets,
-			Endpoint:      result.tunnelEndpointAdvertisement(),
-			DefaultTarget: func() *tunnel.Target {
-				if options.tunnelDefaultTarget.Host == "" && options.tunnelDefaultTarget.Port == 0 {
-					return nil
-				}
-				target := options.tunnelDefaultTarget
-				return &target
-			}(),
+			Endpoint: result.tunnelEndpointAdvertisement(),
 		},
 	}, result.runtime)
 	if err != nil {

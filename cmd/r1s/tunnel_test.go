@@ -40,6 +40,8 @@ func (s *syncBuffer) Bytes() []byte {
 	return append([]byte(nil), s.b.Bytes()...)
 }
 
+const cliTestTarget = "127.0.0.1:9000"
+
 // TestCLITunnelRelaysBytesProves the service-backed `r1s tunnel` bridge
 // end-to-end: the CLI relays stdin bytes to the allocator target, replies
 // reach stdout byte-clean, stdin EOF half-closes the write direction, and a
@@ -53,7 +55,7 @@ func TestCLITunnelRelaysBytes(t *testing.T) {
 	defer allocatorListener.Close()
 
 	backend := &cliWorkflowBackend{
-		tunnelConn: func(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
+		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
 			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
 			return conn, "grant-1", err
 		},
@@ -78,7 +80,7 @@ func TestCLITunnelRelaysBytes(t *testing.T) {
 	// Launch the CLI bridge first: backend.Tunnel dials the mesh and delivers
 	// the allocator edge to the listener.
 	result := make(chan error, 1)
-	go func() { result <- cli.tunnel([]string{"exec-1"}, io.Discard) }()
+	go func() { result <- cli.tunnel([]string{"exec-1", "--target-slot", cliTestTarget}, io.Discard) }()
 
 	// The allocator edge that the serve backend dialed.
 	allocatorConn, err := allocatorListener.Accept()
@@ -149,7 +151,7 @@ func TestCLITunnelSurfacesAbnormalReason(t *testing.T) {
 	defer allocatorListener.Close()
 
 	backend := &cliWorkflowBackend{
-		tunnelConn: func(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
+		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
 			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
 			return conn, "grant-1", err
 		},
@@ -172,7 +174,7 @@ func TestCLITunnelSurfacesAbnormalReason(t *testing.T) {
 	cli := &localCLI{ctx: context.Background(), stdout: &stdout, stdin: stdin, socketPath: socket, client: api}
 
 	result := make(chan error, 1)
-	go func() { result <- cli.tunnel([]string{"exec-1"}, io.Discard) }()
+	go func() { result <- cli.tunnel([]string{"exec-1", "--target-slot", cliTestTarget}, io.Discard) }()
 
 	allocatorConn, err := allocatorListener.Accept()
 	if err != nil {
@@ -215,9 +217,11 @@ func TestCLITunnelTargetSlot(t *testing.T) {
 	defer allocatorListener.Close()
 
 	var gotSlot string
+	var gotTargets []tunnel.Target
 	backend := &cliWorkflowBackend{
-		tunnelConn: func(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
+		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
 			gotSlot = targetSlot
+			gotTargets = targets
 			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
 			return conn, "grant-1", err
 		},
@@ -241,7 +245,11 @@ func TestCLITunnelTargetSlot(t *testing.T) {
 	cli := &localCLI{ctx: context.Background(), stdout: &stdout, stdin: stdin, socketPath: socket, client: api}
 
 	result := make(chan error, 1)
-	go func() { result <- cli.tunnel([]string{"exec-1", "--target", "http"}, &stderr) }()
+	// The client owns the destination list: --target-slot http@127.0.0.1:8080
+	// supplies it, and --target http selects that slot.
+	go func() {
+		result <- cli.tunnel([]string{"exec-1", "--target-slot", "http@127.0.0.1:8080", "--target", "http"}, &stderr)
+	}()
 
 	// The serve backend dials the mesh asynchronously; whoever finishes first
 	// (the CLI failing setup, or the allocator edge being dialed) tells us how
@@ -271,6 +279,12 @@ func TestCLITunnelTargetSlot(t *testing.T) {
 
 	if gotSlot != "http" {
 		t.Fatalf("backend target slot = %q; want http", gotSlot)
+	}
+	// The client-supplied destination list is what reaches the backend: the
+	// allocator no longer resolves targets, so the backend must hand the grant
+	// the exact (host, port) the client passed via --target-slot.
+	if len(gotTargets) != 1 || gotTargets[0].ID != "http" || gotTargets[0].Host != "127.0.0.1" || gotTargets[0].Port != 8080 {
+		t.Fatalf("backend targets = %+v; want [{http 127.0.0.1 8080}]", gotTargets)
 	}
 
 	// The named slot's data reaches stdout byte-clean.
@@ -311,4 +325,60 @@ func waitFor(timeout time.Duration, predicate func() bool) error {
 		time.Sleep(5 * time.Millisecond)
 	}
 	return errors.New("condition not met within deadline")
+}
+
+// TestParseTargetSlot covers the CLI destination-slot parser. A bare host:port
+// names the unnamed default slot (the interactive pipe); name@host:port names
+// a named slot the client references with --target. Malformed shapes (missing
+// port, empty host, zero or oversized port, empty @name) are rejected before
+// the address is sent to the allocator.
+func TestParseTargetSlot(t *testing.T) {
+	tests := []struct {
+		raw     string
+		want    tunnel.Target
+		wantErr bool
+	}{
+		{raw: "127.0.0.1:9000", want: tunnel.Target{Host: "127.0.0.1", Port: 9000}},
+		{raw: "ssh@127.0.0.1:2222", want: tunnel.Target{ID: "ssh", Host: "127.0.0.1", Port: 2222}},
+		{raw: "[::1]:8080", want: tunnel.Target{Host: "::1", Port: 8080}},
+		{raw: "  host.example:443 ", want: tunnel.Target{Host: "host.example", Port: 443}},
+		{raw: "", wantErr: true},
+		{raw: "127.0.0.1", wantErr: true},
+		{raw: "127.0.0.1:0", wantErr: true},
+		{raw: "127.0.0.1:65536", wantErr: true},
+		{raw: ":8080", wantErr: true},
+		{raw: "@127.0.0.1:80", wantErr: true},
+	}
+	for _, tt := range tests {
+		got, err := parseTargetSlot(tt.raw)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("parseTargetSlot(%q) succeeded (%+v), want error", tt.raw, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parseTargetSlot(%q) error: %v", tt.raw, err)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("parseTargetSlot(%q) = %+v; want %+v", tt.raw, got, tt.want)
+		}
+	}
+}
+
+// TestCLITunnelRejectsUnknownTarget verifies --target names one of the
+// client-supplied destinations: an unknown slot name is rejected fail-fast on
+// the client, before any network round-trip to the allocator edge.
+func TestCLITunnelRejectsUnknownTarget(t *testing.T) {
+	cli := &localCLI{ctx: context.Background()}
+	err := cli.tunnel([]string{
+		"exec-1", "--target-slot", "http@127.0.0.1:8080", "--target", "nope",
+	}, io.Discard)
+	if err == nil {
+		t.Fatal("tunnel with unknown --target succeeded, want error")
+	}
+	if !strings.Contains(err.Error(), "not in the --target-slot list") {
+		t.Fatalf("error = %q; want unknown-target diagnostic", err)
+	}
 }

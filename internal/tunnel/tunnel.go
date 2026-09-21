@@ -22,12 +22,12 @@ import (
 	"io"
 )
 
-// Target names one allocator-resolved local endpoint a tunnel stream can be
-// spliced to. A target is a pre-resolved target slot: the allocator resolves
-// the slot list at grant time from allocator-local configuration, never from
-// a client-supplied destination and never from per-execution metadata. ID
-// names the slot so the client can reference it with --target; an empty ID
-// means the unnamed default slot.
+// Target names one client-supplied destination a tunnel stream can be spliced
+// to. The client owns the slot list and sends the raw (host, port) in the
+// tunnel grant request; the allocator validates only its shape, binds it into
+// the minted grant unchanged, and proxies/splices each stream to the slot the
+// client named. ID names the slot so the client can reference it with
+// --target; an empty ID means the unnamed default slot.
 type Target struct {
 	ID   string
 	Host string
@@ -154,8 +154,8 @@ type PreambleWriter interface {
 // several logical streams over one authenticated pair. Dial returns a Conn that
 // also implements StreamOpener when the transport multiplexes: the interactive
 // pipe is the default stream, and OpenStream opens additional named streams.
-// targetSlot references an allocator-resolved target slot ("" is the unnamed
-// default slot); it is never a client-supplied raw (host, port).
+// targetSlot references a client-supplied target slot ("" is the unnamed
+// default slot); it is never itself a raw (host, port).
 type StreamOpener interface {
 	// OpenStream opens a new logical stream on the same authenticated pair and
 	// returns its byte pipe. It must be called after the routing preamble has

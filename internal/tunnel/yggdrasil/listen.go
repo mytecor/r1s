@@ -104,7 +104,7 @@ func (s *IncomingSession) Reject(reason tunnel.Reason, detail string) error {
 }
 
 // AcceptStream returns the next authorized stream on this (already promoted)
-// mesh connection, each carrying the allocator-resolved target slot the edge
+// mesh connection, each carrying the client-supplied target slot the edge
 // splices to. It blocks until a stream opens or the pair closes.
 func (s *IncomingSession) AcceptStream() (*IncomingStream, error) {
 	return s.pair.AcceptStream()

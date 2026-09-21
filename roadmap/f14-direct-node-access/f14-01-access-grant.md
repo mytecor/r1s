@@ -84,6 +84,13 @@ one. One slot must therefore be defined before F14-02 is testable:
   the allocator-local target configuration is the single source of truth, and this limitation is
   recorded in [BACKLOG.md](../BACKLOG.md).
 
+> **⚠ Reversed by [F20-01](../f20-client-tunnel-targets/f20-01-client-supplied-target-slots.md):**
+> the target is no longer allocator-resolved at grant time. The `r1s` client now supplies the raw
+> `(host, port)` slot list in the grant request; the allocator validates only its shape, binds the
+> client-supplied slots into the minted grant, and drops `--tunnel-target` /
+> `--tunnel-default-target` (and the per-class map). Authorization stays owner-only on the grant;
+> the trade-off (the client can point a tunnel at any reachable `(host, port)`) is recorded there.
+
 ## Notes
 
 This task defines the authorization, endpoint advertisement, and target resolution only. The

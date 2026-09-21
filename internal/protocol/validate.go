@@ -233,6 +233,12 @@ func validateTunnelGrant(grant *r1sv1.ExecutionTunnelGrant) error {
 	if len(grant.GetYggPeerPubkey()) > tunnel.MaxPeerKeySize {
 		return invalid("execution_tunnel_grant.ygg_peer_pubkey", "is too large")
 	}
+	if len(grant.GetTargets()) == 0 {
+		return invalid("execution_tunnel_grant.targets", "is required")
+	}
+	if _, err := ValidateTunnelTargets(grant.GetTargets()); err != nil {
+		return err
+	}
 	return nil
 }
 

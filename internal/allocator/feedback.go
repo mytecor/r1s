@@ -31,8 +31,6 @@ func (a *Allocator) errorResponse(command *r1sv1.Envelope, err error) []*r1sv1.E
 		code, detail = "TUNNEL", "direct-access tunnels are disabled on this allocator"
 	case errors.Is(err, ErrTunnelNoEndpoint):
 		code, detail, retry = "TUNNEL", "tunnel endpoint is not ready on this allocator", true
-	case errors.Is(err, ErrTunnelNoTarget):
-		code, detail = "TUNNEL", "no tunnel target configured for this execution's resource class"
 	case errors.Is(err, ErrInvalidTransition):
 		code, detail = "CONFLICT", "command conflicts with the current execution phase"
 	case errors.Is(err, protocol.ErrInvalidEnvelope), errors.Is(err, ErrUnsupportedMessage), errors.Is(err, ErrLeaseTooLong):

@@ -59,6 +59,14 @@ This file records unresolved choices so they do not remain implicit in implement
    connecting by guesswork. Target auto-discovery from the running workload is a later improvement,
    out of scope for now.
 
+   **⚠ Superseded by [F20-01](./f20-client-tunnel-targets/f20-01-client-supplied-target-slots.md):**
+   the slot source of truth moves from allocator config to the `r1s` client. The client supplies
+   the raw `(host, port)` slot list in the tunnel grant; the allocator stops resolving targets
+   from its own configuration (`--tunnel-target` / `--tunnel-default-target` are removed) and
+   becomes a proxy/splice point to grant-carried destinations. Authorization stays owner-only on
+   the grant; peer-key pinning and one-live-session-per-execution remain. Resolved by
+   [F20-01](./f20-client-tunnel-targets/f20-01-client-supplied-target-slots.md).
+
 ## Resolved
 
 1. **Allocator persistence** — bbolt provides a local, transactional, pure-Go single-file store for

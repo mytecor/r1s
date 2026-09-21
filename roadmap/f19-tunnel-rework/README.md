@@ -18,6 +18,11 @@ grants, allocator-resolved targets, transport-neutral `internal/tunnel` contract
 reverse, listen, or publish surface: the client connects to the container, never the other way
 around.
 
+> **Follow-up:** the allocator-side slot resolution landed here is being reversed by
+> [F20 — Client-managed tunnel targets](../f20-client-tunnel-targets/README.md): the slot source
+> of truth moves from `r1sd` config to the `r1s` client, which supplies the raw `(host, port)`
+> slot list in the grant.
+
 ## Dependencies
 
 - F14 — the existing tunnel edge, grant, preamble, mesh node (`internal/tunnel/yggdrasil`).

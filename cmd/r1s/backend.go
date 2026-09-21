@@ -424,17 +424,18 @@ func (a *application) SubscribeWatch(ctx context.Context, observer func(client.W
 // the execution alive for the session, so a direct-mode client is rejected
 // before this point.
 //
-// targetSlot selects the allocator-resolved target slot the returned pipe is
+// targetSlot selects the client-supplied target slot the returned pipe is
 // spliced to; empty is the unnamed default slot (the interactive pipe). After
 // the preamble is accepted, a non-empty targetSlot opens that named slot's
 // stream on the multiplexed pair; empty returns the pair (whose WritePreamble
-// already opened the default stream), exactly as F14.
+// already opened the default stream), exactly as F14. The slot must be one the
+// client supplied via --target-slot; the edge rejects anything else.
 //
 // The grant ID is surfaced (not dropped) so a preamble-aware edge can write the
 // one-time routing header; a Conn that implements tunnel.PreambleWriter is
 // handed the preamble here, before any payload byte is relayed. The in-memory
 // fake does not implement it, keeping the test relay byte-clean.
-func (a *application) Tunnel(ctx context.Context, executionID, targetSlot string) (tunnel.Conn, string, error) {
+func (a *application) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
 	if a.tunnelDialer == nil {
 		return nil, "", errors.New("tunnel: client edge is not configured; start 'r1s serve' with the tunnel edge enabled")
 	}
@@ -442,7 +443,7 @@ func (a *application) Tunnel(ctx context.Context, executionID, targetSlot string
 	if err != nil {
 		return nil, "", fmt.Errorf("tunnel: derive client edge key: %w", err)
 	}
-	destination, envelope, err := a.client.TunnelGrant(executionID, peerKey)
+	destination, envelope, err := a.client.TunnelGrant(executionID, peerKey, targets)
 	if err != nil {
 		return nil, "", err
 	}

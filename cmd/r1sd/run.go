@@ -12,7 +12,6 @@ import (
 	"github.com/mytecor/r1s/internal/allocator"
 	"github.com/mytecor/r1s/internal/cluster"
 	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
-	"github.com/mytecor/r1s/internal/tunnel"
 )
 
 type commandLine struct {
@@ -35,8 +34,6 @@ type commandLine struct {
 	clusterArguments      []string
 	tunnelEnabled         bool
 	tunnelGrantTTL        time.Duration
-	tunnelTargets         map[string][]tunnel.Target
-	tunnelDefaultTarget   tunnel.Target
 	tunnelEndpoint        []byte
 	tunnelEndpointPubKey  []byte
 	tunnelPeers           []string
@@ -86,10 +83,8 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	admissionPath := flags.String("admission-policy", "", "local resource profiles, allowed identities, and quotas JSON")
 	statePath := flags.String("state", "", "allocator state database (defaults beside the identity file or under ~/.config/r1s)")
 	clusterSource := flags.String("cluster", "", "cluster join token or state file (defaults to ~/.config/r1s/cluster)")
-	tunnelEnabled := flags.Bool("tunnel-enabled", false, "enable the direct-access tunnel edge (F14); requires the server-side target configuration")
+	tunnelEnabled := flags.Bool("tunnel-enabled", false, "enable the direct-access tunnel edge (F14); requires --tunnel-endpoint/--tunnel-endpoint-pubkey or the embedded edge")
 	tunnelGrantTTL := flags.Duration("tunnel-grant-ttl", allocator.DefaultTunnelGrantTTL, "minted tunnel grant lifetime")
-	tunnelTargetsValue := flags.String("tunnel-target", "", "comma-separated per-resource-class tunnel targets, for example default=127.0.0.1:9000")
-	tunnelDefaultTarget := flags.String("tunnel-default-target", "", "mandatory fallback tunnel target for classes without an explicit target")
 	tunnelEndpoint := flags.String("tunnel-endpoint", "", "opaque transport-neutral allocator endpoint advertisement (hex); set automatically by the F14-02 edge")
 	tunnelEndpointPubKey := flags.String("tunnel-endpoint-pubkey", "", "opaque transport-neutral allocator edge public key (hex); set automatically by the F14-02 edge")
 	tunnelPeers := flags.String("tunnel-peer", "", "comma-separated bootstrap peer URIs for the tunnel edge (defaults to the public Yggdrasil overlay)")
@@ -115,17 +110,6 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	capacity, err := parseCapacity(*capacityValue)
 	if err != nil {
 		return commandLine{}, err
-	}
-	tunnelTargets, err := ParseTunnelTargets(*tunnelTargetsValue)
-	if err != nil {
-		return commandLine{}, err
-	}
-	var defaultTarget tunnel.Target
-	if strings.TrimSpace(*tunnelDefaultTarget) != "" {
-		defaultTarget, err = ParseTunnelTarget(*tunnelDefaultTarget)
-		if err != nil {
-			return commandLine{}, fmt.Errorf("--tunnel-default-target: %w", err)
-		}
 	}
 	if *tunnelGrantTTL <= 0 {
 		return commandLine{}, errors.New("--tunnel-grant-ttl must be positive")
@@ -158,7 +142,6 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		sweepInterval: *sweepInterval, admissionPath: *admissionPath, statePath: *statePath,
 		clusterSource: *clusterSource,
 		tunnelEnabled: *tunnelEnabled, tunnelGrantTTL: *tunnelGrantTTL,
-		tunnelTargets: tunnelTargets, tunnelDefaultTarget: defaultTarget,
 		tunnelEndpoint: tunnelEndpointBytes, tunnelEndpointPubKey: tunnelEndpointPubKeyBytes,
 		tunnelPeers: tunnelPeerList(*tunnelPeers), node: node,
 	}, nil

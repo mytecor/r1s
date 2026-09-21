@@ -7,6 +7,7 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/protocol"
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -18,9 +19,18 @@ const (
 	testPubKey   = "transport-neutral-overlay-pubkey"
 )
 
-// newTunnelAllocator builds an allocator with the F14 tunnel surface enabled
-// and a concrete per-class + default target, mirroring a running allocator edge
-// that advertises an endpoint.
+// clientTestTargets is the client-supplied destination slot list used by the
+// tunnel grant tests. The allocator no longer owns target resolution; it binds
+// whatever the client sends, validated only for shape.
+var clientTestTargets = []*r1sv1.TunnelTarget{
+	{Name: "ssh", Host: "127.0.0.1", Port: 2222},
+	{Name: "http", Host: "127.0.0.1", Port: 8080},
+	{Host: "127.0.0.1", Port: 9000},
+}
+
+// newTunnelAllocator builds an allocator with the F14 tunnel surface enabled,
+// mirroring a running allocator edge that advertises an endpoint. Targets are
+// not configured here: the client supplies them in each grant request.
 func newTunnelAllocator(t *testing.T, clock *fakeClock, runtime *fakeRuntime) *Allocator {
 	t.Helper()
 	allocator, err := New(Config{
@@ -30,11 +40,9 @@ func newTunnelAllocator(t *testing.T, clock *fakeClock, runtime *fakeRuntime) *A
 		Now:      clock.Now,
 		NewID:    sequenceIDs(),
 		Tunnel: TunnelConfig{
-			Enabled:       true,
-			GrantTTL:      time.Minute,
-			TargetByClass: map[string][]tunnel.Target{"default": {{Host: "127.0.0.1", Port: 9000}}},
-			DefaultTarget: &tunnel.Target{Host: "127.0.0.1", Port: 9001},
-			Endpoint:      tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
+			Enabled:  true,
+			GrantTTL: time.Minute,
+			Endpoint: tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
 		},
 	}, runtime)
 	if err != nil {
@@ -55,6 +63,19 @@ func assignRunning(t *testing.T, allocator *Allocator, clock *fakeClock, client 
 }
 
 func tunnelGrantEnvelope(now time.Time, messageID, client, executionID string) *r1sv1.Envelope {
+	return &r1sv1.Envelope{
+		MessageId: messageID,
+		Sender:    []byte(client),
+		SentAt:    timestamppb.New(now),
+		Payload: &r1sv1.Envelope_ExecutionTunnelGrant{ExecutionTunnelGrant: &r1sv1.ExecutionTunnelGrant{
+			ExecutionId: executionID, YggPeerPubkey: []byte(testPeerKey), Targets: clientTestTargets,
+		}},
+	}
+}
+
+// noTargetGrantEnvelope is a grant request carrying no target slots, which the
+// allocator must reject as an invalid request.
+func noTargetGrantEnvelope(now time.Time, messageID, client, executionID string) *r1sv1.Envelope {
 	return &r1sv1.Envelope{
 		MessageId: messageID,
 		Sender:    []byte(client),
@@ -94,12 +115,15 @@ func TestTunnelGrantCommandErrorCodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	assignRunning(t, noTarget, clock, "b")
-	responses, handleErr = noTarget.Handle(context.Background(), tunnelGrantEnvelope(clock.Now(), "grant-no-target", "b", "execution-b"))
-	if !errors.Is(handleErr, ErrTunnelNoTarget) {
+	// A grant with no client-supplied targets is an invalid request, not a
+	// config failure: the allocator binds the client list, so an empty list is
+	// malformed regardless of allocator setup.
+	responses, handleErr = noTarget.Handle(context.Background(), noTargetGrantEnvelope(clock.Now(), "grant-no-target", "b", "execution-b"))
+	if !errors.Is(handleErr, protocol.ErrInvalidEnvelope) {
 		t.Fatalf("no-target handle error = %v", handleErr)
 	}
-	if failure := responses[0].GetCommandError(); failure == nil || failure.GetCode() != "TUNNEL" || failure.GetRetryable() {
-		t.Fatalf("no-target command error = %+v", responses[0])
+	if len(responses) != 0 {
+		t.Fatalf("no-target responses = %+v; want none (validation failed before mint)", responses)
 	}
 }
 
@@ -159,7 +183,7 @@ func TestTunnelGrantMintRespectsConfig(t *testing.T) {
 	// Enabled but no endpoint: the edge is not ready (the unique
 	// configuration-failure case not covered by TestTunnelGrantCommandErrorCodes;
 	// disabled and no-target are asserted there).
-	noEndpoint, err := New(funcCfg(base, TunnelConfig{Enabled: true, GrantTTL: time.Minute, TargetByClass: map[string][]tunnel.Target{"default": {{Host: "127.0.0.1", Port: 9000}}}, DefaultTarget: &tunnel.Target{Host: "127.0.0.1", Port: 9001}}), newFakeRuntime())
+	noEndpoint, err := New(funcCfg(base, TunnelConfig{Enabled: true, GrantTTL: time.Minute}), newFakeRuntime())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +193,7 @@ func TestTunnelGrantMintRespectsConfig(t *testing.T) {
 	}
 }
 
-func TestTunnelGrantResolvesClassTargetOverDefault(t *testing.T) {
+func TestTunnelGrantResolvesClientSuppliedTargets(t *testing.T) {
 	clock := newFakeClock()
 	allocator := newTunnelAllocator(t, clock, newFakeRuntime())
 	executionID := assignRunning(t, allocator, clock, "a")
@@ -180,8 +204,21 @@ func TestTunnelGrantResolvesClassTargetOverDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcceptTunnel: %v", err)
 	}
+	// The default slot is the unnamed client-supplied target (host:port with no
+	// name), not anything the allocator configured.
 	if session.DefaultTarget.Host != "127.0.0.1" || session.DefaultTarget.Port != 9000 {
-		t.Fatalf("target = %+v; want default-class 127.0.0.1:9000", session.DefaultTarget)
+		t.Fatalf("default target = %+v; want client-supplied unnamed 127.0.0.1:9000", session.DefaultTarget)
+	}
+	// Named client-supplied slots resolve too.
+	if slot, ok := session.ResolveTarget("ssh"); !ok || slot.Port != 2222 {
+		t.Fatalf("ssh slot = %+v, %v; want 2222", slot, ok)
+	}
+	if slot, ok := session.ResolveTarget("http"); !ok || slot.Port != 8080 {
+		t.Fatalf("http slot = %+v, %v; want 8080", slot, ok)
+	}
+	// The ack echoes the client-supplied slot list so client and edge agree.
+	if got := ack.GetTargets(); len(got) != len(clientTestTargets) {
+		t.Fatalf("ack echoed %d targets; want %d", len(got), len(clientTestTargets))
 	}
 	if string(session.Endpoint.Address) != testEndpoint || string(session.Endpoint.PubKey) != testPubKey {
 		t.Fatalf("session endpoint = %+v", session.Endpoint)
@@ -296,9 +333,7 @@ func TestTunnelRestartInvalidatesGrants(t *testing.T) {
 		OfferTTL: 30 * time.Second, Now: clock.Now, NewID: sequenceIDs(), Store: store,
 		Tunnel: TunnelConfig{
 			Enabled: true, GrantTTL: time.Minute,
-			TargetByClass: map[string][]tunnel.Target{"default": {{Host: "127.0.0.1", Port: 9000}}},
-			DefaultTarget: &tunnel.Target{Host: "127.0.0.1", Port: 9001},
-			Endpoint:      tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
+			Endpoint: tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
 		},
 	}, newFakeRuntime())
 	if err != nil {
@@ -324,9 +359,7 @@ func TestTunnelRestartInvalidatesGrants(t *testing.T) {
 		OfferTTL: 30 * time.Second, Now: clock.Now, NewID: sequenceIDs(), Store: secondStore,
 		Tunnel: TunnelConfig{
 			Enabled: true, GrantTTL: time.Minute,
-			TargetByClass: map[string][]tunnel.Target{"default": {{Host: "127.0.0.1", Port: 9000}}},
-			DefaultTarget: &tunnel.Target{Host: "127.0.0.1", Port: 9001},
-			Endpoint:      tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
+			Endpoint: tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
 		},
 	}, runtime)
 	if err != nil {

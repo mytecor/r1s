@@ -216,18 +216,10 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 		executions: make(map[string]*executionRecord),
 		replay:     newReplayCache(config.ReplayTTL, config.ReplayCapacity),
 		tunnelConfig: TunnelConfig{
-			Enabled:       config.Tunnel.Enabled,
-			DefaultTarget: config.Tunnel.DefaultTarget,
-			GrantTTL:      config.Tunnel.GrantTTL,
-			Endpoint:      config.Tunnel.Endpoint,
+			Enabled:  config.Tunnel.Enabled,
+			GrantTTL: config.Tunnel.GrantTTL,
+			Endpoint: config.Tunnel.Endpoint,
 		},
-	}
-	// Copy the target map so callers cannot mutate tunnel targets concurrently.
-	result.tunnelConfig.TargetByClass = make(map[string][]tunnel.Target, len(config.Tunnel.TargetByClass))
-	for class, targets := range config.Tunnel.TargetByClass {
-		targetList := make([]tunnel.Target, len(targets))
-		copy(targetList, targets)
-		result.tunnelConfig.TargetByClass[class] = targetList
 	}
 	result.tunnels, err = tunnel.NewRegistry(tunnel.RegistryConfig{NewID: config.NewID})
 	if err != nil {

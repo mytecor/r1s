@@ -222,25 +222,45 @@ message ExecutionLeaseRenewAck {
   google.protobuf.Timestamp expires_at = 2;
 }
 
+// TunnelTarget is one client-owned destination slot the allocator edge splices
+// a tunnel stream to. The r1s client supplies the raw destinations in the
+// tunnel grant request; the allocator validates only their shape, binds the
+// supplied slots into the minted grant, and proxies/splices each stream to the
+// slot the client named. The allocator never reads a destination from its own
+// configuration at grant time.
+message TunnelTarget {
+  // name is the slot reference the client uses with --target; empty names the
+  // unnamed default slot (the interactive pipe). It is client-chosen and never
+  // allocator-authored.
+  string name = 1;
+  string host = 2;
+  uint32 port = 3;
+}
+
 // ExecutionTunnelGrant requests a short-lived, single-use, execution-scoped
 // direct-access tunnel to a running execution. The sender must be the
 // authenticated execution owner. ygg_peer_pubkey is the client's edge node
 // public key (HKDF-derived from the client identity seed, opaque to the
 // protocol); the allocator binds it into the minted grant so the tunnel edge
-// accepts only an authenticated peer whose key matches.
+// accepts only an authenticated peer whose key matches. targets is the
+// client-supplied destination slot list the allocator binds into the minted
+// grant; at least one target is required.
 message ExecutionTunnelGrant {
   string execution_id = 1;
   bytes ygg_peer_pubkey = 2;
+  repeated TunnelTarget targets = 3;
 }
 
 // ExecutionTunnelGrantAck is the allocator's mint reply: a grant ID, its
-// expiry, and the transport-neutral allocator-local endpoint advertisement
-// (opaque address bytes and opaque public-key bytes). Nothing secret is
-// embedded in the advertisement or the ack.
+// expiry, the transport-neutral allocator-local endpoint advertisement
+// (opaque address bytes and opaque public-key bytes), and the echoed
+// client-supplied target slot list so the client and edge agree on the
+// resolved slots. Nothing secret is embedded in the advertisement or the ack.
 message ExecutionTunnelGrantAck {
   string execution_id = 1;
   string grant_id = 2;
   google.protobuf.Timestamp expires_at = 3;
   bytes allocator_endpoint = 4;
   bytes allocator_endpoint_pubkey = 5;
+  repeated TunnelTarget targets = 6;
 }

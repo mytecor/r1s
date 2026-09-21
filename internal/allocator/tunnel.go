@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/protocol"
 	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -23,17 +23,6 @@ type TunnelConfig struct {
 	// GrantTTL bounds a minted grant. Expiry is evaluated lazily at mint and at
 	// accept; there is no TTL sweeper goroutine. Zero uses the default.
 	GrantTTL time.Duration
-	// TargetByClass resolves the allocator-local target slot list at grant
-	// time from allocator-local configuration. A workload on the host network
-	// namespace has no free "the running execution" address, so every slot is
-	// defined here, never a client-supplied destination and never
-	// per-execution metadata.
-	TargetByClass map[string][]tunnel.Target
-	// DefaultTarget is the mandatory fallback slot used when no class matches
-	// and a stream carries no target_slot (the interactive pipe). A missing
-	// default fails the mint with a clear error instead of connecting by
-	// guesswork.
-	DefaultTarget *tunnel.Target
 	// Endpoint is the allocator's transport-neutral overlay advertisement
 	// returned in every minted grant ack. The allocator edge (F14-02) supplies
 	// it when it starts; without it a mint fails as "endpoint not ready".
@@ -50,7 +39,6 @@ const DefaultTunnelGrantTTL = defaultTunnelGrantTTL
 var (
 	ErrTunnelDisabled   = errors.New("direct-access tunnels are disabled on this allocator")
 	ErrTunnelNoEndpoint = errors.New("tunnel endpoint is not ready")
-	ErrTunnelNoTarget   = errors.New("no tunnel target configured for this resource class")
 )
 
 // AcceptTunnel is the allocator-side accept-time authorization the edge (F14-02)
@@ -101,7 +89,9 @@ func (a *Allocator) TunnelSession(executionID string) (*tunnel.Session, bool) {
 // sender), the client's edge node public key, and an expiry to the grant, and
 // returns the allocator-local endpoint advertisement. Minting is cheap and
 // cancellation happens at accept time (one live session per execution), so a
-// repeat mint replaces an outstanding unconfirmed grant.
+// repeat mint replaces an outstanding unconfirmed grant. The client supplies
+// the destination slot list; the allocator validates only its shape and binds
+// it into the grant unchanged.
 func (a *Allocator) handleTunnelGrant(envelope *r1sv1.Envelope, grant *r1sv1.ExecutionTunnelGrant) ([]*r1sv1.Envelope, error) {
 	peerKey := grant.GetYggPeerPubkey()
 	now := a.now().UTC()
@@ -119,16 +109,19 @@ func (a *Allocator) handleTunnelGrant(envelope *r1sv1.Envelope, grant *r1sv1.Exe
 		a.mu.Unlock()
 		return nil, fmt.Errorf("%w: execution %q is %s", ErrInvalidTransition, record.id, record.phase)
 	}
-	resourceClass := record.resourceClass
 	a.mu.Unlock()
 
-	if !a.tunnelsEnabled() {
+	if !a.tunnelConfig.Enabled {
 		return nil, ErrTunnelDisabled
 	}
-	targets, defaultTarget, err := a.resolveTunnelTargets(resourceClass)
+	// Validate and convert the client-supplied slot list. The allocator does
+	// not resolve targets from its own configuration; it binds whatever the
+	// client sent, validated only for well-formedness.
+	targets, err := protocol.ValidateTunnelTargets(grant.GetTargets())
 	if err != nil {
 		return nil, err
 	}
+	defaultTarget := slotDefault(targets)
 	endpoint := a.tunnelEndpoint()
 	if len(endpoint.Address) == 0 || len(endpoint.PubKey) == 0 {
 		return nil, ErrTunnelNoEndpoint
@@ -153,14 +146,10 @@ func (a *Allocator) handleTunnelGrant(envelope *r1sv1.Envelope, grant *r1sv1.Exe
 			ExpiresAt:               timestamppb.New(minted.ExpiresAt),
 			AllocatorEndpoint:       bytes.Clone(endpoint.Address),
 			AllocatorEndpointPubkey: bytes.Clone(endpoint.PubKey),
+			Targets:                 protocol.TargetsToProto(targets),
 		}},
 	}
 	return []*r1sv1.Envelope{response}, nil
-}
-
-func (a *Allocator) tunnelsEnabled() bool {
-	config := a.tunnelConfig
-	return config.Enabled
 }
 
 func (a *Allocator) tunnelEndpoint() tunnel.Endpoint {
@@ -177,37 +166,7 @@ func (a *Allocator) tunnelGrantTTL() time.Duration {
 	return a.tunnelConfig.GrantTTL
 }
 
-// resolveTunnelTargets resolves the target slot list for a resource class at
-// grant time: the per-class list wins, the mandatory default slot is the
-// fallback, and a miss fails clearly instead of connecting by guesswork. The
-// returned default target must name a real, usable endpoint (or be an explicit
-// member of the list) so a stream with no target_slot still splices
-// somewhere controlled.
-func (a *Allocator) resolveTunnelTargets(resourceClass string) ([]tunnel.Target, tunnel.Target, error) {
-	config := a.tunnelConfig
-	if slots, ok := config.TargetByClass[resourceClass]; ok && len(slots) > 0 {
-		return cloneTargetsForAllocator(slots), slotDefault(slots), nil
-	}
-	if config.DefaultTarget != nil && usableTarget(*config.DefaultTarget) {
-		return []tunnel.Target{*config.DefaultTarget}, *config.DefaultTarget, nil
-	}
-	return nil, tunnel.Target{}, ErrTunnelNoTarget
-}
-
-// usableTarget reports whether a target slot points at a concrete endpoint.
-func usableTarget(target tunnel.Target) bool {
-	return strings.TrimSpace(target.Host) != "" && target.Port != 0
-}
-
-// cloneTargetsForAllocator deep-copies a target slot list so the allocator
-// never aliases its configuration slice into a minted grant.
-func cloneTargetsForAllocator(slots []tunnel.Target) []tunnel.Target {
-	cloned := make([]tunnel.Target, len(slots))
-	copy(cloned, slots)
-	return cloned
-}
-
-// slotDefault returns the default slot for a per-class slot list: the
+// slotDefault returns the default slot for a client-supplied slot list: the
 // unnamed (empty ID) slot if present, else a copy of the first slot. A stream
 // with no target_slot splices to this slot.
 func slotDefault(slots []tunnel.Target) tunnel.Target {

@@ -23,10 +23,10 @@ type Grant struct {
 // Session is the single live tunnel session (mesh connection) for one
 // execution, opened at accept and bound to the execution lifecycle. It
 // carries the authenticated peer key reported by the edge and the
-// allocator-resolved target slot list the edge may splice streams to. Each
+// client-supplied target slot list the edge may splice streams to. Each
 // opening stream references exactly one slot (or the default); every slot
-// was resolved from allocator-local configuration before the grant was
-// minted.
+// came from the client-supplied list the allocator bound into the minted
+// grant (validated only for well-formedness).
 type Session struct {
 	ExecutionID   string
 	PeerKey       []byte
@@ -89,8 +89,9 @@ func NewRegistry(config RegistryConfig) (*Registry, error) {
 // from now; a TTL is not tracked in the record because it is evaluated lazily
 // at accept.
 //
-// targets is the allocator-resolved slot list; defaultTarget is the slot a
-// stream with no target_slot references is spliced to (the interactive pipe).
+// targets is the client-supplied slot list bound into the grant; defaultTarget
+// is the slot a stream with no target_slot references is spliced to (the
+// interactive pipe).
 func (r *Registry) Mint(executionID string, peerKey []byte, targets []Target, defaultTarget Target, endpoint Endpoint, ttl time.Duration, now time.Time) (Grant, error) {
 	if executionID == "" {
 		return Grant{}, errors.New("invalid tunnel grant: execution ID is required")
