@@ -306,7 +306,8 @@ func TestTunnelTerminalStateClosesSession(t *testing.T) {
 	allocator := newTunnelAllocator(t, clock, runtime)
 	executionID := assignRunning(t, allocator, clock, "a")
 	ack := mustHandle(t, allocator, tunnelGrantEnvelope(clock.Now(), "grant-msg", "a", executionID)).GetExecutionTunnelGrantAck()
-	if _, err := allocator.AcceptTunnel(executionID, ack.GetGrantId(), []byte(testPeerKey)); err != nil {
+	session, err := allocator.AcceptTunnel(executionID, ack.GetGrantId(), []byte(testPeerKey))
+	if err != nil {
 		t.Fatalf("accept: %v", err)
 	}
 
@@ -314,6 +315,11 @@ func TestTunnelTerminalStateClosesSession(t *testing.T) {
 	mustHandle(t, allocator, cancelEnvelope(clock.Now(), "cancel-a", "a", executionID))
 	if _, ok := allocator.TunnelSession(executionID); ok {
 		t.Fatal("session survived terminal state")
+	}
+	select {
+	case <-session.Done():
+	default:
+		t.Fatal("terminal transition did not signal edge revocation")
 	}
 	// A re-mint right after terminal cleanup is rejected because the execution
 	// itself is terminal, not because the registry is stuck.

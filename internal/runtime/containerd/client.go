@@ -19,6 +19,7 @@ const (
 )
 
 type clientBackend struct {
+	address     string
 	logs        *logstore.Store
 	logBinary   string
 	client      *containerdclient.Client
@@ -31,7 +32,7 @@ func newClientBackend(ctx context.Context, config Config) (*clientBackend, error
 	if err != nil {
 		return nil, fmt.Errorf("connect to containerd: %w", err)
 	}
-	implementation := &clientBackend{client: client, namespace: config.Namespace, snapshotter: config.Snapshotter, logs: config.Logs, logBinary: config.LogBinary}
+	implementation := &clientBackend{address: config.Address, client: client, namespace: config.Namespace, snapshotter: config.Snapshotter, logs: config.Logs, logBinary: config.LogBinary}
 	if _, err := client.Version(implementation.context(ctx)); err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("query containerd version: %w", err)

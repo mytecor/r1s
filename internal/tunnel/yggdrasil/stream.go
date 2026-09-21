@@ -208,9 +208,9 @@ func (s *streamConn) CloseWrite() error {
 	return s.pair.writeFrame(frameTypeEOF, s.id, nil)
 }
 
-// Close fully closes the stream without notifying the peer (a local abort).
+// Close fully closes the stream and releases the peer's blocked operations.
 func (s *streamConn) Close() error {
-	s.end(nil)
+	s.end(&tunnel.SessionError{Reason: tunnel.ReasonClosed})
 	return nil
 }
 

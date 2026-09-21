@@ -65,6 +65,13 @@ GOBIN="$HOME/.local/bin" go install ./cmd/r1s ./cmd/r1sd
 that can access the containerd socket and write its configured identity, state, and log paths. Both
 binaries require a Reticulum-Go configuration.
 
+Execution tunnels require Linux and a local containerd daemon in the same PID namespace as
+`r1sd`. The tunnel connects to loopback inside the selected container's network namespace;
+it never forwards client-selected ports to the allocator host. The allocator needs permission
+to read the task's namespace and enter it (`CAP_SYS_ADMIN`), plus `CAP_NET_ADMIN` to bring up
+loopback in a fresh container namespace. Missing permissions fail the stream explicitly;
+normal workload execution does not require enabling tunnels.
+
 `--identity` accepts an existing or new identity file path, or a private RNS identity in the same
 formats as Reticulum-Go's identity importer: 128-character hex, Base32, or Base64. Existing files take
 priority. An inline identity is not persisted; its default state and log paths are placed under

@@ -114,6 +114,29 @@ workload logs over RNS.
   acceptance tests embed per-step state and allocator stderr on failure.
 - `make check` passes (protoc 36.0, lychee 0.24.2, go1.27.1).
 
+## Tunnel review regression — 2026-09-21
+
+Verified on `root@mytecor-homelab.local` (NixOS Linux x86_64), from base commit `49980a3`
+plus the uncommitted tunnel review fixes. The test copy was isolated under
+`/tmp/r1s-tunnel-review.4CFKnB`; no production r1s process was deployed.
+Toolchain: Go 1.27.1, containerd 2.3.4, runc 1.4.3; Python RNS 1.5.4 in a test-local venv.
+The Alpine fixture was the digest listed in the prerequisites above.
+
+All live invocations used `-race -count=1 -v`, with their gates enabled and no skipped tests:
+
+| Gate | Result |
+| --- | --- |
+| Containerd lifecycle, recovery, execution tunnel isolation | Passed, 13.034 s |
+| Python discovery and Channel envelope delivery under packet loss | Passed, 5.623 s |
+| Complete partition-recovery acceptance package | Passed, 105.682 s |
+
+The acceptance package covers [F6](../f6-offer-release/README.md),
+[F8](../f8-protocol-feedback/README.md), [F9](../f9-local-logs/README.md),
+[F10](../f10-local-admission/README.md), and [F11](../f11-state-retention/README.md).
+The new [F20](../f20-client-tunnel-targets/README.md) test runs two containers and a host service
+on the same TCP port and checks that each execution receives only its own container response.
+Local `make check`, `go vet ./...`, and Linux/Windows amd64 builds also passed.
+
 ## Notes
 
 Track unresolved cross-feature decisions in [BACKLOG.md](../BACKLOG.md).

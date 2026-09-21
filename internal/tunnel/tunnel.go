@@ -26,7 +26,7 @@ import (
 // is spliced to. The client owns the port list and sends it in the tunnel grant
 // request; the allocator validates only its shape, binds it into the minted
 // grant unchanged, and proxies/splices each stream to the port the client named
-// (resolved on the allocator loopback, 127.0.0.1:<port>). There are no named
+// (resolved inside the execution by the runtime). There are no named
 // slots: each target is just the port to export. The client binds its own local
 // listener and names Port in each stream-open.
 type Target struct {

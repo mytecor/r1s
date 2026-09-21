@@ -41,10 +41,11 @@ type pairConn struct {
 	maxSeg int
 	owner  *mux
 
-	mu      sync.Mutex
-	streams map[uint32]*streamConn
-	nextID  uint32
-	closed  bool
+	mu       sync.Mutex
+	streams  map[uint32]*streamConn
+	nextID   uint32
+	closed   bool
+	closeErr error
 	// session is the allocator-validated session (with the slot list) set by
 	// Authorize; nil on the client edge.
 	session *tunnel.Session
@@ -91,7 +92,7 @@ const maxIncomingStreams = 64
 // newPair wires a pair to a packet interface. The mux registers the pair before
 // any packet is routed to it; owner.removePair unregisters it on close.
 func newPair(pkt packetIO, remote []byte, peerKey []byte, owner *mux) *pairConn {
-	maxSeg := int(pkt.MTU())
+	maxSeg := int(pkt.MTU()) - frameHeaderSize
 	if maxSeg <= 0 || maxSeg > maxPacketPayload {
 		maxSeg = maxPacketPayload
 	}
@@ -156,7 +157,7 @@ func (p *pairConn) CloseWrite() error {
 
 // Close fully closes the pair and every stream on it.
 func (p *pairConn) Close() error {
-	p.endAll(nil)
+	p.endAll(&tunnel.SessionError{Reason: tunnel.ReasonClosed})
 	return nil
 }
 
@@ -246,6 +247,10 @@ func (p *pairConn) ingest(packet []byte) {
 // arrive only during the one-time handshake; a rogue peer trying to flood them
 // is bounded by the raw cap.
 func (p *pairConn) ingestPairFrame(f frame) {
+	if f.typ == frameTypeClose {
+		p.terminate(parseClosePayload(f.payload), false)
+		return
+	}
 	p.mu.Lock()
 	switch f.typ {
 	case frameTypePreamble, frameTypeAccept:
@@ -284,13 +289,15 @@ func (p *pairConn) readPairFrame(timeout time.Duration) (frame, error) {
 			return f, nil
 		}
 		if p.closed {
+			err := p.closeErr
 			p.mu.Unlock()
-			return frame{}, io.EOF
+			return frame{}, err
 		}
 		p.mu.Unlock()
 		select {
 		case <-p.stopped:
-			return frame{}, io.EOF
+			// Recheck the stored close reason under the lock.
+			continue
 		case <-timer.C:
 			return frame{}, &frameError{"handshake frame timeout"}
 		case <-poll.C:
@@ -406,6 +413,10 @@ func (p *pairConn) openAllocatorStream(f frame) {
 	}
 	s := newStream(p, f.streamID)
 	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
 	p.streams[f.streamID] = s
 	p.mu.Unlock()
 	select {
@@ -426,8 +437,22 @@ func (p *pairConn) Authorize(session *tunnel.Session) error {
 		p.mu.Unlock()
 		return ErrEdgeClosed
 	}
+
+	select {
+	case <-session.Done():
+		p.mu.Unlock()
+		return ErrEdgeClosed
+	default:
+	}
 	p.session = session
 	p.mu.Unlock()
+	go func() {
+		select {
+		case <-session.Done():
+			p.endAll(&tunnel.SessionError{Reason: tunnel.ReasonExecutionEnded})
+		case <-p.stopped:
+		}
+	}()
 	return p.writeAccept()
 }
 
@@ -436,6 +461,19 @@ func (p *pairConn) Authorize(session *tunnel.Session) error {
 func (p *pairConn) AcceptStream() (*IncomingStream, error) {
 	select {
 	case is := <-p.incoming:
+		p.mu.Lock()
+		closed, session := p.closed, p.session
+		p.mu.Unlock()
+		if closed {
+			return nil, ErrEdgeClosed
+		}
+		if session != nil {
+			select {
+			case <-session.Done():
+				return nil, ErrEdgeClosed
+			default:
+			}
+		}
 		return is, nil
 	case <-p.stopped:
 		return nil, ErrEdgeClosed
@@ -451,14 +489,21 @@ func (p *pairConn) remove(id uint32) {
 
 // endAll ends every stream and marks the pair closed, optionally notifying the
 // peer with a classified reason.
-func (p *pairConn) endAll(sessionErr error) {
+func (p *pairConn) endAll(sessionErr error) { p.terminate(sessionErr, true) }
+
+// terminate consumes remote closes without echoing them back.
+func (p *pairConn) terminate(sessionErr error, notifyPeer bool) {
 	p.closeOnce.Do(func() {
 		// Notify the peer before taking the lock; writeFrame locks p.mu itself.
-		if e, ok := sessionErr.(*tunnel.SessionError); ok && sessionErr != nil {
+		if e, ok := sessionErr.(*tunnel.SessionError); ok && sessionErr != nil && notifyPeer {
 			_ = p.writeFrame(frameTypeClose, streamIDNone, closePayload(e.Reason, e.Detail))
 		}
 		p.mu.Lock()
 		p.closed = true
+		p.closeErr = sessionErr
+		if p.closeErr == nil {
+			p.closeErr = io.EOF
+		}
 		streams := make([]*streamConn, 0, len(p.streams))
 		for _, s := range p.streams {
 			streams = append(streams, s)
@@ -469,6 +514,9 @@ func (p *pairConn) endAll(sessionErr error) {
 		p.mu.Unlock()
 		close(p.stopped)
 		for _, s := range streams {
+			s.mu.Lock()
+			s.peerErr = p.closeErr
+			s.mu.Unlock()
 			s.end(nil)
 		}
 		if p.owner != nil {

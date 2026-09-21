@@ -122,3 +122,8 @@ func (s *IncomingSession) Stale() bool {
 func (l *Listener) Close() error {
 	return l.edge.Close()
 }
+
+// CloseWithReason closes the mesh connection and all of its streams.
+func (s *IncomingSession) CloseWithReason(reason tunnel.Reason, detail string) error {
+	return s.pair.CloseWithReason(reason, detail)
+}

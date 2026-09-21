@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -64,24 +63,37 @@ func (e *tunnelEdge) runAcceptLoop(ctx context.Context, core *allocator.Allocato
 			continue
 		}
 		if err := incoming.Promote(session); err != nil {
+			core.CloseTunnel(session)
+			_ = incoming.Reject(tunnel.ReasonSessionFailed, err.Error())
 			continue
 		}
 		// Splice every authorized stream this pair opens. A single pair may
 		// carry several concurrent streams (SSH + HTTP + ...); each resolves
 		// its own target slot and fails independently.
-		go e.spliceSessionStreams(ctx, incoming)
+		go e.spliceSessionStreams(ctx, core, session, incoming)
 	}
 }
 
 // spliceSessionStreams drains a promoted pair's authorized streams and splices
 // each to its target slot until the pair closes.
-func (e *tunnelEdge) spliceSessionStreams(ctx context.Context, incoming *yggdrasil.IncomingSession) {
+func (e *tunnelEdge) spliceSessionStreams(ctx context.Context, core *allocator.Allocator, session *tunnel.Session, incoming *yggdrasil.IncomingSession) {
+	defer core.CloseTunnel(session)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		select {
+		case <-session.Done():
+		case <-ctx.Done():
+		}
+		cancel()
+		_ = incoming.CloseWithReason(tunnel.ReasonExecutionEnded, "tunnel session ended")
+	}()
 	for {
 		stream, err := incoming.AcceptStream()
 		if err != nil {
 			return
 		}
-		go spliceToTarget(stream.Conn, stream.Target)
+		go spliceToTarget(ctx, core, session, stream.Conn, stream.Target)
 	}
 }
 
@@ -109,16 +121,20 @@ func classifyRejection(err error) tunnel.Reason {
 // spliceToTarget relays bytes between the tunnel session and the
 // grant-carried container port until either side closes. The target is the
 // client-supplied container port the allocator bound into the minted grant, and
-// it is resolved on the allocator loopback (127.0.0.1:<port>); the relay never
+// it is resolved inside the execution by the runtime; the relay never
 // interprets the payload.
-func spliceToTarget(conn tunnel.Conn, target tunnel.Target) {
+func spliceToTarget(ctx context.Context, core *allocator.Allocator, session *tunnel.Session, conn tunnel.Conn, target tunnel.Target) {
 	defer conn.Close()
-	targetConn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(target.Port)), 10*time.Second)
+	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	targetConn, err := core.DialTunnelTarget(dialCtx, session, target.Port)
 	if err != nil {
 		_ = conn.(tunnel.ReasonCloser).CloseWithReason(tunnel.ReasonSessionFailed, "dial target: "+err.Error())
 		return
 	}
 	defer targetConn.Close()
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close(); _ = targetConn.Close() })
+	defer stop()
 	relay(conn, targetConn)
 }
 
@@ -130,7 +146,12 @@ func relay(client tunnel.Conn, target net.Conn) {
 	done := make(chan struct{}, 2)
 	go func() {
 		defer func() { done <- struct{}{} }()
-		_, _ = io.Copy(target, client)
+		_, err := io.Copy(target, client)
+		if err != nil {
+			_ = client.Close()
+			_ = target.Close()
+			return
+		}
 		// The tunnel's client->allocator direction ended (stdin EOF or session
 		// end): half-close the target's write side so a half-duplex protocol
 		// still sees a clean EOF.
@@ -139,7 +160,11 @@ func relay(client tunnel.Conn, target net.Conn) {
 		}
 	}()
 	go func() {
-		_, _ = io.Copy(client, target)
+		_, err := io.Copy(client, target)
+		if err != nil {
+			_ = client.Close()
+			_ = target.Close()
+		}
 		_ = client.CloseWrite()
 		done <- struct{}{}
 	}()

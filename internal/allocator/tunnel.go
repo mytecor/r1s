@@ -2,12 +2,15 @@ package allocator
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
+	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -164,4 +167,42 @@ func (a *Allocator) tunnelGrantTTL() time.Duration {
 		return defaultTunnelGrantTTL
 	}
 	return a.tunnelConfig.GrantTTL
+}
+
+// CloseTunnel releases an edge's session without changing execution lifetime.
+func (a *Allocator) CloseTunnel(session *tunnel.Session) { a.tunnels.Release(session) }
+
+// DialTunnelTarget revalidates execution authority at each splice, then delegates
+// network namespace resolution to the runtime. The edge cancels ctx on session
+// close and owns closing the returned connection on revocation.
+func (a *Allocator) DialTunnelTarget(ctx context.Context, session *tunnel.Session, port uint16) (net.Conn, error) {
+	a.mu.Lock()
+	if !a.tunnels.Active(session) {
+		a.mu.Unlock()
+		return nil, ErrUnauthorized
+	}
+	record := a.executions[session.ExecutionID]
+	if record == nil || terminal(record.phase) || record.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING {
+		a.mu.Unlock()
+		return nil, ErrInvalidTransition
+	}
+	if _, ok := session.ResolveTarget(port); !ok {
+		a.mu.Unlock()
+		return nil, ErrUnauthorized
+	}
+	dialer, ok := a.runtime.(r1sruntime.PortDialer)
+	a.mu.Unlock()
+	if !ok {
+		return nil, r1sruntime.ErrTunnelUnsupported
+	}
+	conn, err := dialer.DialExecution(ctx, session.ExecutionID, port)
+	if err != nil {
+		return nil, err
+	}
+	// A completion during a slow dial cannot return a usable connection.
+	if !a.tunnels.Active(session) {
+		conn.Close()
+		return nil, ErrInvalidTransition
+	}
+	return conn, nil
 }

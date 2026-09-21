@@ -8,7 +8,7 @@ Corresponds to a future milestone in [ROADMAP.md](../../ROADMAP.md#f20-client-ma
 to the container port `<container>` over its own tunnel stream, and the allocator only
 proxies/splices to whatever port the grant names. There are no named slots and no interactive pipe:
 every tunnel requires at least one `--port`. The allocator keeps its authorization role (peer-key
-pinning, one live session per execution) but no longer decides *where* a stream terminates.
+pinning, one live session per execution) and resolves the requested port strictly inside that execution through the runtime.
 
 This reverses the F14-01/BACKLOG decision that targets are resolved at grant time exclusively
 from allocator-local configuration.
@@ -29,3 +29,18 @@ authorization stays.
 ## Tasks
 
 - [F20-01 — Client-supplied target slots in the tunnel grant](./f20-01-client-supplied-target-slots.md)
+
+## Review fixes (2026-09-21)
+
+The runtime now resolves each target inside the selected execution's Linux network namespace;
+allocator-host loopback is forbidden. Terminal transitions revoke actual mesh streams and target
+connections, and closing a pair releases the registry session. Regression tests cover full-size
+frames at different MTUs, close reasons, blocked operations, revocation, and runtime authority.
+The gated containerd test also places two executions and a host service on the same port to
+verify destination isolation. See [runtime requirements](../../README.md#build-from-source)
+and the [live regression procedure](../f7-verification/f7-02-live-regression.md).
+
+Verification: `make check` and `go vet ./...` passed; the gated containerd isolation test and
+all required live regression gates passed on `mytecor-homelab.local` with `-race` and no skips.
+The [run record](../f7-verification/f7-02-live-regression.md#tunnel-review-regression--2026-09-21)
+contains the fixture, versions, and timings.

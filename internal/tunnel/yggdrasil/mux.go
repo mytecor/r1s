@@ -63,7 +63,7 @@ func newMux(pkt packetIO) *mux {
 // packet is routed to the pair for its remote key; a packet from an unknown
 // peer opens a bounded pending inbound pair keyed by that peer.
 func (m *mux) readLoop() {
-	buf := make([]byte, maxPacketPayload)
+	buf := make([]byte, frameHeaderSize+maxPacketPayload)
 	for {
 		n, from, err := m.pkt.ReadFrom(buf)
 		if err != nil {

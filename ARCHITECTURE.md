@@ -292,6 +292,19 @@ container IDs from execution IDs, and verifies stored identity/specification lab
 VM or microVM backends may be added without changing the control protocol, but they are not part of
 the initial milestone.
 
+Execution-port access uses the optional runtime `PortDialer` interface. The allocator validates
+an active registry-issued session and its allowed port before each dial. The containerd adapter
+verifies execution labels and the live task, pins its Linux network namespace, and connects to
+container loopback on a dedicated OS thread. Host-network namespaces and non-local containerd
+endpoints are rejected. The host namespace is restored before the thread is reused; a restoration
+failure discards the thread. Fresh container loopback is brought up inside that namespace.
+
+A terminal execution closes the session's revocation signal. The edge closes its mesh pair,
+all streams, pending dials, and target sockets. Ending a mesh connection releases only its own
+registry session, allowing a fresh grant without affecting execution lifetime. Pair-level close
+frames preserve the reason at the remote handshake and active streams. Frame sizing includes
+the seven-byte header both in the packet MTU budget and the receive buffer.
+
 ## Persistence and recovery
 
 The allocator stores one versioned state snapshot in a transactional bbolt database after every

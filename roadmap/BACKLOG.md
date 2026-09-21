@@ -231,6 +231,12 @@ This file records unresolved choices so they do not remain implicit in implement
     the allocator policy from decision 15) and `--tunnel-peer` configures bootstrap peer URIs —
     edge configuration, never a protocol feature; empty joins the public overlay.
 
+18. **Execution tunnel isolation (2026-09-21)** — supersedes the host-namespace target assumption
+    in decisions 16–17. Client-supplied ports are resolved by a runtime interface inside the
+    selected execution's network namespace. The containerd implementation requires a local Linux
+    daemon and namespace-entry permissions; it fails closed on unsupported configurations.
+    See [F20](./f20-client-tunnel-targets/README.md).
+
 ## Deferred
 
 - VM and microVM runtime adapters.

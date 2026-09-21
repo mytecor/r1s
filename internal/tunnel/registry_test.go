@@ -202,3 +202,35 @@ func TestMultiPortGrantAndResolve(t *testing.T) {
 		t.Fatalf("resolve unauthorized port 3306 = %v; want rejected", ok)
 	}
 }
+
+func TestReleaseDoesNotCloseReplacementSession(t *testing.T) {
+	registry, now := testRegistry(t)
+	mint := func() *Session {
+		grant, err := registry.Mint("e", []byte("k"), []Target{{Port: 80}}, Endpoint{}, time.Minute, *now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		session, err := registry.Accept("e", grant.ID, []byte("k"), *now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return session
+	}
+	old := mint()
+	registry.Release(old)
+	select {
+	case <-old.Done():
+	default:
+		t.Fatal("release did not close session")
+	}
+	replacement := mint()
+	registry.Release(old)
+	if !registry.Active(replacement) {
+		t.Fatal("late release removed replacement")
+	}
+	select {
+	case <-replacement.Done():
+		t.Fatal("replacement closed")
+	default:
+	}
+}

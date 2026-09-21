@@ -32,6 +32,7 @@ type Session struct {
 	PeerKey     []byte
 	Targets     []Target
 	Endpoint    Endpoint
+	done        chan struct{}
 }
 
 type grantState struct {
@@ -175,6 +176,7 @@ func (r *Registry) Accept(executionID, grantID string, peerKey []byte, now time.
 	grant.consumed = true
 	session := &Session{
 		ExecutionID: executionID,
+		done:        make(chan struct{}),
 		PeerKey:     append([]byte(nil), peerKey...),
 		Targets:     cloneTargets(rec.targets),
 		Endpoint: Endpoint{
@@ -197,6 +199,7 @@ func (r *Registry) Session(executionID string) (*Session, bool) {
 	}
 	session := *rec.session
 	session.PeerKey = append([]byte(nil), rec.session.PeerKey...)
+	session.Targets = cloneTargets(rec.session.Targets)
 	return &session, true
 }
 
@@ -206,7 +209,8 @@ func (r *Registry) Session(executionID string) (*Session, bool) {
 func (r *Registry) CloseSession(executionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if rec := r.records[executionID]; rec != nil {
+	if rec := r.records[executionID]; rec != nil && rec.session != nil {
+		close(rec.session.done)
 		rec.session = nil
 	}
 }
@@ -219,6 +223,9 @@ func (r *Registry) CloseSession(executionID string) {
 func (r *Registry) Invalidate(executionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if rec := r.records[executionID]; rec != nil && rec.session != nil {
+		close(rec.session.done)
+	}
 	delete(r.records, executionID)
 }
 
@@ -237,10 +244,39 @@ func cloneTargets(targets []Target) []Target {
 // the port was not pre-authorized, so the edge can reject the stream with
 // ReasonUnauthorized before any payload byte moves.
 func (s *Session) ResolveTarget(port uint16) (Target, bool) {
+	select {
+	case <-s.Done():
+		return Target{}, false
+	default:
+	}
 	for _, target := range s.Targets {
 		if target.Port == port {
 			return target, true
 		}
 	}
 	return Target{}, false
+}
+
+// Done closes when the registry revokes or releases this session.
+func (s *Session) Done() <-chan struct{} { return s.done }
+
+// Release ends only the specified session, never a newer replacement.
+func (r *Registry) Release(session *Session) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rec := r.records[session.ExecutionID]; rec != nil && rec.session == session {
+		close(session.done)
+		rec.session = nil
+	}
+}
+
+// Active verifies that a caller holds the actual registry-issued session.
+func (r *Registry) Active(session *Session) bool {
+	if session == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec := r.records[session.ExecutionID]
+	return rec != nil && rec.session == session
 }

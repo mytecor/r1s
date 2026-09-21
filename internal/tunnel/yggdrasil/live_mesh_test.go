@@ -88,7 +88,7 @@ func TestLiveMeshRoundTrip(t *testing.T) {
 
 	// Payload round-trip, larger than one packet: the mesh segments and
 	// reassembles through the stream adapter.
-	payload := bytes.Repeat([]byte("r1s-live-mesh-payload|"), 400) // ~8.8 KB > packet MTU
+	payload := bytes.Repeat([]byte("r1s-live-mesh-payload|"), 8192) // > 16 KB frames and multiple flow-control windows
 	writeDone := make(chan error, 1)
 	go func() {
 		if _, err := streamConn.Write(payload); err != nil {

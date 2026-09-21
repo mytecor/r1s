@@ -25,6 +25,7 @@ type fakePacketIO struct {
 	remote     []byte // the source key stamped on packets this node reads
 	inbox      chan []byte
 	dropWrites bool // fail writes (mesh gone)
+	mtu        uint64
 }
 
 // newFakePair builds two connected ends of one packet bus: writes on one are
@@ -51,6 +52,9 @@ func (f *fakePacketIO) ReadFrom(p []byte) (int, net.Addr, error) {
 }
 
 func (f *fakePacketIO) WriteTo(p []byte, addr net.Addr) (int, error) {
+	if len(p) > int(f.MTU()) {
+		return 0, errors.New("packet exceeds MTU")
+	}
 	f.mu.Lock()
 	dropping := f.dropWrites
 	f.mu.Unlock()
@@ -69,7 +73,12 @@ func (f *fakePacketIO) WriteTo(p []byte, addr net.Addr) (int, error) {
 }
 
 // MTU implements packetIO: a small MTU proves segmentation and reassembly.
-func (f *fakePacketIO) MTU() uint64 { return 1400 }
+func (f *fakePacketIO) MTU() uint64 {
+	if f.mtu != 0 {
+		return f.mtu
+	}
+	return 1400
+}
 
 // Close implements packetIO.
 func (f *fakePacketIO) Close() error { return nil }
@@ -94,8 +103,13 @@ func testSession() *tunnel.Session {
 // where streams can be opened: the client registers, writes the preamble, the
 // allocator accepts and authorizes, and both sides are ready.
 func establishPair(t *testing.T) (*pairConn, *pairConn) {
+	return establishPairMTU(t, 1400)
+}
+
+func establishPairMTU(t *testing.T, mtu uint64) (*pairConn, *pairConn) {
 	t.Helper()
 	clientBus, allocatorBus := newFakePair(string(clientKey), string(allocatorKey))
+	clientBus.mtu, allocatorBus.mtu = mtu, mtu
 	clientMux := newMux(clientBus)
 	go clientMux.readLoop()
 	allocatorMux := newMux(allocatorBus)
@@ -137,6 +151,7 @@ func establishPair(t *testing.T) (*pairConn, *pairConn) {
 	if err := <-acceptDone; err != nil {
 		t.Fatalf("accept side: %v", err)
 	}
+	t.Cleanup(func() { client.Close(); allocatorPair.Close() })
 	return client, allocatorPair
 }
 
