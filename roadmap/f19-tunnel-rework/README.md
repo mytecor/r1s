@@ -10,18 +10,18 @@ command** (ngrok-style UX, client→allocator only). See
 
 ## Outcome
 
-`r1s tunnel` stays the **only** user-facing command, but it exposes the execution as a set of
-**addressable multiplexed streams** on top of the existing F14 mesh: the same command that opens an
-interactive pipe can run several concurrent protocols (SSH + HTTP + API) against one execution —
-always client→allocator, while keeping the F14 authorization model (peer-key pinning, one-time
-grants, allocator-resolved targets, transport-neutral `internal/tunnel` contract). There is no
-reverse, listen, or publish surface: the client connects to the container, never the other way
-around.
+`r1s tunnel` stays the **only** user-facing command, and it exposes the execution as a set of
+**addressable multiplexed streams** on top of the existing F14 mesh: `r1s tunnel <id> --port
+<host>:<container>` binds a local listener on `127.0.0.1:<host>` and relays each inbound connection
+to the container port `<container>` over its own stream — always client→allocator, while keeping the
+F14 authorization model (peer-key pinning, one-time grants, transport-neutral `internal/tunnel`
+contract). There is no reverse, listen, or publish surface: the client connects to the container,
+never the other way around.
 
 > **Follow-up:** the allocator-side slot resolution landed here is being reversed by
-> [F20 — Client-managed tunnel targets](../f20-client-tunnel-targets/README.md): the slot source
-> of truth moves from `r1sd` config to the `r1s` client, which supplies the raw `(host, port)`
-> slot list in the grant.
+> [F20 — Client-managed tunnel targets](../f20-client-tunnel-targets/README.md): the destination
+> source of truth moves from `r1sd` config to the `r1s` client, which supplies the container-port
+> list in the grant and exposes it as Docker-style `--port host:container` mappings.
 
 ## Dependencies
 
@@ -31,10 +31,9 @@ around.
 
 ## Relation to F14
 
-Backwards compatibility matters: F14's interactive pipe is a valid *instance* of the new model (a
-stream with no explicit destination, direction client→allocator). The rework is organized as
-**additive layers** so the existing flow keeps working while the general machinery lands
-(see [f19-01](./f19-01-universal-tunnel.md)).
+The rework is organized as **additive layers** so the existing flow keeps working while the
+general machinery lands (see [f19-01](./f19-01-universal-tunnel.md)); the interactive pipe is
+then removed entirely when `--port` becomes the only surface (F20).
 
 ## Tasks
 

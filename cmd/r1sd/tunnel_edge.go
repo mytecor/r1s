@@ -91,7 +91,7 @@ func (e *tunnelEdge) spliceSessionStreams(ctx context.Context, incoming *yggdras
 // outcomes from lifecycle ones.
 func classifyRejection(err error) tunnel.Reason {
 	switch {
-	case errors.Is(err, allocator.ErrUnauthorized), errors.Is(err, tunnel.ErrPeerKeyMismatch), errors.Is(err, tunnel.ErrUnknownTargetSlot):
+	case errors.Is(err, allocator.ErrUnauthorized), errors.Is(err, tunnel.ErrPeerKeyMismatch), errors.Is(err, tunnel.ErrUnknownTargetPort):
 		return tunnel.ReasonUnauthorized
 	case errors.Is(err, tunnel.ErrGrantExpired):
 		return tunnel.ReasonGrantExpired
@@ -107,12 +107,13 @@ func classifyRejection(err error) tunnel.Reason {
 }
 
 // spliceToTarget relays bytes between the tunnel session and the
-// grant-carried target until either side closes. The target is the
-// client-supplied destination the allocator bound into the minted grant; the
-// relay never interprets the payload.
+// grant-carried container port until either side closes. The target is the
+// client-supplied container port the allocator bound into the minted grant, and
+// it is resolved on the allocator loopback (127.0.0.1:<port>); the relay never
+// interprets the payload.
 func spliceToTarget(conn tunnel.Conn, target tunnel.Target) {
 	defer conn.Close()
-	targetConn, err := net.DialTimeout("tcp", net.JoinHostPort(target.Host, fmt.Sprint(target.Port)), 10*time.Second)
+	targetConn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(target.Port)), 10*time.Second)
 	if err != nil {
 		_ = conn.(tunnel.ReasonCloser).CloseWithReason(tunnel.ReasonSessionFailed, "dial target: "+err.Error())
 		return

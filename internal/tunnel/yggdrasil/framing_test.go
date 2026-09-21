@@ -23,7 +23,7 @@ func TestFrameRoundTrip(t *testing.T) {
 		{"close", frameTypeClose, 3, closePayload(tunnel.ReasonExecutionEnded, "container exited")},
 		{"preamble", frameTypePreamble, streamIDNone, encodePreamble(tunnel.Preamble{ExecutionID: "exec-1", GrantID: "grant-1"})},
 		{"accept", frameTypeAccept, streamIDNone, nil},
-		{"stream-open", frameTypeStreamOpen, 4, encodeStreamOpen("http")},
+		{"stream-open", frameTypeStreamOpen, 4, encodeStreamOpen(8080)},
 		{"window-update", frameTypeWindowUpdate, 5, streamWindowPayload(8192)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -87,14 +87,15 @@ func TestPreambleRoundTrip(t *testing.T) {
 	}
 }
 
-// TestStreamOpenRoundTrip verifies a stream-open header survives the wire and
-// that an empty slot means the default (interactive pipe).
+// TestStreamOpenRoundTrip verifies a stream-open header (the container port the
+// stream is spliced to) survives the wire as a big-endian uint16, and that a
+// truncated payload decodes to port 0.
 func TestStreamOpenRoundTrip(t *testing.T) {
-	if got := decodeStreamOpen(encodeStreamOpen("http")); got != "http" {
-		t.Fatalf("decodeStreamOpen = %q; want http", got)
+	if got := decodeStreamOpen(encodeStreamOpen(8080)); got != 8080 {
+		t.Fatalf("decodeStreamOpen = %d; want 8080", got)
 	}
-	if got := decodeStreamOpen(encodeStreamOpen("")); got != "" {
-		t.Fatalf("decodeStreamOpen(empty) = %q; want empty default", got)
+	if got := decodeStreamOpen(nil); got != 0 {
+		t.Fatalf("decodeStreamOpen(empty) = %d; want 0", got)
 	}
 }
 

@@ -222,18 +222,18 @@ message ExecutionLeaseRenewAck {
   google.protobuf.Timestamp expires_at = 2;
 }
 
-// TunnelTarget is one client-owned destination slot the allocator edge splices
-// a tunnel stream to. The r1s client supplies the raw destinations in the
-// tunnel grant request; the allocator validates only their shape, binds the
-// supplied slots into the minted grant, and proxies/splices each stream to the
-// slot the client named. The allocator never reads a destination from its own
-// configuration at grant time.
+// TunnelTarget is one client-owned container-side destination port the
+// allocator edge splices a tunnel stream to. The r1s client supplies its
+// destination ports in the tunnel grant request; the allocator validates only
+// their shape, binds the supplied ports into the minted grant unchanged, and
+// proxies/splices each stream to the port the client named (resolved on the
+// allocator loopback, 127.0.0.1:<port>). The client binds its own local
+// listener and names the container port in each stream-open. The allocator
+// never reads a destination from its own configuration at grant time.
 message TunnelTarget {
-  // name is the slot reference the client uses with --target; empty names the
-  // unnamed default slot (the interactive pipe). It is client-chosen and never
-  // allocator-authored.
-  string name = 1;
-  string host = 2;
+  // port is the container-side destination port the allocator splices a stream
+  // to. Zero is invalid; a grant must carry at least one target. There are no
+  // named slots: each target is just the port to export.
   uint32 port = 3;
 }
 
@@ -243,8 +243,8 @@ message TunnelTarget {
 // public key (HKDF-derived from the client identity seed, opaque to the
 // protocol); the allocator binds it into the minted grant so the tunnel edge
 // accepts only an authenticated peer whose key matches. targets is the
-// client-supplied destination slot list the allocator binds into the minted
-// grant; at least one target is required.
+// client-supplied destination container port list the allocator binds into the
+// minted grant; at least one target (a positive container port) is required.
 message ExecutionTunnelGrant {
   string execution_id = 1;
   bytes ygg_peer_pubkey = 2;
@@ -254,8 +254,8 @@ message ExecutionTunnelGrant {
 // ExecutionTunnelGrantAck is the allocator's mint reply: a grant ID, its
 // expiry, the transport-neutral allocator-local endpoint advertisement
 // (opaque address bytes and opaque public-key bytes), and the echoed
-// client-supplied target slot list so the client and edge agree on the
-// resolved slots. Nothing secret is embedded in the advertisement or the ack.
+// client-supplied container port list so the client and edge agree on the
+// resolved ports. Nothing secret is embedded in the advertisement or the ack.
 message ExecutionTunnelGrantAck {
   string execution_id = 1;
   string grant_id = 2;

@@ -31,7 +31,7 @@ import (
 //	            Pair-level frames (preamble, accept) carry streamIDNone.
 //	  len:       payload length (0..maxPacketPayload)
 //	  payload:   raw tunnel bytes; no further framing inside (except the
-//	            classified close reason and the stream-open target slot)
+//	            classified close reason and the stream-open target port)
 //
 // One frame is exactly one packet: the writer segments on the MTU and the
 // reader never sees a partial frame, so reassembly is pure concatenation and
@@ -41,8 +41,9 @@ import (
 // F19 multiplexing: one authenticated pair (a tunnelMux) carries many logical
 // streams. Every per-stream frame names its stream id; the pair routes each
 // packet to the matching stream. The first frame of a new stream is a
-// stream-open frame whose payload carries the optional target_slot, so the
-// allocator can authorize the slot before a single payload byte is spliced.
+// stream-open frame whose payload carries the target container port (uint16,
+// big-endian), so the allocator can authorize the port before a single payload
+// byte is spliced.
 
 const (
 	frameTypeData         byte = 0x01
@@ -194,18 +195,22 @@ func decodePreamble(payload []byte) (tunnel.Preamble, error) {
 	return tunnel.Preamble{ExecutionID: p.ExecutionID, GrantID: p.GrantID}, nil
 }
 
-// encodeStreamOpen serializes a stream-open frame payload: the optional
-// client-supplied target slot the new stream is spliced to. An empty slot
-// means the unnamed default slot (the interactive pipe).
-func encodeStreamOpen(targetSlot string) []byte {
-	return []byte(targetSlot)
+// encodeStreamOpen serializes a stream-open frame payload: the container
+// port the new stream is spliced to. It is a 2-byte big-endian uint16.
+func encodeStreamOpen(targetPort uint16) []byte {
+	payload := make([]byte, 2)
+	binary.BigEndian.PutUint16(payload, targetPort)
+	return payload
 }
 
 // decodeStreamOpen parses a stream-open frame payload into the requested
-// target slot. It never carries a raw (host, port): the value is only a slot
-// reference the allocator resolves against its grant-time slot list.
-func decodeStreamOpen(payload []byte) string {
-	return string(payload)
+// container port. It never carries a raw (host, port): the value is only the
+// container port the allocator resolves against its grant-time port list.
+func decodeStreamOpen(payload []byte) uint16 {
+	if len(payload) < 2 {
+		return 0
+	}
+	return binary.BigEndian.Uint16(payload[:2])
 }
 
 // streamWindowPayload encodes a per-stream window-update frame payload: the

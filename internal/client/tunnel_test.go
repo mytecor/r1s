@@ -11,11 +11,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// tunnelTestTargets is the client-owned destination slot list used by the
-// tunnel grant tests.
+// tunnelTestTargets is the client-owned destination container port list used
+// by the tunnel grant tests. There are no named slots: each target is just the
+// container port to export.
 var tunnelTestTargets = []tunnel.Target{
-	{ID: "ssh", Host: "127.0.0.1", Port: 2222},
-	{Host: "127.0.0.1", Port: 9000},
+	{Port: 2222},
+	{Port: 9000},
 }
 
 // tunnelTestClient builds a client with one running execution owned by the
@@ -72,8 +73,8 @@ func TestTunnelGrantMintsForOwner(t *testing.T) {
 	if len(grant.GetTargets()) != len(tunnelTestTargets) {
 		t.Fatalf("grant carries %d targets; want %d", len(grant.GetTargets()), len(tunnelTestTargets))
 	}
-	if grant.GetTargets()[0].GetName() != "ssh" || grant.GetTargets()[0].GetPort() != 2222 {
-		t.Fatalf("first target = %+v; want ssh@:2222", grant.GetTargets()[0])
+	if grant.GetTargets()[0].GetPort() != 2222 {
+		t.Fatalf("first target = %+v; want container port 2222", grant.GetTargets()[0])
 	}
 }
 

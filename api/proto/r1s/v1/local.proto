@@ -136,14 +136,13 @@ message LocalTunnelMessage {
 // stream.
 message LocalTunnelOpen {
   string execution_id = 1;
-  // target_slot names the target slot this stream is spliced to. Empty selects
-  // the unnamed default slot (the interactive pipe). The value is only a slot
-  // reference; the allocator resolves it against the client-supplied slot list
-  // carried in the grant — an unknown slot is rejected with
-  // ReasonUnauthorized before any payload moves.
-  string target_slot = 2;
-  // targets is the client-owned destination slot list for this tunnel session,
-  // carried through to the tunnel grant request. The client owns these
+  // target_port is the container-side destination port this stream is spliced
+  // to inside the execution. The allocator resolves it against the
+  // client-supplied port list carried in the grant; an unknown port is rejected
+  // with ReasonUnauthorized before any payload moves.
+  uint32 target_port = 2;
+  // targets is the client-owned destination container port list for this tunnel
+  // session, carried through to the tunnel grant request. The client owns these
   // destinations and the allocator only proxies/splices to them.
   repeated r1s.v1.TunnelTarget targets = 3;
 }

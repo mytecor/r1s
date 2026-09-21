@@ -142,18 +142,17 @@ func (c *Client) Watch(ctx context.Context, after uint64) (r1sv1.LocalClient_Wat
 // half-close/full-close signals in both directions. Setup failures surface as a
 // stream error before any payload is relayed.
 //
-// targets is the client-owned destination slot list sent in the tunnel grant
-// request; at least one destination is required. targetSlot selects the slot
-// the stream is spliced to from the supplied list; empty selects the unnamed
-// default slot (the interactive pipe). It is a slot reference only, resolved by
-// the allocator against the client-supplied list, never a raw (host, port).
-func (c *Client) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (r1sv1.LocalClient_TunnelClient, error) {
+// targets is the client-owned destination container port list sent in the
+// tunnel grant request; at least one destination is required. targetPort is the
+// container port the stream is spliced to, resolved by the allocator against
+// the client-supplied list.
+func (c *Client) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (r1sv1.LocalClient_TunnelClient, error) {
 	stream, err := c.local.Tunnel(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{
-		ExecutionId: executionID, TargetSlot: targetSlot, Targets: protocol.TargetsToProto(targets),
+		ExecutionId: executionID, TargetPort: uint32(targetPort), Targets: protocol.TargetsToProto(targets),
 	}}}); err != nil {
 		_ = stream.CloseSend()
 		return nil, err

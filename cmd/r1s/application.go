@@ -29,6 +29,15 @@ type application struct {
 	identity     []byte
 	tunnelDialer tunnel.Dialer
 
+	// tunnelSessions caches the single authenticated mesh pair per execution
+	// (F19 Model A: one live session per execution, many streams). A port-forward
+	// opens one tunnel stream per inbound TCP connection; all of them share the
+	// same pair, so concurrent browser connections need not each mint their own
+	// grant (which the allocator would reject as a busy session). A record is
+	// replaced when a request names ports the cached pair does not authorize.
+	tunnelSessionsMu sync.Mutex
+	tunnelSessions   map[string]*tunnelPair
+
 	// waitMu guards waiters, the registry that routes inbound control-plane
 	// envelopes to the awaiting workflows (request, inspect, cancel, lease
 	// renewal, logs, tunnel grant) by correlation ID. A single envelope maps to

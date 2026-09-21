@@ -23,16 +23,15 @@ type Grant struct {
 // Session is the single live tunnel session (mesh connection) for one
 // execution, opened at accept and bound to the execution lifecycle. It
 // carries the authenticated peer key reported by the edge and the
-// client-supplied target slot list the edge may splice streams to. Each
-// opening stream references exactly one slot (or the default); every slot
-// came from the client-supplied list the allocator bound into the minted
-// grant (validated only for well-formedness).
+// client-supplied container port list the edge may splice streams to. Each
+// opening stream references exactly one container port; every port came from
+// the client-supplied list the allocator bound into the minted grant
+// (validated only for well-formedness).
 type Session struct {
-	ExecutionID   string
-	PeerKey       []byte
-	Targets       []Target
-	DefaultTarget Target
-	Endpoint      Endpoint
+	ExecutionID string
+	PeerKey     []byte
+	Targets     []Target
+	Endpoint    Endpoint
 }
 
 type grantState struct {
@@ -43,13 +42,12 @@ type grantState struct {
 
 // record is the grant-and-session state for one execution.
 type record struct {
-	executionID   string
-	peerKey       []byte
-	targets       []Target
-	defaultTarget Target
-	endpoint      Endpoint
-	grant         *grantState
-	session       *Session
+	executionID string
+	peerKey     []byte
+	targets     []Target
+	endpoint    Endpoint
+	grant       *grantState
+	session     *Session
 }
 
 // Registry is the allocator-side in-memory registry of per-execution tunnel
@@ -89,10 +87,8 @@ func NewRegistry(config RegistryConfig) (*Registry, error) {
 // from now; a TTL is not tracked in the record because it is evaluated lazily
 // at accept.
 //
-// targets is the client-supplied slot list bound into the grant; defaultTarget
-// is the slot a stream with no target_slot references is spliced to (the
-// interactive pipe).
-func (r *Registry) Mint(executionID string, peerKey []byte, targets []Target, defaultTarget Target, endpoint Endpoint, ttl time.Duration, now time.Time) (Grant, error) {
+// targets is the client-supplied container port list bound into the grant.
+func (r *Registry) Mint(executionID string, peerKey []byte, targets []Target, endpoint Endpoint, ttl time.Duration, now time.Time) (Grant, error) {
 	if executionID == "" {
 		return Grant{}, errors.New("invalid tunnel grant: execution ID is required")
 	}
@@ -100,7 +96,7 @@ func (r *Registry) Mint(executionID string, peerKey []byte, targets []Target, de
 		return Grant{}, errors.New("invalid tunnel grant: grant TTL must be positive")
 	}
 	if len(targets) == 0 {
-		return Grant{}, errors.New("invalid tunnel grant: at least one target slot is required")
+		return Grant{}, errors.New("invalid tunnel grant: at least one target port is required")
 	}
 	id := r.newID()
 	if id == "" {
@@ -116,7 +112,6 @@ func (r *Registry) Mint(executionID string, peerKey []byte, targets []Target, de
 	}
 	rec.peerKey = append([]byte(nil), peerKey...)
 	rec.targets = cloneTargets(targets)
-	rec.defaultTarget = defaultTarget
 	// Clone the endpoint slices: the caller owns the backing arrays and may
 	// reuse them, and the record outlives the Mint call. peerKey is cloned
 	// above for the same reason.
@@ -179,10 +174,9 @@ func (r *Registry) Accept(executionID, grantID string, peerKey []byte, now time.
 	}
 	grant.consumed = true
 	session := &Session{
-		ExecutionID:   executionID,
-		PeerKey:       append([]byte(nil), peerKey...),
-		Targets:       cloneTargets(rec.targets),
-		DefaultTarget: rec.defaultTarget,
+		ExecutionID: executionID,
+		PeerKey:     append([]byte(nil), peerKey...),
+		Targets:     cloneTargets(rec.targets),
 		Endpoint: Endpoint{
 			Address: append([]byte(nil), rec.endpoint.Address...),
 			PubKey:  append([]byte(nil), rec.endpoint.PubKey...),
@@ -239,15 +233,12 @@ func cloneTargets(targets []Target) []Target {
 	return cloned
 }
 
-// ResolveTarget returns the target slot for the given slot ID, or the default
-// slot when id is empty. An unknown non-empty id reports false, so the edge
-// can reject the stream with ReasonUnauthorized before any payload byte moves.
-func (s *Session) ResolveTarget(id string) (Target, bool) {
-	if id == "" {
-		return s.DefaultTarget, true
-	}
+// ResolveTarget returns the target for the given container port, or false when
+// the port was not pre-authorized, so the edge can reject the stream with
+// ReasonUnauthorized before any payload byte moves.
+func (s *Session) ResolveTarget(port uint16) (Target, bool) {
 	for _, target := range s.Targets {
-		if target.ID == id {
+		if target.Port == port {
 			return target, true
 		}
 	}

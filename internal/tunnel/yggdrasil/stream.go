@@ -79,17 +79,17 @@ func newStream(pair *pairConn, id uint32) *streamConn {
 }
 
 // sendOpen writes the stream-open frame for this stream. It must be called
-// before any payload Write; the allocator resolves the target slot against its
-// grant-time slot list and rejects an unauthorized slot with a close frame
+// before any payload Write; the allocator resolves the container port against
+// its grant-time port list and rejects an unauthorized port with a close frame
 // before any payload is spliced.
-func (s *streamConn) sendOpen(targetSlot string) error {
+func (s *streamConn) sendOpen(targetPort uint16) error {
 	s.mu.Lock()
 	if s.closed || s.writeEOF {
 		s.mu.Unlock()
 		return errors.New("tunnel write side is closed")
 	}
 	s.mu.Unlock()
-	return s.pair.writeFrame(frameTypeStreamOpen, s.id, encodeStreamOpen(targetSlot))
+	return s.pair.writeFrame(frameTypeStreamOpen, s.id, encodeStreamOpen(targetPort))
 }
 
 // sendData writes one payload frame, honoring the peer's flow-control window.

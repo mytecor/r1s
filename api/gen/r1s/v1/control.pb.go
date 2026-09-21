@@ -1635,19 +1635,19 @@ func (x *ExecutionLeaseRenewAck) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
-// TunnelTarget is one client-owned destination slot the allocator edge splices
-// a tunnel stream to. The r1s client supplies the raw destinations in the
-// tunnel grant request; the allocator validates only their shape, binds the
-// supplied slots into the minted grant, and proxies/splices each stream to the
-// slot the client named. The allocator never reads a destination from its own
-// configuration at grant time.
+// TunnelTarget is one client-owned container-side destination port the
+// allocator edge splices a tunnel stream to. The r1s client supplies its
+// destination ports in the tunnel grant request; the allocator validates only
+// their shape, binds the supplied ports into the minted grant unchanged, and
+// proxies/splices each stream to the port the client named (resolved on the
+// allocator loopback, 127.0.0.1:<port>). The client binds its own local
+// listener and names the container port in each stream-open. The allocator
+// never reads a destination from its own configuration at grant time.
 type TunnelTarget struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// name is the slot reference the client uses with --target; empty names the
-	// unnamed default slot (the interactive pipe). It is client-chosen and never
-	// allocator-authored.
-	Name          string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Host          string `protobuf:"bytes,2,opt,name=host,proto3" json:"host,omitempty"`
+	// port is the container-side destination port the allocator splices a stream
+	// to. Zero is invalid; a grant must carry at least one target. There are no
+	// named slots: each target is just the port to export.
 	Port          uint32 `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1683,20 +1683,6 @@ func (*TunnelTarget) Descriptor() ([]byte, []int) {
 	return file_r1s_v1_control_proto_rawDescGZIP(), []int{18}
 }
 
-func (x *TunnelTarget) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *TunnelTarget) GetHost() string {
-	if x != nil {
-		return x.Host
-	}
-	return ""
-}
-
 func (x *TunnelTarget) GetPort() uint32 {
 	if x != nil {
 		return x.Port
@@ -1710,8 +1696,8 @@ func (x *TunnelTarget) GetPort() uint32 {
 // public key (HKDF-derived from the client identity seed, opaque to the
 // protocol); the allocator binds it into the minted grant so the tunnel edge
 // accepts only an authenticated peer whose key matches. targets is the
-// client-supplied destination slot list the allocator binds into the minted
-// grant; at least one target is required.
+// client-supplied destination container port list the allocator binds into the
+// minted grant; at least one target (a positive container port) is required.
 type ExecutionTunnelGrant struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
@@ -1775,8 +1761,8 @@ func (x *ExecutionTunnelGrant) GetTargets() []*TunnelTarget {
 // ExecutionTunnelGrantAck is the allocator's mint reply: a grant ID, its
 // expiry, the transport-neutral allocator-local endpoint advertisement
 // (opaque address bytes and opaque public-key bytes), and the echoed
-// client-supplied target slot list so the client and edge agree on the
-// resolved slots. Nothing secret is embedded in the advertisement or the ack.
+// client-supplied container port list so the client and edge agree on the
+// resolved ports. Nothing secret is embedded in the advertisement or the ack.
 type ExecutionTunnelGrantAck struct {
 	state                   protoimpl.MessageState `protogen:"open.v1"`
 	ExecutionId             string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
@@ -1991,10 +1977,8 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"\x16ExecutionLeaseRenewAck\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x129\n" +
 	"\n" +
-	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"J\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\"\n" +
 	"\fTunnelTarget\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
-	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\rR\x04port\"\x91\x01\n" +
 	"\x14ExecutionTunnelGrant\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12&\n" +

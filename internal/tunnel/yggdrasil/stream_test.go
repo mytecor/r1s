@@ -79,14 +79,14 @@ var (
 	allocatorKey = bytes.Repeat([]byte("A"), 32)
 )
 
-// testSession builds a Session with a slot list matching what an allocator
-// would authorize: an unnamed default slot and a named http slot.
+// testSession builds a Session with a container port list matching what an
+// allocator would authorize. There are no named slots: each target is just the
+// port to splice to.
 func testSession() *tunnel.Session {
 	return &tunnel.Session{
-		ExecutionID:   "exec-1",
-		PeerKey:       append([]byte(nil), clientKey...),
-		Targets:       []tunnel.Target{{ID: "", Host: "127.0.0.1", Port: 9000}, {ID: "http", Host: "127.0.0.1", Port: 8080}},
-		DefaultTarget: tunnel.Target{Host: "127.0.0.1", Port: 9000},
+		ExecutionID: "exec-1",
+		PeerKey:     append([]byte(nil), clientKey...),
+		Targets:     []tunnel.Target{{Port: 9000}, {Port: 8080}},
 	}
 }
 
@@ -140,27 +140,31 @@ func establishPair(t *testing.T) (*pairConn, *pairConn) {
 	return client, allocatorPair
 }
 
-// TestPairHandshakeAndDefaultStream verifies the pair preamble handshake and
-// that WritePreamble opens the interactive-pipe default stream (target_slot "")
-// which the allocator resolves to the default slot.
-func TestPairHandshakeAndDefaultStream(t *testing.T) {
+// TestPairHandshakeAndStream verifies the pair preamble handshake and that a
+// client-side OpenStream reaches the allocator authorized for its container
+// port, round-tripping a payload larger than one packet.
+func TestPairHandshakeAndStream(t *testing.T) {
 	client, allocator := establishPair(t)
 
-	// The allocator side sees one authorized stream (the default pipe).
+	// The client opens a stream for container port 9000.
+	streamConn, err := client.OpenStream(9000)
+	if err != nil {
+		t.Fatalf("OpenStream(9000): %v", err)
+	}
+	// The allocator side sees one authorized stream for that port.
 	stream, err := allocator.AcceptStream()
 	if err != nil {
 		t.Fatalf("AcceptStream: %v", err)
 	}
-	if stream.Target.Host != "127.0.0.1" || stream.Target.Port != 9000 {
-		t.Fatalf("default stream target = %+v; want default slot", stream.Target)
+	if stream.Target.Port != 9000 {
+		t.Fatalf("stream target = %+v; want port 9000", stream.Target)
 	}
-	// The client's default stream is the pair itself (Dial return value).
 	payload := bytes.Repeat([]byte("r1s-tunnel-payload|"), 200) // ~3.8 KB > MTU 1400
 	writeDone := make(chan error, 1)
 	go func() {
-		_, err := client.Write(payload)
+		_, err := streamConn.Write(payload)
 		if err == nil {
-			err = client.CloseWrite()
+			err = streamConn.CloseWrite()
 		}
 		writeDone <- err
 	}()
@@ -184,21 +188,24 @@ func TestPairHandshakeAndDefaultStream(t *testing.T) {
 	}
 }
 
-// TestMultistreamConcurrentTransport is the F19 acceptance leg: one paively
+// TestMultistreamConcurrentTransport is the F19 acceptance leg: one pair
 // carries two concurrent, independent streams to a single execution, and both
 // round-trip >MTU payloads without one blocking the other. Closing one stream
 // does not affect the other.
 func TestMultistreamConcurrentTransport(t *testing.T) {
 	client, allocator := establishPair(t)
 
-	// Open two concurrent streams: the default (interactive) and a named http
-	// slot. The allocator side accepts both.
-	httpConn, err := client.OpenStream("http")
+	// Open two concurrent streams for container ports 9000 and 8080.
+	httpConn, err := client.OpenStream(8080)
 	if err != nil {
-		t.Fatalf("OpenStream(http): %v", err)
+		t.Fatalf("OpenStream(8080): %v", err)
 	}
-	// The pair already opened the default stream in WritePreamble; both are now
-	// in flight. Collect both allocator-side streams.
+	appConn, err := client.OpenStream(9000)
+	if err != nil {
+		t.Fatalf("OpenStream(9000): %v", err)
+	}
+
+	// The allocator side accepts both streams.
 	pipes := make(chan *IncomingStream, 2)
 	acceptDone := make(chan error, 1)
 	go func() {
@@ -212,38 +219,38 @@ func TestMultistreamConcurrentTransport(t *testing.T) {
 		}
 		acceptDone <- nil
 	}()
-
-	// The first stream (the default pipe opened during WritePreamble) is in
-	// flight before we open http; the accept goroutine drains both.
 	if err := <-acceptDone; err != nil {
 		t.Fatalf("accept streams: %v", err)
 	}
 
 	first := <-pipes
 	second := <-pipes
-	var allocHTTP, allocDefault tunnel.Conn
+	var allocHTTP, allocApp tunnel.Conn
 	for _, s := range []*IncomingStream{first, second} {
-		if s.Target.ID == "http" {
+		switch s.Target.Port {
+		case 8080:
 			allocHTTP = s.Conn
-		} else {
-			allocDefault = s.Conn
+		case 9000:
+			allocApp = s.Conn
+		default:
+			t.Fatalf("unexpected stream target port: %d", s.Target.Port)
 		}
 	}
-	if allocHTTP == nil || allocDefault == nil {
-		t.Fatal("expected one http stream and one default stream")
+	if allocHTTP == nil || allocApp == nil {
+		t.Fatal("expected one 8080 stream and one 9000 stream")
 	}
 
-	// Both directions carry >MTU payloads concurrently: http -> its slot,
-	// default -> its slot.
+	// Both directions carry >MTU payloads concurrently: 8080 -> its port,
+	// 9000 -> its port.
 	payloadA := bytes.Repeat([]byte("stream-A-|"), 300) // ~2.9 KB
 	payloadB := bytes.Repeat([]byte("stream-B-|"), 400) // ~3.9 KB
 
 	writeErr := make(chan error, 2)
 	go func() { _, err := httpConn.Write(payloadA); writeErr <- err }()
-	go func() { _, err := client.Write(payloadB); writeErr <- err }()
+	go func() { _, err := appConn.Write(payloadB); writeErr <- err }()
 
 	gotA := readAll(t, allocHTTP, len(payloadA))
-	gotB := readAll(t, allocDefault, len(payloadB))
+	gotB := readAll(t, allocApp, len(payloadB))
 	if !bytes.Equal(gotA, payloadA) {
 		t.Fatalf("stream-A payload mismatch: got %d bytes", len(gotA))
 	}
@@ -258,23 +265,24 @@ func TestMultistreamConcurrentTransport(t *testing.T) {
 
 	// Closing one stream (full close) leaves the other usable.
 	_ = httpConn.Close()
-	if _, err := client.Write([]byte("still-alive")); err != nil {
+	if _, err := appConn.Write([]byte("still-alive")); err != nil {
 		t.Fatalf("write after sibling close: %v", err)
 	}
-	if _, err := allocDefault.Read(make([]byte, 64)); err != nil {
+	if _, err := allocApp.Read(make([]byte, 64)); err != nil {
 		t.Fatalf("sibling read after close: %v", err)
 	}
 }
 
-// TestStreamTargetUnauthorized verifies a stream referencing a target slot the
-// allocator did not pre-authorize is rejected before any payload is consumed.
+// TestStreamTargetUnauthorized verifies a stream referencing a container port
+// the allocator did not pre-authorize is rejected before any payload is
+// consumed.
 func TestStreamTargetUnauthorized(t *testing.T) {
 	client, allocator := establishPair(t)
 
-	// The session authorizes "" and "http" only; "mysql" must be rejected.
-	badConn, err := client.OpenStream("mysql")
+	// The session authorizes 9000 and 8080 only; 3306 must be rejected.
+	badConn, err := client.OpenStream(3306)
 	if err != nil {
-		t.Fatalf("OpenStream(mysql): %v", err)
+		t.Fatalf("OpenStream(3306): %v", err)
 	}
 	// The allocator side must not surface the stream; it sends a close with
 	// ReasonUnauthorized instead. The client's Read observes the session error.
@@ -293,27 +301,32 @@ func TestStreamTargetUnauthorized(t *testing.T) {
 		t.Fatal("unauthorized stream was not rejected")
 	}
 
-	// The allocator side surfaces only the authorized default stream opened by
-	// WritePreamble; the unauthorized "mysql" stream must never arrive for
-	// splice — it gets a classified close straight back instead. Drain the
-	// default stream first so it is not mistaken for the unauthorized one.
-	defaultStream, err := allocator.AcceptStream()
+	// The allocator side surfaces only the authorized 9000 stream; the
+	// unauthorized 3306 stream must never arrive for splice — it gets a
+	// classified close straight back instead.
+	authorizedConn, err := client.OpenStream(9000)
 	if err != nil {
-		t.Fatalf("accept default stream: %v", err)
+		t.Fatalf("OpenStream(9000): %v", err)
 	}
-	if defaultStream.Target.ID != "" {
-		t.Fatalf("default stream target slot = %q; want unnamed default", defaultStream.Target.ID)
+	okStream, err := allocator.AcceptStream()
+	if err != nil {
+		t.Fatalf("accept authorized stream: %v", err)
 	}
-	// The allocator side must never surface such a stream, and the pair must
-	// still carry authorized streams.
+	if okStream.Target.Port != 9000 {
+		t.Fatalf("authorized stream target port = %d; want 9000", okStream.Target.Port)
+	}
+	// The allocator side must never surface the unauthorized stream, and the
+	// pair must still carry authorized streams.
 	select {
 	case is := <-allocator.incoming:
 		t.Fatalf("unauthorized stream surfaced for splice: %+v", is)
 	case <-time.After(300 * time.Millisecond):
 	}
-	if _, err := client.OpenStream("http"); err != nil {
+	if _, err := client.OpenStream(8080); err != nil {
 		t.Fatalf("open authorized stream after rejection: %v", err)
 	}
+	_ = authorizedConn
+	_ = okStream
 }
 
 // readAll reads exactly want bytes from conn, failing on premature EOF.
@@ -335,6 +348,10 @@ func readAll(t *testing.T, conn tunnel.Conn, want int) []byte {
 // racing a classified teardown on the same stream, under -race.
 func TestStreamConcurrentWriteAndCloseWithReason(t *testing.T) {
 	client, allocator := establishPair(t)
+	clientConn, err := client.OpenStream(9000)
+	if err != nil {
+		t.Fatalf("OpenStream(9000): %v", err)
+	}
 	s, err := allocator.AcceptStream()
 	if err != nil {
 		t.Fatalf("AcceptStream: %v", err)
@@ -351,7 +368,7 @@ func TestStreamConcurrentWriteAndCloseWithReason(t *testing.T) {
 				return
 			default:
 			}
-			if _, err := client.Write(payload); err != nil {
+			if _, err := clientConn.Write(payload); err != nil {
 				writeErr <- err
 				return
 			}

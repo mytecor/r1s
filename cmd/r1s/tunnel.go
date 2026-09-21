@@ -6,99 +6,88 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/tunnel"
-	"golang.org/x/term"
 )
 
-// parseTargetSlot parses one "name@host:port" or bare "host:port" destination
-// slot from the CLI. An empty name makes it the unnamed default slot (the
-// interactive pipe). Parsing validates the host:port shape with
-// net.SplitHostPort so a malformed address is rejected before the client
-// sends it to the allocator.
-func parseTargetSlot(raw string) (tunnel.Target, error) {
-	name := ""
-	hostPort := strings.TrimSpace(raw)
-	if at := strings.LastIndex(hostPort, "@"); at >= 0 {
-		name = strings.TrimSpace(hostPort[:at])
-		hostPort = strings.TrimSpace(hostPort[at+1:])
-		// An explicit but empty name ("@host:port") is an error, not an unnamed
-		// default slot: silently mapping it to the interactive pipe would hide a
-		// typo the user meant as a named slot.
-		if name == "" {
-			return tunnel.Target{}, fmt.Errorf("expected name@host:port")
-		}
-	}
-	host, portStr, err := net.SplitHostPort(hostPort)
-	if err != nil {
-		return tunnel.Target{}, fmt.Errorf("expected host:port (name@host:port for a named slot)")
-	}
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return tunnel.Target{}, fmt.Errorf("host is required")
-	}
-	port, err := strconv.ParseUint(portStr, 10, 16)
-	if err != nil || port == 0 {
-		return tunnel.Target{}, fmt.Errorf("port must be a positive uint16")
-	}
-	return tunnel.Target{ID: name, Host: host, Port: uint16(port)}, nil
+// portMapping is one Docker-style --port host:container mapping. host is the
+// client-side local port a listener binds on 127.0.0.1; container is the
+// container-side destination port the allocator splices the tunnel stream to.
+// There are no named slots: each --port is just which host port to expose and
+// which container port it reaches.
+type portMapping struct {
+	host      uint16
+	container uint16
 }
 
-// tunnel is commandHandler-compatible: service-backed mode relays stdin/stdout
-// over the LocalTunnel stream; direct mode rejects the session with a clear
+// parsePort parses a positive uint16 port.
+func parsePort(raw string) (uint16, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, errors.New("port is required")
+	}
+	value, err := strconv.ParseUint(raw, 10, 16)
+	if err != nil || value == 0 {
+		return 0, fmt.Errorf("port must be a positive uint16, got %q", raw)
+	}
+	return uint16(value), nil
+}
+
+// parsePortMapping parses one --port value of the form host:container.
+func parsePortMapping(raw string) (portMapping, error) {
+	hostRaw, containerRaw, ok := strings.Cut(strings.TrimSpace(raw), ":")
+	if !ok {
+		return portMapping{}, errors.New("expected host:container (e.g. --port 8080:80)")
+	}
+	host, err := parsePort(hostRaw)
+	if err != nil {
+		return portMapping{}, fmt.Errorf("host: %w", err)
+	}
+	container, err := parsePort(containerRaw)
+	if err != nil {
+		return portMapping{}, fmt.Errorf("container: %w", err)
+	}
+	return portMapping{host: host, container: container}, nil
+}
+
+// tunnel is commandHandler-compatible: service-backed mode binds a local TCP
+// listener for each --port and forwards inbound connections to the container
+// port over the tunnel. Direct mode rejects the session with a clear
 // CommandError because only a persistent 'r1s serve' holds the F17 keep-alive
-// intent that keeps the execution alive for the duration of the session.
+// intent that keeps the execution alive for the duration of the forward.
 func (l *localCLI) tunnel(args []string, stderr io.Writer) error {
-	// The tunnel command has two flag surfaces from F20-01: --target-slot
-	// (repeatable, supplies the client-owned destination list) and --target
-	// (the slot selector kept from F19-01). The usage shape is:
-	//   r1s tunnel <id> [--target-slot <name@host:port>] [--target <name>]
-	// The execution ID is the first non-flag token. The stdlib flag package
-	// stops at the first positional, so borrow interspersed parsing here.
-	var targetSlot string
-	seenTarget := false
-	var targetSlots []string
+	var portMappings []portMapping
 	var positional []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
-		case a == "--target" || a == "-target":
-			if seenTarget || i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
-				return errors.New("tunnel: --target requires a slot name")
-			}
-			targetSlot = strings.TrimSpace(args[i+1])
-			seenTarget = true
-			i++
-		case strings.HasPrefix(a, "--target=") || strings.HasPrefix(a, "-target="):
-			if seenTarget {
-				return errors.New("tunnel: --target given more than once")
-			}
-			targetSlot = strings.TrimPrefix(strings.TrimPrefix(a, "--target="), "-target=")
-			targetSlot = strings.TrimSpace(targetSlot)
-			if targetSlot == "" {
-				return errors.New("tunnel: --target requires a slot name")
-			}
-			seenTarget = true
-		case a == "--target-slot" || a == "-target-slot":
+		case a == "--port" || a == "-port":
 			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
-				return errors.New("tunnel: --target-slot requires a name@host:port or host:port")
+				return errors.New("tunnel: --port requires host:container")
 			}
-			targetSlots = append(targetSlots, strings.TrimSpace(args[i+1]))
+			mapping, err := parsePortMapping(args[i+1])
+			if err != nil {
+				return fmt.Errorf("tunnel: --port %q: %w", args[i+1], err)
+			}
+			portMappings = append(portMappings, mapping)
 			i++
-		case strings.HasPrefix(a, "--target-slot=") || strings.HasPrefix(a, "-target-slot="):
-			slot := strings.TrimPrefix(strings.TrimPrefix(a, "--target-slot="), "-target-slot=")
-			targetSlots = append(targetSlots, strings.TrimSpace(slot))
+		case strings.HasPrefix(a, "--port=") || strings.HasPrefix(a, "-port="):
+			raw := strings.TrimPrefix(strings.TrimPrefix(a, "--port="), "-port=")
+			mapping, err := parsePortMapping(raw)
+			if err != nil {
+				return fmt.Errorf("tunnel: --port %q: %w", raw, err)
+			}
+			portMappings = append(portMappings, mapping)
 		case a == "--help" || a == "-h":
-			fmt.Fprintf(stderr, "Usage: r1s tunnel <execution-id> [--target-slot <name@host:port>] [--target <slot>]")
-			fmt.Fprintf(stderr, "\n\n  --target-slot <addr>  add a client-owned destination slot (repeatable);")
-			fmt.Fprintf(stderr, "\n                       use name@host:port for a named slot, or host:port for the default\n")
-			fmt.Fprintf(stderr, "  --target <slot>       open the named slot (must be in --target-slot list);\n")
-			fmt.Fprintf(stderr, "                       omit for the interactive pipe to the default slot\n")
+			fmt.Fprintf(stderr, "Usage: r1s tunnel <execution-id> --port <host>:<container> [--port ...]")
+			fmt.Fprintf(stderr, "\n\n  --port <host>:<container>  forward 127.0.0.1:<host> to the container port\n")
+			fmt.Fprintf(stderr, "                             <container> (repeatable, Docker-style). Open\n")
+			fmt.Fprintf(stderr, "                             127.0.0.1:<host> in a browser or client to reach\n")
+			fmt.Fprintf(stderr, "                             the container service.\n")
 			return nil
 		case strings.HasPrefix(a, "-") && a != "-":
 			return fmt.Errorf("tunnel: unknown flag: %s", a)
@@ -113,174 +102,140 @@ func (l *localCLI) tunnel(args []string, stderr io.Writer) error {
 	if executionID == "" {
 		return errors.New("tunnel: execution ID is required")
 	}
-	if len(targetSlots) == 0 {
-		return errors.New("tunnel: at least one --target-slot is required")
+	if len(portMappings) == 0 {
+		return errors.New("tunnel: at least one --port host:container is required")
 	}
 
-	// Parse the destination slots the client owns.
-	targets := make([]tunnel.Target, 0, len(targetSlots))
-	for _, raw := range targetSlots {
-		target, err := parseTargetSlot(raw)
-		if err != nil {
-			return fmt.Errorf("tunnel: --target-slot %q: %w", raw, err)
-		}
-		targets = append(targets, target)
-	}
-
-	// A --target name must be one of the client-supplied destinations. Reject
-	// an unknown name here (fail-fast) instead of after a network round-trip,
-	// when the edge would refuse the stream with ReasonUnauthorized.
-	if targetSlot != "" {
-		found := false
-		for _, t := range targets {
-			if t.ID == targetSlot {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("tunnel: --target %q is not in the --target-slot list", targetSlot)
+	// The grant needs the set of container ports (the destinations inside the
+	// execution). Deduplicate so a single grant authorizes them all; the host
+	// ports are bound locally and never sent to the allocator.
+	seenPorts := make(map[uint16]bool)
+	targets := make([]tunnel.Target, 0, len(portMappings))
+	for _, mapping := range portMappings {
+		if !seenPorts[mapping.container] {
+			seenPorts[mapping.container] = true
+			targets = append(targets, tunnel.Target{Port: mapping.container})
 		}
 	}
 
 	ctx, cancel := context.WithCancel(l.ctx)
 	defer cancel()
 
-	// Open the bidirectional LocalTunnel stream. A setup failure surfaces here
-	// as a gRPC error before any payload is relayed; stdout stays byte-clean.
-	stream, err := l.client.Tunnel(ctx, executionID, targets, targetSlot)
+	// Bind a local listener for every --port mapping. A bind failure (privileged
+	// port, port in use) is reported before any forwarding starts so the whole
+	// command fails fast.
+	type boundListener struct {
+		listener net.Listener
+		mapping  portMapping
+	}
+	var listeners []boundListener
+	for _, mapping := range portMappings {
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", mapping.host))
+		if err != nil {
+			for _, bl := range listeners {
+				_ = bl.listener.Close()
+			}
+			return fmt.Errorf("tunnel: bind host port %d: %w", mapping.host, err)
+		}
+		listeners = append(listeners, boundListener{listener: ln, mapping: mapping})
+		fmt.Fprintf(stderr, "tunnel: forwarding 127.0.0.1:%d -> container port %d (execution %s)\n",
+			mapping.host, mapping.container, executionID)
+	}
+
+	// Accept connections on every listener; each connection gets its own tunnel
+	// stream to the mapping's container port. The local listeners forward until
+	// the command is interrupted.
+	var wg sync.WaitGroup
+	for _, bl := range listeners {
+		wg.Add(1)
+		go func(bl boundListener, targetPort uint16) {
+			defer wg.Done()
+			for {
+				conn, err := bl.listener.Accept()
+				if err != nil {
+					return // listener closed (shutdown)
+				}
+				go l.relayPort(ctx, executionID, targets, targetPort, conn, stderr)
+			}
+		}(bl, bl.mapping.container)
+	}
+
+	// Run until interrupted (SIGINT/SIGTERM cancels l.ctx). On exit, close every
+	// listener so the accept goroutines stop.
+	<-ctx.Done()
+	for _, bl := range listeners {
+		_ = bl.listener.Close()
+	}
+	wg.Wait()
+	return nil
+}
+
+// relayPort forwards bytes between an accepted local TCP connection and one
+// tunnel stream to a container port, until either side closes. Each connection
+// is independent: a browser can open many connections to one host port, and
+// each is a separate multiplexed stream on the shared authenticated pair.
+func (l *localCLI) relayPort(ctx context.Context, executionID string, targets []tunnel.Target, containerPort uint16, conn net.Conn, stderr io.Writer) {
+	defer conn.Close()
+	stream, err := l.client.Tunnel(ctx, executionID, targets, containerPort)
 	if err != nil {
-		return fmt.Errorf("tunnel: %w", err)
+		fmt.Fprintf(stderr, "tunnel: open container port %d: %v\n", containerPort, err)
+		return
 	}
+	done := make(chan struct{}, 2)
 
-	// Raw mode for interactive protocols (SSH and similar): keystrokes are
-	// delivered as bytes, the terminal is restored on exit, and stdout is the
-	// data channel so only tunnel bytes travel through it. A failure to enter
-	// raw mode is reported rather than silently ignored.
-	restore, raw := rawTerminal(l.stdin, stderr)
-	if raw {
-		defer restore()
-	}
-
-	// stdin -> serve. On stdin EOF the write half-close is signaled via
-	// CloseSend; the read direction stays live so replies keep flowing until
-	// the session ends.
-	//
-	// sendMu serialises the send direction: a gRPC stream does not allow
-	// CloseSend concurrently with SendMsg, and both the send goroutine and the
-	// receive loop below issue send-direction operations, so every Send and
-	// CloseSend must happen under the same lock. The goroutine itself is not
-	// interrupted (a raw-mode terminal read cannot be cancelled), so its only
-	// exit point is stdin EOF, a Send failure, or a latched CloseSend from the
-	// receive loop; the process lifetime bounds any residual block on stdin.
-	var sendMu sync.Mutex
-	sendDone := make(chan struct{})
+	// conn -> tunnel: read from the local TCP socket and send data frames.
 	go func() {
-		defer close(sendDone)
+		defer func() { done <- struct{}{} }()
 		buf := make([]byte, 32*1024)
 		for {
-			n, rerr := l.stdin.Read(buf)
+			n, rerr := conn.Read(buf)
 			if n > 0 {
-				sendMu.Lock()
-				serr := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Data{Data: append([]byte(nil), buf[:n]...)}})
-				sendMu.Unlock()
-				if serr != nil {
+				if serr := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Data{Data: append([]byte(nil), buf[:n]...)}}); serr != nil {
 					return
 				}
 			}
 			if rerr != nil {
-				sendMu.Lock()
 				_ = stream.CloseSend()
-				sendMu.Unlock()
 				return
 			}
 		}
 	}()
-	// closeSend latches a half-close of the send direction from this (receive)
-	// goroutine. More than one CloseSend is harmless but must still be locked,
-	// so every caller funnels through here.
-	closeSend := func() {
-		sendMu.Lock()
-		_ = stream.CloseSend()
-		sendMu.Unlock()
-	}
 
-	// serve -> stdout until the session's read direction ends.
-	reason := tunnel.ReasonClosed
-	detail := ""
-	var recvErr error
-readLoop:
-	for {
-		msg, rerr := stream.Recv()
-		if rerr != nil {
-			recvErr = rerr
-			break
-		}
-		switch payload := msg.GetPayload().(type) {
-		case *r1sv1.LocalTunnelMessage_Data:
-			if _, werr := l.stdout.Write(payload.Data); werr != nil {
-				return fmt.Errorf("tunnel: write stdout: %w", werr)
+	// tunnel -> conn: receive data frames and write them to the local socket.
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for {
+			msg, rerr := stream.Recv()
+			if rerr != nil {
+				return
 			}
-		case *r1sv1.LocalTunnelMessage_Close:
-			reason = tunnel.Reason(payload.Close.GetReason())
-			detail = payload.Close.GetDetail()
-			if payload.Close.GetHalf() {
-				// The serve half-closed its write-to-client direction: no more
-				// replies, but the client keeps its send direction open until stdin
-				// EOF, then this side finishes. Wait for the send goroutine (and
-				// yield to cancellation) so everything the user typed is relayed
-				// before exiting.
-				select {
-				case <-sendDone:
-				case <-ctx.Done():
+			switch payload := msg.GetPayload().(type) {
+			case *r1sv1.LocalTunnelMessage_Data:
+				if _, werr := conn.Write(payload.Data); werr != nil {
+					return
 				}
-				break readLoop
+			case *r1sv1.LocalTunnelMessage_Close:
+				// A write half-close propagates as a half-close on the local
+				// socket so half-duplex protocols see a clean EOF; a full close
+				// ends the connection.
+				if payload.Close.GetHalf() {
+					if tcp, ok := conn.(*net.TCPConn); ok {
+						_ = tcp.CloseWrite()
+					}
+					continue
+				}
+				return
 			}
-			// A full close ends the session: stop both directions. The send
-			// goroutine may be blocked on a terminal read that cannot be
-			// interrupted, so it is left to end with the process; cancelling the
-			// context makes any in-flight Send fail so it does not linger on the
-			// stream.
-			closeSend()
-			cancel()
-			break readLoop
 		}
-	}
-	closeSend()
-	cancel()
+	}()
 
-	if recvErr != nil && !errors.Is(recvErr, io.EOF) && !errors.Is(recvErr, context.Canceled) {
-		return fmt.Errorf("tunnel: %w", recvErr)
-	}
-	if !reason.Normal() {
-		message := "tunnel: session ended: " + string(reason)
-		if detail != "" {
-			message += ": " + detail
-		}
-		return errors.New(message)
-	}
-	return nil
+	<-done
+	<-done
 }
 
 // tunnel is rejected in direct mode: a direct run would let the execution's
-// lease lapse (default 10 minutes) mid-session because only a serve process
+// lease lapse (default 10 minutes) mid-forward because only a serve process
 // holds the F17 keep-alive intent that renews it.
 func (a *application) tunnel(args []string, stderr io.Writer) error {
-	return errors.New("tunnel: direct mode is not supported; start 'r1s serve' so its socket is discovered, then run 'r1s tunnel <executionID>'")
-}
-
-// rawTerminal switches stdin to raw mode for interactive sessions and returns a
-// restore function plus whether raw mode is active. It is a no-op when stdin is
-// not a terminal (for example piped input), so the tunnel still works for
-// scripted use. A failure to enter raw mode is reported on stderr.
-func rawTerminal(input *os.File, stderr io.Writer) (restore func(), raw bool) {
-	if input == nil || !term.IsTerminal(int(input.Fd())) {
-		return func() {}, false
-	}
-	state, err := term.MakeRaw(int(input.Fd()))
-	if err != nil {
-		fmt.Fprintf(stderr, "tunnel: failed to enter raw mode: %v\n", err)
-		return func() {}, false
-	}
-	return func() { _ = term.Restore(int(input.Fd()), state) }, true
+	return errors.New("tunnel: direct mode is not supported; start 'r1s serve' so its socket is discovered, then run 'r1s tunnel <executionID> --port host:container'")
 }

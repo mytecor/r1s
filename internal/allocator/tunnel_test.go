@@ -19,13 +19,14 @@ const (
 	testPubKey   = "transport-neutral-overlay-pubkey"
 )
 
-// clientTestTargets is the client-supplied destination slot list used by the
-// tunnel grant tests. The allocator no longer owns target resolution; it binds
-// whatever the client sends, validated only for shape.
+// clientTestTargets is the client-supplied destination container port list used
+// by the tunnel grant tests. The allocator no longer owns target resolution; it
+// binds whatever the client sends, validated only for shape. There are no named
+// slots: each target is just the container port to export.
 var clientTestTargets = []*r1sv1.TunnelTarget{
-	{Name: "ssh", Host: "127.0.0.1", Port: 2222},
-	{Name: "http", Host: "127.0.0.1", Port: 8080},
-	{Host: "127.0.0.1", Port: 9000},
+	{Port: 2222},
+	{Port: 8080},
+	{Port: 9000},
 }
 
 // newTunnelAllocator builds an allocator with the F14 tunnel surface enabled,
@@ -204,19 +205,22 @@ func TestTunnelGrantResolvesClientSuppliedTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcceptTunnel: %v", err)
 	}
-	// The default slot is the unnamed client-supplied target (host:port with no
-	// name), not anything the allocator configured.
-	if session.DefaultTarget.Host != "127.0.0.1" || session.DefaultTarget.Port != 9000 {
-		t.Fatalf("default target = %+v; want client-supplied unnamed 127.0.0.1:9000", session.DefaultTarget)
+	// Every client-supplied container port resolves; sessions carry no named
+	// slots and no default target.
+	if target, ok := session.ResolveTarget(2222); !ok || target.Port != 2222 {
+		t.Fatalf("resolve 2222 = %+v, %v; want 2222", target, ok)
 	}
-	// Named client-supplied slots resolve too.
-	if slot, ok := session.ResolveTarget("ssh"); !ok || slot.Port != 2222 {
-		t.Fatalf("ssh slot = %+v, %v; want 2222", slot, ok)
+	if target, ok := session.ResolveTarget(8080); !ok || target.Port != 8080 {
+		t.Fatalf("resolve 8080 = %+v, %v; want 8080", target, ok)
 	}
-	if slot, ok := session.ResolveTarget("http"); !ok || slot.Port != 8080 {
-		t.Fatalf("http slot = %+v, %v; want 8080", slot, ok)
+	if target, ok := session.ResolveTarget(9000); !ok || target.Port != 9000 {
+		t.Fatalf("resolve 9000 = %+v, %v; want 9000", target, ok)
 	}
-	// The ack echoes the client-supplied slot list so client and edge agree.
+	// An unauthorized port is rejected.
+	if _, ok := session.ResolveTarget(3306); ok {
+		t.Fatalf("resolve unauthorized 3306 = %v; want rejected", ok)
+	}
+	// The ack echoes the client-supplied port list so client and edge agree.
 	if got := ack.GetTargets(); len(got) != len(clientTestTargets) {
 		t.Fatalf("ack echoed %d targets; want %d", len(got), len(clientTestTargets))
 	}

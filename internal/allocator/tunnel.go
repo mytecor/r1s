@@ -114,20 +114,19 @@ func (a *Allocator) handleTunnelGrant(envelope *r1sv1.Envelope, grant *r1sv1.Exe
 	if !a.tunnelConfig.Enabled {
 		return nil, ErrTunnelDisabled
 	}
-	// Validate and convert the client-supplied slot list. The allocator does
-	// not resolve targets from its own configuration; it binds whatever the
-	// client sent, validated only for well-formedness.
+	// Validate and convert the client-supplied container port list. The
+	// allocator does not resolve targets from its own configuration; it binds
+	// whatever the client sent, validated only for well-formedness.
 	targets, err := protocol.ValidateTunnelTargets(grant.GetTargets())
 	if err != nil {
 		return nil, err
 	}
-	defaultTarget := slotDefault(targets)
 	endpoint := a.tunnelEndpoint()
 	if len(endpoint.Address) == 0 || len(endpoint.PubKey) == 0 {
 		return nil, ErrTunnelNoEndpoint
 	}
 
-	minted, err := a.tunnels.Mint(grant.GetExecutionId(), peerKey, targets, defaultTarget, endpoint, a.tunnelGrantTTL(), now)
+	minted, err := a.tunnels.Mint(grant.GetExecutionId(), peerKey, targets, endpoint, a.tunnelGrantTTL(), now)
 	if err != nil {
 		return nil, err
 	}
@@ -159,24 +158,10 @@ func (a *Allocator) tunnelEndpoint() tunnel.Endpoint {
 	}
 }
 
+// tunnelGrantTTL returns the configured grant TTL, or the default when unset.
 func (a *Allocator) tunnelGrantTTL() time.Duration {
 	if a.tunnelConfig.GrantTTL <= 0 {
 		return defaultTunnelGrantTTL
 	}
 	return a.tunnelConfig.GrantTTL
-}
-
-// slotDefault returns the default slot for a client-supplied slot list: the
-// unnamed (empty ID) slot if present, else a copy of the first slot. A stream
-// with no target_slot splices to this slot.
-func slotDefault(slots []tunnel.Target) tunnel.Target {
-	for _, slot := range slots {
-		if slot.ID == "" {
-			return slot
-		}
-	}
-	if len(slots) > 0 {
-		return slots[0]
-	}
-	return tunnel.Target{}
 }

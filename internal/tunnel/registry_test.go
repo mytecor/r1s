@@ -21,7 +21,7 @@ func testRegistry(t *testing.T) (*Registry, *time.Time) {
 
 func TestMintCreatesGrant(t *testing.T) {
 	registry, now := testRegistry(t)
-	_, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Host: "127.0.0.1", Port: 9000}}, Target{Host: "127.0.0.1", Port: 9000}, Endpoint{Address: []byte("addr"), PubKey: []byte("pub")}, 60*time.Second, *now)
+	_, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 9000}}, Endpoint{Address: []byte("addr"), PubKey: []byte("pub")}, 60*time.Second, *now)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -29,10 +29,10 @@ func TestMintCreatesGrant(t *testing.T) {
 
 func TestMintRequiresIDs(t *testing.T) {
 	registry, _ := testRegistry(t)
-	if _, err := registry.Mint("", []byte("k"), []Target{{}}, Target{}, Endpoint{}, time.Minute, time.Now()); err == nil {
+	if _, err := registry.Mint("", []byte("k"), []Target{{Port: 1}}, Endpoint{}, time.Minute, time.Now()); err == nil {
 		t.Fatal("Mint with empty execution ID succeeded")
 	}
-	if _, err := registry.Mint("exec-1", []byte("k"), []Target{{}}, Target{}, Endpoint{}, 0, time.Now()); err == nil {
+	if _, err := registry.Mint("exec-1", []byte("k"), []Target{{Port: 1}}, Endpoint{}, 0, time.Now()); err == nil {
 		t.Fatal("Mint with non-positive TTL succeeded")
 	}
 }
@@ -40,7 +40,7 @@ func TestMintRequiresIDs(t *testing.T) {
 func TestAcceptOpensSessionAndConsumesGrant(t *testing.T) {
 	registry, now := testRegistry(t)
 	wantExpiry := now.Add(2 * time.Minute)
-	grant, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Host: "[::1]", Port: 8080}}, Target{Host: "[::1]", Port: 8080}, Endpoint{Address: []byte("addr")}, 2*time.Minute, *now)
+	grant, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 8080}}, Endpoint{Address: []byte("addr")}, 2*time.Minute, *now)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -51,14 +51,14 @@ func TestAcceptOpensSessionAndConsumesGrant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
-	if session.ExecutionID != "exec-1" || string(session.PeerKey) != "peer-key" || session.DefaultTarget.Host != "[::1]" || session.DefaultTarget.Port != 8080 {
+	if session.ExecutionID != "exec-1" || string(session.PeerKey) != "peer-key" || len(session.Targets) != 1 || session.Targets[0].Port != 8080 {
 		t.Fatalf("unexpected session: %+v", session)
 	}
 }
 
 func TestAcceptRejectsReuse(t *testing.T) {
 	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{}}, Target{}, Endpoint{}, time.Minute, *now)
+	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
 	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); err != nil {
 		t.Fatalf("first Accept: %v", err)
 	}
@@ -69,21 +69,21 @@ func TestAcceptRejectsReuse(t *testing.T) {
 
 func TestAcceptRejectsExpired(t *testing.T) {
 	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{}}, Target{}, Endpoint{}, time.Minute, *now)
+	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
 	*now = now.Add(61 * time.Second)
 	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); !errors.Is(err, ErrGrantExpired) {
 		t.Fatalf("Accept after expiry = %v; want ErrGrantExpired", err)
 	}
 	// The grant stays unconsumed and reusable within its TTL; a fresh mint
 	// re-arms it for the same execution.
-	if _, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{}}, Target{}, Endpoint{}, time.Minute, *now); err != nil {
+	if _, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now); err != nil {
 		t.Fatalf("re-mint after expiry: %v", err)
 	}
 }
 
 func TestAcceptRejectsPeerKeyMismatch(t *testing.T) {
 	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("pinned-key"), []Target{{}}, Target{}, Endpoint{}, time.Minute, *now)
+	grant, _ := registry.Mint("exec-1", []byte("pinned-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
 	if _, err := registry.Accept("exec-1", grant.ID, []byte("other-key"), *now); !errors.Is(err, ErrPeerKeyMismatch) {
 		t.Fatalf("Accept with wrong key = %v; want ErrPeerKeyMismatch", err)
 	}
@@ -95,7 +95,7 @@ func TestAcceptRejectsPeerKeyMismatch(t *testing.T) {
 
 func TestAcceptRejectsWrongGrantAndUnknownExecution(t *testing.T) {
 	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{}}, Target{}, Endpoint{}, time.Minute, *now)
+	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
 	if _, err := registry.Accept("exec-1", "wrong-grant", []byte("peer-key"), *now); !errors.Is(err, ErrGrantNotFound) {
 		t.Fatalf("Accept with wrong grant = %v; want ErrGrantNotFound", err)
 	}
@@ -106,13 +106,13 @@ func TestAcceptRejectsWrongGrantAndUnknownExecution(t *testing.T) {
 
 func TestSessionBusyAtAccept(t *testing.T) {
 	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{}}, Target{}, Endpoint{}, time.Minute, *now)
+	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
 	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); err != nil {
 		t.Fatalf("first Accept: %v", err)
 	}
 	// A repeat mint replaces the outstanding grant; the session stays active
 	// and a second accept for the same execution is rejected at accept time.
-	newGrant, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{}}, Target{}, Endpoint{}, time.Minute, *now)
+	newGrant, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
 	if err != nil {
 		t.Fatalf("re-mint while session active: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestSessionBusyAtAccept(t *testing.T) {
 
 func TestCloseSessionThenRemintIsImmediate(t *testing.T) {
 	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{}}, Target{}, Endpoint{}, time.Minute, *now)
+	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
 	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestCloseSessionThenRemintIsImmediate(t *testing.T) {
 		t.Fatal("session still active after CloseSession")
 	}
 	// A re-mint right after a session close is immediate and acceptable.
-	newGrant, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{}}, Target{}, Endpoint{}, time.Minute, *now)
+	newGrant, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
 	if err != nil {
 		t.Fatalf("re-mint after session close: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestCloseSessionThenRemintIsImmediate(t *testing.T) {
 
 func TestInvalidateRemovesGrantAndSession(t *testing.T) {
 	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{}}, Target{}, Endpoint{}, time.Minute, *now)
+	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
 	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
@@ -163,27 +163,23 @@ func TestAcceptUnknownSessionNil(t *testing.T) {
 	}
 }
 
-func TestMintRequiresATargetSlot(t *testing.T) {
+func TestMintRequiresATargetPort(t *testing.T) {
 	registry, now := testRegistry(t)
-	if _, err := registry.Mint("exec-1", []byte("k"), nil, Target{}, Endpoint{}, time.Minute, *now); err == nil {
-		t.Fatal("Mint with no target slots succeeded")
+	if _, err := registry.Mint("exec-1", []byte("k"), nil, Endpoint{}, time.Minute, *now); err == nil {
+		t.Fatal("Mint with no target ports succeeded")
 	}
-	if _, err := registry.Mint("exec-1", []byte("k"), []Target{}, Target{}, Endpoint{}, time.Minute, *now); err == nil {
-		t.Fatal("Mint with an empty target slot list succeeded")
+	if _, err := registry.Mint("exec-1", []byte("k"), []Target{}, Endpoint{}, time.Minute, *now); err == nil {
+		t.Fatal("Mint with an empty target port list succeeded")
 	}
 }
 
-// TestMultiSlotGrantAndResolve verifies a grant can carry several allocator-
-// resolved target slots and that each opening stream can reference one by ID,
-// with the unnamed default slot resolving to the default target.
-func TestMultiSlotGrantAndResolve(t *testing.T) {
+// TestMultiPortGrantAndResolve verifies a grant can carry several client-owned
+// container ports and that each opening stream can reference one by port, with
+// an unauthorized port rejected.
+func TestMultiPortGrantAndResolve(t *testing.T) {
 	registry, now := testRegistry(t)
-	slots := []Target{
-		{ID: "ssh", Host: "127.0.0.1", Port: 2222},
-		{ID: "http", Host: "127.0.0.1", Port: 8080},
-		{ID: "", Host: "127.0.0.1", Port: 9000}, // unnamed default slot
-	}
-	grant, err := registry.Mint("exec-1", []byte("peer-key"), slots, slots[2], Endpoint{Address: []byte("addr")}, time.Minute, *now)
+	ports := []Target{{Port: 2222}, {Port: 8080}, {Port: 9000}}
+	grant, err := registry.Mint("exec-1", []byte("peer-key"), ports, Endpoint{Address: []byte("addr")}, time.Minute, *now)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -192,21 +188,17 @@ func TestMultiSlotGrantAndResolve(t *testing.T) {
 		t.Fatalf("Accept: %v", err)
 	}
 	if len(session.Targets) != 3 {
-		t.Fatalf("session carries %d slots; want 3", len(session.Targets))
+		t.Fatalf("session carries %d ports; want 3", len(session.Targets))
 	}
-	// Resolve by ID.
-	if slot, ok := session.ResolveTarget("ssh"); !ok || slot.Host != "127.0.0.1" || slot.Port != 2222 {
-		t.Fatalf("resolve ssh = %+v, %v", slot, ok)
+	// Resolve by port.
+	if target, ok := session.ResolveTarget(2222); !ok || target.Port != 2222 {
+		t.Fatalf("resolve 2222 = %+v, %v", target, ok)
 	}
-	if slot, ok := session.ResolveTarget("http"); !ok || slot.Port != 8080 {
-		t.Fatalf("resolve http = %+v, %v", slot, ok)
+	if target, ok := session.ResolveTarget(8080); !ok || target.Port != 8080 {
+		t.Fatalf("resolve 8080 = %+v, %v", target, ok)
 	}
-	// An unknown non-empty slot is not authorized.
-	if slot, ok := session.ResolveTarget("mysql"); ok || slot.Host != "" {
-		t.Fatalf("resolve unknown slot = %+v, %v; want unauthorized", slot, ok)
-	}
-	// The empty slot ID resolves to the default target (the unnamed slot).
-	if slot, ok := session.ResolveTarget(""); !ok || slot.Host != "127.0.0.1" || slot.Port != 9000 {
-		t.Fatalf("resolve default = %+v, %v", slot, ok)
+	// A port that was not pre-authorized is not authorized.
+	if _, ok := session.ResolveTarget(3306); ok {
+		t.Fatalf("resolve unauthorized port 3306 = %v; want rejected", ok)
 	}
 }

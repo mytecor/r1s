@@ -923,14 +923,13 @@ func (*LocalTunnelMessage_Close) isLocalTunnelMessage_Payload() {}
 type LocalTunnelOpen struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	ExecutionId string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
-	// target_slot names the target slot this stream is spliced to. Empty selects
-	// the unnamed default slot (the interactive pipe). The value is only a slot
-	// reference; the allocator resolves it against the client-supplied slot list
-	// carried in the grant — an unknown slot is rejected with
-	// ReasonUnauthorized before any payload moves.
-	TargetSlot string `protobuf:"bytes,2,opt,name=target_slot,json=targetSlot,proto3" json:"target_slot,omitempty"`
-	// targets is the client-owned destination slot list for this tunnel session,
-	// carried through to the tunnel grant request. The client owns these
+	// target_port is the container-side destination port this stream is spliced
+	// to inside the execution. The allocator resolves it against the
+	// client-supplied port list carried in the grant; an unknown port is rejected
+	// with ReasonUnauthorized before any payload moves.
+	TargetPort uint32 `protobuf:"varint,2,opt,name=target_port,json=targetPort,proto3" json:"target_port,omitempty"`
+	// targets is the client-owned destination container port list for this tunnel
+	// session, carried through to the tunnel grant request. The client owns these
 	// destinations and the allocator only proxies/splices to them.
 	Targets       []*TunnelTarget `protobuf:"bytes,3,rep,name=targets,proto3" json:"targets,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -974,11 +973,11 @@ func (x *LocalTunnelOpen) GetExecutionId() string {
 	return ""
 }
 
-func (x *LocalTunnelOpen) GetTargetSlot() string {
+func (x *LocalTunnelOpen) GetTargetPort() uint32 {
 	if x != nil {
-		return x.TargetSlot
+		return x.TargetPort
 	}
-	return ""
+	return 0
 }
 
 func (x *LocalTunnelOpen) GetTargets() []*TunnelTarget {
@@ -1123,8 +1122,8 @@ const file_r1s_v1_local_proto_rawDesc = "" +
 	"\apayload\"\x85\x01\n" +
 	"\x0fLocalTunnelOpen\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x1f\n" +
-	"\vtarget_slot\x18\x02 \x01(\tR\n" +
-	"targetSlot\x12.\n" +
+	"\vtarget_port\x18\x02 \x01(\rR\n" +
+	"targetPort\x12.\n" +
 	"\atargets\x18\x03 \x03(\v2\x14.r1s.v1.TunnelTargetR\atargets\"V\n" +
 	"\x10LocalTunnelClose\x12\x12\n" +
 	"\x04half\x18\x01 \x01(\bR\x04half\x12\x16\n" +

@@ -85,11 +85,12 @@ one. One slot must therefore be defined before F14-02 is testable:
   recorded in [BACKLOG.md](../BACKLOG.md).
 
 > **⚠ Reversed by [F20-01](../f20-client-tunnel-targets/f20-01-client-supplied-target-slots.md):**
-> the target is no longer allocator-resolved at grant time. The `r1s` client now supplies the raw
-> `(host, port)` slot list in the grant request; the allocator validates only its shape, binds the
-> client-supplied slots into the minted grant, and drops `--tunnel-target` /
+> the target is no longer allocator-resolved at grant time. The `r1s` client now supplies the
+> container-port list in the grant request and exposes each port as a Docker-style
+> `--port <host>:<container>` mapping; the allocator validates only its shape, binds the
+> client-supplied ports into the minted grant, and drops `--tunnel-target` /
 > `--tunnel-default-target` (and the per-class map). Authorization stays owner-only on the grant;
-> the trade-off (the client can point a tunnel at any reachable `(host, port)`) is recorded there.
+> the trade-off (the client can point a tunnel at any reachable container port) is recorded there.
 
 ## Notes
 

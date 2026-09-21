@@ -65,7 +65,7 @@ func (s *stubBackend) SubscribeWatch(ctx context.Context, observer func(client.W
 }
 
 // Tunnel is not exercised by the basic client contract tests.
-func (s *stubBackend) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
+func (s *stubBackend) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error) {
 	return nil, "", errors.New("tunnel: not exercised")
 }
 

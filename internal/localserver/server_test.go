@@ -32,7 +32,7 @@ type fakeBackend struct {
 	inspect    func(ctx context.Context, executionID string, wait time.Duration) (*r1sv1.ExecutionState, error)
 	cancel     func(ctx context.Context, executionID, reason string, wait time.Duration) (*r1sv1.ExecutionState, error)
 	logs       func(ctx context.Context, executionID, stream string, offset uint64, maxBytes uint32, wait time.Duration) (*r1sv1.ExecutionLogsResponse, error)
-	tunnelConn func(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error)
+	tunnelConn func(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error)
 }
 
 func (f *fakeBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration, constraints *r1sv1.PlacementConstraints) (string, string, []byte, error) {
@@ -51,11 +51,11 @@ func (f *fakeBackend) Logs(ctx context.Context, executionID, stream string, offs
 	return f.logs(ctx, executionID, stream, offset, maxBytes, wait)
 }
 
-func (f *fakeBackend) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
+func (f *fakeBackend) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error) {
 	if f.tunnelConn == nil {
 		return nil, "", io.ErrClosedPipe
 	}
-	return f.tunnelConn(ctx, executionID, targets, targetSlot)
+	return f.tunnelConn(ctx, executionID, targets, targetPort)
 }
 
 func (f *fakeBackend) Requests(ctx context.Context) []client.RequestSnapshot {

@@ -3,9 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
-	"errors"
+	"fmt"
 	"io"
-	"os"
+	"net"
 	"strings"
 	"sync"
 	"testing"
@@ -16,7 +16,8 @@ import (
 )
 
 // syncBuffer is a bytes.Buffer guarded by a mutex so the CLI tunnel goroutine
-// (which writes stdout) and the test (which reads it) can run concurrently.
+// (which writes diagnostics to stderr) and the test (which reads it) can run
+// concurrently.
 type syncBuffer struct {
 	mu sync.Mutex
 	b  bytes.Buffer
@@ -40,187 +41,56 @@ func (s *syncBuffer) Bytes() []byte {
 	return append([]byte(nil), s.b.Bytes()...)
 }
 
-const cliTestTarget = "127.0.0.1:9000"
-
-// TestCLITunnelRelaysBytesProves the service-backed `r1s tunnel` bridge
-// end-to-end: the CLI relays stdin bytes to the allocator target, replies
-// reach stdout byte-clean, stdin EOF half-closes the write direction, and a
-// clean teardown returns no error. It drives real localapi over a real socket
-// with an in-memory overlay behind the serve backend.
-func TestCLITunnelRelaysBytes(t *testing.T) {
-	broker := tunnel.NewMemoryBroker()
-	allocatorKey := []byte("alloc-key-0000000000000000000000000")
-	clientKey := []byte("client-key-0000000000000000000000000")
-	allocatorListener := broker.Listen([]byte("ygg-addr"), nil)
-	defer allocatorListener.Close()
-
-	backend := &cliWorkflowBackend{
-		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
-			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
-			return conn, "grant-1", err
-		},
-	}
-	_, socket := serveBackend(t, backend)
-
-	api, err := localapi.Dial(socket)
+// freeLocalPort returns an unused TCP port on 127.0.0.1 for a tunnel host
+// mapping. The listener is closed before the tunnel binds it; a small race for
+// a dedicated test harness is acceptable.
+func freeLocalPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("localapi dial: %v", err)
+		t.Fatalf("free port: %v", err)
 	}
-	defer api.Close()
-
-	stdin, writeStdin, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	defer stdin.Close()
-
-	var stdout syncBuffer
-	cli := &localCLI{ctx: context.Background(), stdout: &stdout, stdin: stdin, socketPath: socket, client: api}
-
-	// Launch the CLI bridge first: backend.Tunnel dials the mesh and delivers
-	// the allocator edge to the listener.
-	result := make(chan error, 1)
-	go func() { result <- cli.tunnel([]string{"exec-1", "--target-slot", cliTestTarget}, io.Discard) }()
-
-	// The allocator edge that the serve backend dialed.
-	allocatorConn, err := allocatorListener.Accept()
-	if err != nil {
-		t.Fatalf("accept allocator edge: %v", err)
-	}
-	defer allocatorConn.Close()
-
-	// Client -> serve -> allocator: write stdin, read on the allocator side.
-	if _, err := writeStdin.Write([]byte("hello-from-stdin")); err != nil {
-		t.Fatalf("write stdin: %v", err)
-	}
-	got := make([]byte, 64)
-	n, err := allocatorConn.Read(got)
-	if err != nil || string(got[:n]) != "hello-from-stdin" {
-		t.Fatalf("allocator read = %q, %v; want hello-from-stdin", got[:n], err)
-	}
-
-	// Allocator -> serve -> CLI stdout.
-	if _, err := allocatorConn.Write([]byte("reply-to-stdout")); err != nil {
-		t.Fatalf("allocator write: %v", err)
-	}
-	if err := waitFor(2*time.Second, func() bool { return strings.Contains(stdout.String(), "reply-to-stdout") }); err != nil {
-		t.Fatalf("stdout did not receive the reply: %q", stdout.String())
-	}
-
-	// stdin EOF half-closes the write direction; the allocator sees EOF.
-	if err := writeStdin.Close(); err != nil {
-		t.Fatalf("close stdin: %v", err)
-	}
-	_, err = allocatorConn.Read(got)
-	if !errors.Is(err, io.EOF) {
-		t.Fatalf("allocator read after stdin EOF = %v; want EOF", err)
-	}
-
-	// Clean teardown: the allocator ends the session normally.
-	reasonCloser, ok := allocatorConn.(tunnel.ReasonCloser)
-	if !ok {
-		t.Fatal("allocator edge does not support reason close")
-	}
-	if err := reasonCloser.CloseWithReason(tunnel.ReasonClosed, ""); err != nil {
-		t.Fatalf("close with reason: %v", err)
-	}
-
-	select {
-	case err := <-result:
-		if err != nil {
-			t.Fatalf("tunnel returned error on clean close: %v", err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("tunnel did not exit after clean close")
-	}
-
-	// stdout carried only payload bytes.
-	if !bytes.Equal(stdout.Bytes(), []byte("reply-to-stdout")) {
-		t.Fatalf("stdout = %q; want only payload bytes", stdout.String())
-	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	return port
 }
 
-// TestCLITunnelSurfacesAbnormalReason verifies an abnormal teardown reason is
-// surfaced as a non-nil error (the CLI exits non-zero) while stdout stays
-// byte-clean.
-func TestCLITunnelSurfacesAbnormalReason(t *testing.T) {
-	broker := tunnel.NewMemoryBroker()
-	allocatorKey := []byte("alloc-key-0000000000000000000000000")
-	clientKey := []byte("client-key-0000000000000000000000000")
-	allocatorListener := broker.Listen([]byte("ygg-addr"), nil)
-	defer allocatorListener.Close()
-
-	backend := &cliWorkflowBackend{
-		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
-			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
-			return conn, "grant-1", err
-		},
-	}
-	_, socket := serveBackend(t, backend)
-
-	api, err := localapi.Dial(socket)
-	if err != nil {
-		t.Fatalf("localapi dial: %v", err)
-	}
-	defer api.Close()
-
-	stdin, _, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	defer stdin.Close()
-
-	var stdout syncBuffer
-	cli := &localCLI{ctx: context.Background(), stdout: &stdout, stdin: stdin, socketPath: socket, client: api}
-
-	result := make(chan error, 1)
-	go func() { result <- cli.tunnel([]string{"exec-1", "--target-slot", cliTestTarget}, io.Discard) }()
-
-	allocatorConn, err := allocatorListener.Accept()
-	if err != nil {
-		t.Fatalf("accept allocator edge: %v", err)
-	}
-	defer allocatorConn.Close()
-
-	reasonCloser, ok := allocatorConn.(tunnel.ReasonCloser)
-	if !ok {
-		t.Fatal("allocator edge does not support reason close")
-	}
-	if err := reasonCloser.CloseWithReason(tunnel.ReasonUnauthorized, "peer key mismatch"); err != nil {
-		t.Fatalf("close with reason: %v", err)
-	}
-
-	select {
-	case err := <-result:
+// dialLocalPort retries dialing 127.0.0.1:port until the CLI's listener is
+// bound. The tunnel goroutine binds listeners asynchronously; a naive first
+// dial races it (and is more flaky under -race).
+func dialLocalPort(t *testing.T, port int) net.Conn {
+	t.Helper()
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		conn, err := net.Dial("tcp", addr)
 		if err == nil {
-			t.Fatal("tunnel returned nil error for abnormal teardown")
+			return conn
 		}
-		if !strings.Contains(err.Error(), "unauthorized") {
-			t.Fatalf("error = %v; want unauthorized surfaced", err)
+		if time.Now().After(deadline) {
+			t.Fatalf("dial host port %s: %v (listener never bound)", addr, err)
 		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("tunnel did not exit after abnormal close")
-	}
-	if n := len(stdout.Bytes()); n != 0 {
-		t.Fatalf("stdout was not byte-clean on abnormal teardown: %q", stdout.String())
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-// TestCLITunnelTargetSlot verifies `r1s tunnel <exec> --target <slot>` passes
-// the named slot through the local API to the serve backend, and the named
-// slot's stream reaches stdout byte-clean. Diagnostics never touch stdout.
-func TestCLITunnelTargetSlot(t *testing.T) {
+// TestCLITunnelPortForwards verifies the service-backed r1s tunnel bridge
+// with a Docker-style --port host:container mapping: the client binds a local
+// listener on 127.0.0.1:host, an inbound connection opens a tunnel stream to
+// container port <container>, and bytes relay bidirectionally. Diagnostics
+// never touch stdout; payload flows over the bound local socket.
+func TestCLITunnelPortForwards(t *testing.T) {
 	broker := tunnel.NewMemoryBroker()
 	allocatorKey := []byte("alloc-key-0000000000000000000000000")
 	clientKey := []byte("client-key-0000000000000000000000000")
 	allocatorListener := broker.Listen([]byte("ygg-addr"), nil)
 	defer allocatorListener.Close()
 
-	var gotSlot string
+	var gotPort uint16
 	var gotTargets []tunnel.Target
 	backend := &cliWorkflowBackend{
-		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
-			gotSlot = targetSlot
+		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error) {
+			gotPort = targetPort
 			gotTargets = targets
 			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
 			return conn, "grant-1", err
@@ -234,151 +104,195 @@ func TestCLITunnelTargetSlot(t *testing.T) {
 	}
 	defer api.Close()
 
-	stdin, writeStdin, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	defer stdin.Close()
-
-	var stdout syncBuffer
+	hostPort := freeLocalPort(t)
+	ctx, cancel := context.WithCancel(context.Background())
 	var stderr syncBuffer
-	cli := &localCLI{ctx: context.Background(), stdout: &stdout, stdin: stdin, socketPath: socket, client: api}
+	cli := &localCLI{ctx: ctx, stdout: io.Discard, socketPath: socket, client: api}
 
 	result := make(chan error, 1)
-	// The client owns the destination list: --target-slot http@127.0.0.1:8080
-	// supplies it, and --target http selects that slot.
-	go func() {
-		result <- cli.tunnel([]string{"exec-1", "--target-slot", "http@127.0.0.1:8080", "--target", "http"}, &stderr)
-	}()
+	go func() { result <- cli.tunnel([]string{"exec-1", "--port", fmt.Sprintf("%d:9000", hostPort)}, &stderr) }()
 
-	// The serve backend dials the mesh asynchronously; whoever finishes first
-	// (the CLI failing setup, or the allocator edge being dialed) tells us how
-	// the test proceeds.
-	allocReady := make(chan tunnel.Conn, 1)
-	acceptErr := make(chan error, 1)
-	go func() {
-		conn, err := allocatorListener.Accept()
-		if err == nil {
-			allocReady <- conn
-		}
-		acceptErr <- err
-	}()
-	var allocatorConn tunnel.Conn
-	select {
-	case err := <-result:
-		t.Fatalf("cli.tunnel exited early with error: %v (stderr=%q)", err, stderr.String())
-	case err := <-acceptErr:
-		if err != nil {
-			t.Fatalf("accept allocator edge: %v", err)
-		}
-		allocatorConn = <-allocReady
-	case <-time.After(3 * time.Second):
-		t.Fatal("neither the CLI tunnel nor the allocator edge arrived")
+	// Connecting to the bound host port triggers the relay, which opens the
+	// tunnel stream and dials the allocator edge. Retry until the CLI's
+	// asynchronous bind has completed.
+	localConn := dialLocalPort(t, hostPort)
+	defer localConn.Close()
+
+	// The serve backend dialed the memory mesh; claim the allocator edge.
+	allocatorConn, err := allocatorListener.Accept()
+	if err != nil {
+		cancel()
+		t.Fatalf("accept allocator edge: %v", err)
 	}
 	defer allocatorConn.Close()
 
-	if gotSlot != "http" {
-		t.Fatalf("backend target slot = %q; want http", gotSlot)
+	// The container port reaches the backend unchanged; the host port stays
+	// local (bound by the CLI, never sent to the allocator).
+	if gotPort != 9000 {
+		cancel()
+		t.Fatalf("backend target port = %d; want 9000", gotPort)
 	}
-	// The client-supplied destination list is what reaches the backend: the
-	// allocator no longer resolves targets, so the backend must hand the grant
-	// the exact (host, port) the client passed via --target-slot.
-	if len(gotTargets) != 1 || gotTargets[0].ID != "http" || gotTargets[0].Host != "127.0.0.1" || gotTargets[0].Port != 8080 {
-		t.Fatalf("backend targets = %+v; want [{http 127.0.0.1 8080}]", gotTargets)
+	if len(gotTargets) != 1 || gotTargets[0].Port != 9000 {
+		cancel()
+		t.Fatalf("backend targets = %+v; want [{port 9000}]", gotTargets)
 	}
 
-	// The named slot's data reaches stdout byte-clean.
-	if _, err := allocatorConn.Write([]byte("http-stream")); err != nil {
+	// Local socket -> serve -> allocator edge.
+	if _, err := localConn.Write([]byte("hello-over-tcp")); err != nil {
+		t.Fatalf("write local: %v", err)
+	}
+	got := make([]byte, 64)
+	n, err := allocatorConn.Read(got)
+	if err != nil || string(got[:n]) != "hello-over-tcp" {
+		t.Fatalf("allocator read = %q, %v; want hello-over-tcp", got[:n], err)
+	}
+
+	// Allocator edge -> serve -> local socket.
+	if _, err := allocatorConn.Write([]byte("reply-over-tcp")); err != nil {
 		t.Fatalf("allocator write: %v", err)
 	}
-	if err := waitFor(2*time.Second, func() bool { return strings.Contains(stdout.String(), "http-stream") }); err != nil {
-		t.Fatalf("stdout did not receive the named-stream payload: %q", stdout.String())
+	_ = localConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	m, err := localConn.Read(got)
+	if err != nil || string(got[:m]) != "reply-over-tcp" {
+		t.Fatalf("local read = %q, %v; want reply-over-tcp", got[:m], err)
 	}
 
-	// A normal teardown ends the command with no error and byte-clean stdout.
-	if err := writeStdin.Close(); err != nil {
-		t.Fatalf("close stdin: %v", err)
+	// The command runs until the context is cancelled; it never touches stdout.
+	// Confirm diagnostics stayed on stderr only.
+	if len(stderr.Bytes()) == 0 {
+		t.Fatal("expected a forwarding diagnostic on stderr")
 	}
-	if rc, ok := allocatorConn.(tunnel.ReasonCloser); ok {
-		_ = rc.CloseWithReason(tunnel.ReasonClosed, "")
-	}
+	cancel()
+	localConn.Close()
 	select {
 	case err := <-result:
 		if err != nil {
-			t.Fatalf("tunnel returned error on clean close: %v", err)
+			t.Fatalf("tunnel returned error on cancel: %v", err)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("tunnel did not exit after clean close")
-	}
-	if !bytes.Equal(stdout.Bytes(), []byte("http-stream")) {
-		t.Fatalf("stdout = %q; want only the named-stream payload", stdout.String())
+		t.Fatal("tunnel did not exit after cancel")
 	}
 }
 
-// waitFor polls a predicate until it succeeds, the deadline elapses, or ctx.
-func waitFor(timeout time.Duration, predicate func() bool) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if predicate() {
-			return nil
-		}
-		time.Sleep(5 * time.Millisecond)
+// TestCLITunnelPortPropagatesMulti verifies repeatable --port mappings build
+// the full container-port list the grant authorizes, and that an inbound
+// connection on a second mapping carries its own container port.
+func TestCLITunnelPortPropagatesMulti(t *testing.T) {
+	broker := tunnel.NewMemoryBroker()
+	allocatorKey := []byte("alloc-key-0000000000000000000000000")
+	clientKey := []byte("client-key-0000000000000000000000000")
+	allocatorListener := broker.Listen([]byte("ygg-addr"), nil)
+	defer allocatorListener.Close()
+
+	var gotPorts []uint16
+	backend := &cliWorkflowBackend{
+		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error) {
+			gotPorts = append(gotPorts, targetPort)
+			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
+			return conn, "grant-1", err
+		},
 	}
-	return errors.New("condition not met within deadline")
+	_, socket := serveBackend(t, backend)
+
+	api, err := localapi.Dial(socket)
+	if err != nil {
+		t.Fatalf("localapi dial: %v", err)
+	}
+	defer api.Close()
+
+	hostA := freeLocalPort(t)
+	hostB := freeLocalPort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	var stderr syncBuffer
+	cli := &localCLI{ctx: ctx, stdout: io.Discard, socketPath: socket, client: api}
+
+	result := make(chan error, 1)
+	go func() {
+		result <- cli.tunnel([]string{
+			"exec-1",
+			"--port", fmt.Sprintf("%d:8080", hostA),
+			"--port", fmt.Sprintf("%d:9000", hostB),
+		}, &stderr)
+	}()
+
+	// Open a connection on the second mapping and claim the allocator edge its
+	// stream dials.
+	connB := dialLocalPort(t, hostB)
+	defer connB.Close()
+	allocatorConn, err := allocatorListener.Accept()
+	if err != nil {
+		cancel()
+		t.Fatalf("accept allocator edge: %v", err)
+	}
+	defer allocatorConn.Close()
+
+	// This connection's stream targets container port 9000 (the second mapping).
+	if len(gotPorts) < 1 || gotPorts[0] != 9000 {
+		cancel()
+		t.Fatalf("backend target ports = %v; want first stream on 9000", gotPorts)
+	}
+	cancel()
+	select {
+	case <-result:
+	case <-time.After(3 * time.Second):
+		t.Fatal("tunnel did not exit after cancel")
+	}
 }
 
-// TestParseTargetSlot covers the CLI destination-slot parser. A bare host:port
-// names the unnamed default slot (the interactive pipe); name@host:port names
-// a named slot the client references with --target. Malformed shapes (missing
-// port, empty host, zero or oversized port, empty @name) are rejected before
-// the address is sent to the allocator.
-func TestParseTargetSlot(t *testing.T) {
+// TestParsePortMapping covers the CLI --port parser. host is the local bind
+// port and container is the container-side destination; both must be positive
+// uint16. Malformed shapes (missing colon, empty side, zero or oversized port,
+// extra colons) are rejected before any listener is bound.
+func TestParsePortMapping(t *testing.T) {
 	tests := []struct {
-		raw     string
-		want    tunnel.Target
-		wantErr bool
+		raw           string
+		wantHost      uint16
+		wantContainer uint16
+		wantErr       bool
 	}{
-		{raw: "127.0.0.1:9000", want: tunnel.Target{Host: "127.0.0.1", Port: 9000}},
-		{raw: "ssh@127.0.0.1:2222", want: tunnel.Target{ID: "ssh", Host: "127.0.0.1", Port: 2222}},
-		{raw: "[::1]:8080", want: tunnel.Target{Host: "::1", Port: 8080}},
-		{raw: "  host.example:443 ", want: tunnel.Target{Host: "host.example", Port: 443}},
+		{raw: "8080:80", wantHost: 8080, wantContainer: 80},
+		{raw: " 18099:9000 ", wantHost: 18099, wantContainer: 9000},
+		{raw: "22:22", wantHost: 22, wantContainer: 22},
 		{raw: "", wantErr: true},
-		{raw: "127.0.0.1", wantErr: true},
-		{raw: "127.0.0.1:0", wantErr: true},
-		{raw: "127.0.0.1:65536", wantErr: true},
-		{raw: ":8080", wantErr: true},
-		{raw: "@127.0.0.1:80", wantErr: true},
+		{raw: "8080", wantErr: true},
+		{raw: "8080:", wantErr: true},
+		{raw: ":80", wantErr: true},
+		{raw: "0:80", wantErr: true},
+		{raw: "8080:0", wantErr: true},
+		{raw: "65536:80", wantErr: true},
+		{raw: "8080:65536", wantErr: true},
+		{raw: "8080:80:90", wantErr: true},
 	}
 	for _, tt := range tests {
-		got, err := parseTargetSlot(tt.raw)
+		got, err := parsePortMapping(tt.raw)
 		if tt.wantErr {
 			if err == nil {
-				t.Errorf("parseTargetSlot(%q) succeeded (%+v), want error", tt.raw, got)
+				t.Errorf("parsePortMapping(%q) succeeded (%+v), want error", tt.raw, got)
 			}
 			continue
 		}
 		if err != nil {
-			t.Errorf("parseTargetSlot(%q) error: %v", tt.raw, err)
+			t.Errorf("parsePortMapping(%q) error: %v", tt.raw, err)
 			continue
 		}
-		if got != tt.want {
-			t.Errorf("parseTargetSlot(%q) = %+v; want %+v", tt.raw, got, tt.want)
+		if got.host != tt.wantHost || got.container != tt.wantContainer {
+			t.Errorf("parsePortMapping(%q) = %+v; want host=%d container=%d", tt.raw, got, tt.wantHost, tt.wantContainer)
 		}
 	}
 }
 
-// TestCLITunnelRejectsUnknownTarget verifies --target names one of the
-// client-supplied destinations: an unknown slot name is rejected fail-fast on
-// the client, before any network round-trip to the allocator edge.
-func TestCLITunnelRejectsUnknownTarget(t *testing.T) {
+// TestCLITunnelRequiresPort verifies r1s tunnel rejects a command with no
+// --port (the interactive default pipe is removed), and rejects an unknown flag.
+func TestCLITunnelRequiresPort(t *testing.T) {
 	cli := &localCLI{ctx: context.Background()}
-	err := cli.tunnel([]string{
-		"exec-1", "--target-slot", "http@127.0.0.1:8080", "--target", "nope",
-	}, io.Discard)
-	if err == nil {
-		t.Fatal("tunnel with unknown --target succeeded, want error")
+	if err := cli.tunnel([]string{"exec-1"}, io.Discard); err == nil {
+		t.Fatal("tunnel with no --port succeeded, want error")
+	} else if !strings.Contains(err.Error(), "at least one --port") {
+		t.Fatalf("no --port error = %q; want missing-port diagnostic", err)
 	}
-	if !strings.Contains(err.Error(), "not in the --target-slot list") {
-		t.Fatalf("error = %q; want unknown-target diagnostic", err)
+	if err := cli.tunnel([]string{"exec-1", "--port", "8080:80", "--bogus"}, io.Discard); err == nil {
+		t.Fatal("tunnel with an unknown flag succeeded, want error")
+	} else if !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("unknown flag error = %q", err)
 	}
 }

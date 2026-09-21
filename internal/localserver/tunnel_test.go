@@ -27,7 +27,7 @@ func TestTunnelRelayOverMemory(t *testing.T) {
 
 	backend := &fakeBackend{
 		executions: map[string]*r1sv1.ExecutionState{},
-		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
+		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error) {
 			if executionID != "exec-1" {
 				return nil, "", errors.New("tunnel: unknown execution")
 			}
@@ -44,10 +44,10 @@ func TestTunnelRelayOverMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tunnel: %v", err)
 	}
-	// clientTestSlots is the client-owned destination list these relay tests
-	// carry in the tunnel open message.
-	clientTestSlots := []*r1sv1.TunnelTarget{{Name: "ssh", Host: "127.0.0.1", Port: 2222}, {Host: "127.0.0.1", Port: 9000}}
-	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{ExecutionId: "exec-1", Targets: clientTestSlots}}}); err != nil {
+	// clientTestTargets is the client-owned container port list these relay
+	// tests carry in the tunnel open message, naming the splice port.
+	clientTestTargets := []*r1sv1.TunnelTarget{{Port: 2222}, {Port: 9000}}
+	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{ExecutionId: "exec-1", TargetPort: 2222, Targets: clientTestTargets}}}); err != nil {
 		t.Fatalf("send open: %v", err)
 	}
 
@@ -127,11 +127,11 @@ func TestTunnelRelayOverMemory(t *testing.T) {
 	}
 }
 
-// TestTunnelTargetSlotPropagates verifies the named target slot in the open
-// message reaches the serve backend unchanged, and stays only a slot reference:
-// the serve process never resolves it to a raw endpoint.
-func TestTunnelTargetSlotPropagates(t *testing.T) {
-	var gotSlot string
+// TestTunnelTargetPortPropagates verifies the container port reference in the
+// open message reaches the serve backend unchanged, and stays only a port
+// reference: the serve process never resolves it to a raw endpoint.
+func TestTunnelTargetPortPropagates(t *testing.T) {
+	var gotPort uint16
 	var gotTargets []tunnel.Target
 	broker := tunnel.NewMemoryBroker()
 	allocatorKey := []byte("alloc-key-0000000000000000000000000")
@@ -141,8 +141,8 @@ func TestTunnelTargetSlotPropagates(t *testing.T) {
 
 	backend := &fakeBackend{
 		executions: map[string]*r1sv1.ExecutionState{},
-		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
-			gotSlot = targetSlot
+		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error) {
+			gotPort = targetPort
 			gotTargets = targets
 			conn, err := broker.Dial(ctx, tunnel.Endpoint{Address: []byte("ygg-addr"), PubKey: allocatorKey}, clientKey)
 			return conn, "grant-1", err
@@ -157,19 +157,19 @@ func TestTunnelTargetSlotPropagates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tunnel: %v", err)
 	}
-	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{ExecutionId: "exec-1", TargetSlot: "http", Targets: []*r1sv1.TunnelTarget{{Name: "http", Host: "127.0.0.1", Port: 8080}}}}}); err != nil {
+	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{ExecutionId: "exec-1", TargetPort: 8080, Targets: []*r1sv1.TunnelTarget{{Port: 8080}}}}}); err != nil {
 		t.Fatalf("send open: %v", err)
 	}
 	if _, err := allocatorListener.Accept(); err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
-	if gotSlot != "http" {
-		t.Fatalf("backend target slot = %q; want http", gotSlot)
+	if gotPort != 8080 {
+		t.Fatalf("backend target port = %d; want 8080", gotPort)
 	}
-	// The client-owned destination list reaches the backend unchanged: the
+	// The client-owned container port list reaches the backend unchanged: the
 	// serve process forwards it rather than resolving it.
-	if len(gotTargets) != 1 || gotTargets[0].ID != "http" || gotTargets[0].Host != "127.0.0.1" || gotTargets[0].Port != 8080 {
-		t.Fatalf("backend targets = %+v; want [http@127.0.0.1:8080]", gotTargets)
+	if len(gotTargets) != 1 || gotTargets[0].Port != 8080 {
+		t.Fatalf("backend targets = %+v; want [port 8080]", gotTargets)
 	}
 }
 
@@ -179,7 +179,7 @@ func TestTunnelTargetSlotPropagates(t *testing.T) {
 func TestTunnelSetupFailureSurfacesAsError(t *testing.T) {
 	backend := &fakeBackend{
 		executions: map[string]*r1sv1.ExecutionState{},
-		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
+		tunnelConn: func(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error) {
 			return nil, "", errors.New("tunnel: no grant for execution")
 		},
 	}
@@ -191,7 +191,7 @@ func TestTunnelSetupFailureSurfacesAsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tunnel: %v", err)
 	}
-	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{ExecutionId: "exec-9", Targets: []*r1sv1.TunnelTarget{{Host: "127.0.0.1", Port: 9000}}}}}); err != nil {
+	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{ExecutionId: "exec-9", TargetPort: 9000, Targets: []*r1sv1.TunnelTarget{{Port: 9000}}}}}); err != nil {
 		t.Fatalf("send open: %v", err)
 	}
 	if _, err := stream.Recv(); err == nil {

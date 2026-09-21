@@ -59,11 +59,14 @@ This file records unresolved choices so they do not remain implicit in implement
    connecting by guesswork. Target auto-discovery from the running workload is a later improvement,
    out of scope for now.
 
-   **⚠ Superseded by [F20-01](./f20-client-tunnel-targets/f20-01-client-supplied-target-slots.md):**
-   the slot source of truth moves from allocator config to the `r1s` client. The client supplies
-   the raw `(host, port)` slot list in the tunnel grant; the allocator stops resolving targets
-   from its own configuration (`--tunnel-target` / `--tunnel-default-target` are removed) and
-   becomes a proxy/splice point to grant-carried destinations. Authorization stays owner-only on
+   **⚠ Superseded by [F20-01](./f20-client-tunnel-targets/f20-01-client-supplied-target-slots.md) and
+   then the `--port` model:** the destination source of truth moves from allocator config to the
+   `r1s` client. The client supplies the container-port list in the tunnel grant and exposes each
+   port under a Docker-style `--port <host>:<container>` mapping; the allocator stops resolving
+   targets from its own configuration (`--tunnel-target` / `--tunnel-default-target` are removed)
+   and becomes a proxy/splice point to grant-carried container ports. There are no named slots;
+   `r1s tunnel <id> --port 8080:80` binds a local listener on `127.0.0.1:8080` and relays to
+   container port `80`. Authorization stays owner-only on
    the grant; peer-key pinning and one-live-session-per-execution remain. Resolved by
    [F20-01](./f20-client-tunnel-targets/f20-01-client-supplied-target-slots.md).
 

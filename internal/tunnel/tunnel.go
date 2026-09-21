@@ -22,15 +22,14 @@ import (
 	"io"
 )
 
-// Target names one client-supplied destination a tunnel stream can be spliced
-// to. The client owns the slot list and sends the raw (host, port) in the
-// tunnel grant request; the allocator validates only its shape, binds it into
-// the minted grant unchanged, and proxies/splices each stream to the slot the
-// client named. ID names the slot so the client can reference it with
-// --target; an empty ID means the unnamed default slot.
+// Target names one client-owned container-side destination port a tunnel stream
+// is spliced to. The client owns the port list and sends it in the tunnel grant
+// request; the allocator validates only its shape, binds it into the minted
+// grant unchanged, and proxies/splices each stream to the port the client named
+// (resolved on the allocator loopback, 127.0.0.1:<port>). There are no named
+// slots: each target is just the port to export. The client binds its own local
+// listener and names Port in each stream-open.
 type Target struct {
-	ID   string
-	Host string
 	Port uint16
 }
 
@@ -62,10 +61,10 @@ var (
 	ErrGrantReused     = errors.New("tunnel grant already used")
 	ErrPeerKeyMismatch = errors.New("tunnel peer key does not match the pinned grant")
 	ErrSessionBusy     = errors.New("execution already has a live tunnel session")
-	// ErrUnknownTargetSlot reports that a stream header referenced a target
-	// slot the allocator did not pre-authorize. It is rejected before any
+	// ErrUnknownTargetPort reports that a stream header referenced a container
+	// port the allocator did not pre-authorize. It is rejected before any
 	// payload byte moves.
-	ErrUnknownTargetSlot = errors.New("tunnel target slot was not pre-authorized")
+	ErrUnknownTargetPort = errors.New("tunnel target port was not pre-authorized")
 )
 
 // ErrReadAborted reports that the local read side of a tunnel was aborted: the
@@ -152,15 +151,15 @@ type PreambleWriter interface {
 
 // StreamOpener is implemented by a mesh connection (F19-01) that can carry
 // several logical streams over one authenticated pair. Dial returns a Conn that
-// also implements StreamOpener when the transport multiplexes: the interactive
-// pipe is the default stream, and OpenStream opens additional named streams.
-// targetSlot references a client-supplied target slot ("" is the unnamed
-// default slot); it is never itself a raw (host, port).
+// also implements StreamOpener when the transport multiplexes: each
+// OpenStream names the container port it is spliced to.
 type StreamOpener interface {
 	// OpenStream opens a new logical stream on the same authenticated pair and
 	// returns its byte pipe. It must be called after the routing preamble has
-	// been written.
-	OpenStream(targetSlot string) (Conn, error)
+	// been written. targetPort is the container-side destination port the
+	// allocator splices the stream to; it must be one the client supplied in
+	// the grant.
+	OpenStream(targetPort uint16) (Conn, error)
 }
 
 // Reason is the surfaced session teardown outcome. The CLI maps a non-normal

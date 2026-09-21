@@ -168,15 +168,15 @@ func (p *pairConn) CloseWithReason(reason tunnel.Reason, detail string) error {
 }
 
 // OpenStream implements tunnel.StreamOpener: it opens a new logical stream on
-// this pair for the given target slot and returns its byte pipe. The pair is
+// this pair for the given container port and returns its byte pipe. The pair is
 // registered as a tunnel.Conn that also multiplexes, so the returned value is a
-// separate stream carrying its own slot.
-func (p *pairConn) OpenStream(targetSlot string) (tunnel.Conn, error) {
-	return p.openStream(targetSlot)
+// separate stream carrying its own port.
+func (p *pairConn) OpenStream(targetPort uint16) (tunnel.Conn, error) {
+	return p.openStream(targetPort)
 }
 
 // openStream is the client-side stream opener. See OpenStream's doc.
-func (p *pairConn) openStream(targetSlot string) (tunnel.Conn, error) {
+func (p *pairConn) openStream(targetPort uint16) (tunnel.Conn, error) {
 	p.mu.Lock()
 	if p.closed || !p.clientReady {
 		p.mu.Unlock()
@@ -187,7 +187,7 @@ func (p *pairConn) openStream(targetSlot string) (tunnel.Conn, error) {
 	s := newStream(p, id)
 	p.streams[id] = s
 	p.mu.Unlock()
-	if err := s.sendOpen(targetSlot); err != nil {
+	if err := s.sendOpen(targetPort); err != nil {
 		p.remove(id)
 		return nil, err
 	}
@@ -336,16 +336,6 @@ func (p *pairConn) WritePreamble(preamble tunnel.Preamble) error {
 	p.mu.Lock()
 	p.clientReady = true
 	p.mu.Unlock()
-	// Open the interactive-pipe default stream so Dial's return value is a
-	// usable byte pipe, exactly as F14. target_slot "" references the unnamed
-	// default slot.
-	defaultConn, openErr := p.OpenStream("")
-	if openErr != nil {
-		return openErr
-	}
-	p.mu.Lock()
-	p.defaultStream = defaultConn.(*streamConn)
-	p.mu.Unlock()
 	return nil
 }
 
@@ -385,15 +375,14 @@ func (p *pairConn) writeAccept() error {
 	return p.writeFrame(frameTypeAccept, streamIDNone, nil)
 }
 
-// OpenStream opens a new client-side stream on this pair with a target-slot
+// OpenStream opens a new client-side stream on this pair with a container port
 // reference. It assigns a stream id, sends the stream-open frame, and returns
-// the stream. A target_slot of "" references the unnamed default slot. The peer
-// rejects an unauthorized slot with a close frame that surfaces on the stream's
-// Read before any payload is consumed.
+// the stream. The peer rejects an unauthorized port with a close frame that
+// surfaces on the stream's Read before any payload is consumed.
 // openAllocatorStream handles an inbound stream-open on the allocator side: it
-// resolves the target slot against the authorized session's slot list and either
-// authorizes the stream (surfacing it for the edge to splice) or rejects it with
-// ReasonUnauthorized before any payload is spliced.
+// resolves the container port against the authorized session's port list and
+// either authorizes the stream (surfacing it for the edge to splice) or rejects
+// it with ReasonUnauthorized before any payload is spliced.
 func (p *pairConn) openAllocatorStream(f frame) {
 	p.mu.Lock()
 	if p.closed || p.session == nil {
@@ -408,10 +397,10 @@ func (p *pairConn) openAllocatorStream(f frame) {
 	session := p.session
 	p.mu.Unlock()
 
-	targetSlot := decodeStreamOpen(f.payload)
-	target, ok := session.ResolveTarget(targetSlot)
+	port := decodeStreamOpen(f.payload)
+	target, ok := session.ResolveTarget(port)
 	if !ok {
-		p.writeFrame(frameTypeClose, f.streamID, closePayload(tunnel.ReasonUnauthorized, "target slot was not pre-authorized"))
+		p.writeFrame(frameTypeClose, f.streamID, closePayload(tunnel.ReasonUnauthorized, "target port was not pre-authorized"))
 		p.remove(f.streamID)
 		return
 	}

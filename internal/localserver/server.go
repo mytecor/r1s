@@ -55,15 +55,14 @@ type Backend interface {
 	// is surfaced so the caller (or a preamble-aware Conn) can write the
 	// one-time routing preamble before any payload is relayed.
 	//
-	// targets is the client-owned destination slot list sent in the tunnel
-	// grant; the allocator binds it into the minted grant and only
+	// targets is the client-owned destination container port list sent in the
+	// tunnel grant; the allocator binds it into the minted grant and only
 	// proxies/splices to grant-carried destinations. At least one target is
-	// required. targetSlot selects the slot the stream is spliced to from the
-	// client-supplied list; empty selects the unnamed default slot (the
-	// interactive pipe). It is only a slot reference — the allocator resolves
-	// it against the client-supplied list, never the serve process or the
-	// allocator's own configuration.
-	Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error)
+	// required. targetPort selects the container port the stream is spliced to
+	// from the client-supplied list; it is only a port reference — the
+	// allocator resolves it against the client-supplied list, never the serve
+	// process or the allocator's own configuration.
+	Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error)
 }
 
 // Server serves the LocalClient gRPC service over a Unix socket.

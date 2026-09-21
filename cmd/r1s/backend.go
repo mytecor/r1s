@@ -417,27 +417,97 @@ func (a *application) SubscribeWatch(ctx context.Context, observer func(client.W
 	return a.client.SubscribeWatch(observer)
 }
 
-// Tunnel mints an F14/F19 access grant for the running execution and dials the
-// allocator edge, returning the connected byte pipe the serve process relays to
-// the CLI, plus the minted grant ID. It is the service-backed path for
+// Tunnel targets a live execution's container port and returns a byte pipe that
+// relays the client's tunnel stream to it. It is the service-backed path for
 // `r1s tunnel`: only a serve process holds the F17 keep-alive intent that keeps
 // the execution alive for the session, so a direct-mode client is rejected
 // before this point.
 //
-// targetSlot selects the client-supplied target slot the returned pipe is
-// spliced to; empty is the unnamed default slot (the interactive pipe). After
-// the preamble is accepted, a non-empty targetSlot opens that named slot's
-// stream on the multiplexed pair; empty returns the pair (whose WritePreamble
-// already opened the default stream), exactly as F14. The slot must be one the
-// client supplied via --target-slot; the edge rejects anything else.
+// targetPort is the container-side destination port the returned pipe is
+// spliced to; it must be one the client supplied via --port; the edge rejects
+// anything else. targetPort is required (there is no anonymous interactive pipe
+// anymore).
 //
-// The grant ID is surfaced (not dropped) so a preamble-aware edge can write the
-// one-time routing header; a Conn that implements tunnel.PreambleWriter is
-// handed the preamble here, before any payload byte is relayed. The in-memory
-// fake does not implement it, keeping the test relay byte-clean.
-func (a *application) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetSlot string) (tunnel.Conn, string, error) {
+// The pair is established lazily and cached per execution (see tunnelSession),
+// so several concurrent connections to the same execution share one
+// authenticated mesh session; each returns its own stream. The returned grant ID
+// is surfaced for the caller (the in-memory fake ignores it, keeping the test
+// relay byte-clean).
+func (a *application) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error) {
 	if a.tunnelDialer == nil {
 		return nil, "", errors.New("tunnel: client edge is not configured; start 'r1s serve' with the tunnel edge enabled")
+	}
+	if targetPort == 0 {
+		return nil, "", errors.New("tunnel: a target container port is required")
+	}
+	pair, grantID, err := a.tunnelSession(ctx, executionID, targets)
+	if err != nil {
+		return nil, "", err
+	}
+	so, ok := pair.(tunnel.StreamOpener)
+	if !ok {
+		_ = pair.Close()
+		return nil, "", errors.New("tunnel: the transport cannot open streams")
+	}
+	stream, err := so.OpenStream(targetPort)
+	if err != nil {
+		return nil, "", fmt.Errorf("tunnel: open target port %d: %w", targetPort, err)
+	}
+	return stream, grantID, nil
+}
+
+// tunnelPair is the cached authenticated mesh pair for one execution. It holds
+// the connected pair (also a tunnel.StreamOpener) and the container ports
+// authorized by the grant that established it.
+type tunnelPair struct {
+	executionID string
+	ports       map[uint16]bool
+	conn        tunnel.Conn
+	grantID     string
+}
+
+// targetPortSet computes the set of authorized container ports from a target
+// list.
+func targetPortSet(targets []tunnel.Target) map[uint16]bool {
+	set := make(map[uint16]bool, len(targets))
+	for _, t := range targets {
+		set[t.Port] = true
+	}
+	return set
+}
+
+// portsSuperset reports whether set contains every port in want.
+func portsSuperset(set, want map[uint16]bool) bool {
+	for p := range want {
+		if !set[p] {
+			return false
+		}
+	}
+	return true
+}
+
+// tunnelSession returns the established, preamble-written mesh pair for the
+// execution, reusing the cached pair when it already authorizes the requested
+// container ports and re-establishing it (mint grant, dial edge, write
+// preamble) otherwise. It serializes establishment so concurrent tunnel requests
+// never race to mint two grants for one execution (F19 Model A: one live session
+// per execution, many streams). The returned grant ID is the one that
+// established the pair.
+func (a *application) tunnelSession(ctx context.Context, executionID string, targets []tunnel.Target) (tunnel.Conn, string, error) {
+	a.tunnelSessionsMu.Lock()
+	defer a.tunnelSessionsMu.Unlock()
+	if a.tunnelSessions == nil {
+		a.tunnelSessions = make(map[string]*tunnelPair)
+	}
+	desired := targetPortSet(targets)
+	if tp := a.tunnelSessions[executionID]; tp != nil {
+		// Reuse only when the cached pair already authorizes every requested
+		// port; otherwise close it and re-establish with the current list.
+		if portsSuperset(tp.ports, desired) {
+			return tp.conn, tp.grantID, nil
+		}
+		_ = tp.conn.Close()
+		delete(a.tunnelSessions, executionID)
 	}
 	peerKey, err := yggdrasil.NodePubKey(a.identity, yggdrasil.ClientNodeKeyContext)
 	if err != nil {
@@ -470,22 +540,7 @@ func (a *application) Tunnel(ctx context.Context, executionID string, targets []
 			return nil, "", fmt.Errorf("tunnel: write routing preamble: %w", err)
 		}
 	}
-	// A named target slot opens its own multiplexed stream on the pair and that
-	// stream becomes the returned pipe; empty (the interactive pipe) returns
-	// the pair whose WritePreamble already opened the default stream.
-	if targetSlot != "" {
-		so, ok := conn.(tunnel.StreamOpener)
-		if !ok {
-			_ = conn.Close()
-			return nil, "", fmt.Errorf("tunnel: target slot %q requested but the transport cannot open streams", targetSlot)
-		}
-		stream, err := so.OpenStream(targetSlot)
-		if err != nil {
-			_ = conn.Close()
-			return nil, "", fmt.Errorf("tunnel: open target slot %q: %w", targetSlot, err)
-		}
-		return stream, ack.GetGrantId(), nil
-	}
+	a.tunnelSessions[executionID] = &tunnelPair{executionID: executionID, ports: desired, conn: conn, grantID: ack.GetGrantId()}
 	return conn, ack.GetGrantId(), nil
 }
 

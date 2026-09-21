@@ -33,6 +33,13 @@ r1s tunnel 01HZ...ABC
 #   <--> (Yggdrasil mesh) <--> allocator edge <--> running execution
 ```
 
+> **⚠ Superseded by [F19-01](../f19-tunnel-rework/f19-01-universal-tunnel.md) / F20-01:** the
+> raw interactive pipe is only the F14 shape of the command. Today `r1s tunnel` is a stream
+> multiplexer and the interactive pipe is removed: every tunnel requires at least one
+> `--port <host>:<container>` mapping that binds a local listener and relays inbound connections
+to the container port over the mesh. The service-backed constraint described here (only a
+`serve` process holds the F17 keep-alive intent) still holds.
+
 Why service-backed only: the tunnel is a live session whose execution must stay alive for its
 duration. Only a `serve` process holds the F17 keep-alive intent that renews the execution lease
 [F17](../f17-execution-lease/README.md) while the session runs; a direct-mode invocation would let
@@ -41,11 +48,12 @@ is rejected with a clear `CommandError` telling the user to start `r1s serve`; a
 client-edge bridge for direct mode is BACKLOG work.
 
 The tunnel exposes no protocol-specific flags: no `--ssh`, `--lport`, `--bind`, or anything that
-names a protocol or a destination port inside the workload. The tunnel is a raw transport and must
-not interpret the payload; the same session carries SSH, HTTP, or anything else the owner chooses.
-The execution runs in the host network namespace, so only the allocator-local target resolved at
-grant time (F14-01) names where the edge connects. Local port binding, if the user wants it, is a
-client-side presentation decision and stays outside the protocol and the allocator contract.
+names a protocol or a destination port inside the workload (the F14 shape carried no flags at all;
+F20 adds only the generic Docker-style `--port host:container` mapping). The tunnel is a raw
+transport and must not interpret the payload; the same session carries SSH, HTTP, or anything else
+the owner chooses. The execution runs in the host network namespace, so the container port carried
+in the grant names where the edge connects. Local port binding on `127.0.0.1:<host>` is a
+client-side presentation decision and stays outside the allocator contract.
 
 ## Process topology: the edge lives inside `r1sd`; the bridge lives inside `r1s serve`
 
@@ -156,12 +164,12 @@ half-close) lives in `internal/tunnel/yggdrasil` (see resolved decision 16 in
 
 ## Client session behavior
 
-- Raw bidirectional pipe with half-close per direction so interactive protocols (SSH and similar)
-  behave correctly; for interactive use the CLI sets the local terminal to raw mode for the session
-  and restores it on exit. The CLI stdin/stdout pipe the `LocalTunnel` stream; the serve process
-  relays to the edge and back. Diagnostics and logs always go to stderr — stdout is the data
-  channel and must stay byte-clean. A teardown reason is carried to the CLI with its detail and
-  surfaced on exit; a failure to enter raw mode is reported on stderr rather than silently ignored.
+- The F14 shape was a raw bidirectional pipe with half-close per direction so interactive protocols
+  (SSH and similar) behave correctly. In the F20 `--port` model the bytes flow over a real local TCP
+  listener the CLI binds on `127.0.0.1:<host>`; each inbound connection is relayed over its own
+  tunnel stream, and half-close propagates per direction. stdout carries no tunnel bytes; the
+  serving socket path is discovered through a running `r1s serve`. Diagnostics always go to stderr. A
+  teardown reason is carried to the CLI with its detail and surfaced on exit.
 - No application-level keepalives or framing are injected into the payload stream: liveness is left
   to the Yggdrasil link layer, and the session ends when either side closes or the execution ends.
 - The teardown reason is surfaced on exit (execution ended, grant rejected/expired/revoked, mesh
@@ -198,6 +206,10 @@ Resolved simplification decisions carried into the docs:
   resource-class map plus a mandatory default), bound into the grant, and enforced at accept (see
   [F14-01](./f14-01-access-grant.md)); a missing default fails the mint with a clear `CommandError`.
   Per-execution target metadata is not populated.
+
+  > **⚠ Reversed by [F20-01](../f20-client-tunnel-targets/f20-01-client-supplied-target-slots.md):**
+  > the destination is client-supplied (a container port per `--port` mapping), and the allocator
+  > resolves nothing from its own configuration.
 
 Still open during implementation and covered by [BACKLOG.md](../BACKLOG.md):
 

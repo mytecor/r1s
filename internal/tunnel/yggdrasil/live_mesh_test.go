@@ -72,10 +72,18 @@ func TestLiveMeshRoundTrip(t *testing.T) {
 		t.Fatalf("accept side: %v", err)
 	}
 
-	// The allocator side surfaces the default stream opened by WritePreamble.
+	// The client opens a stream for container port 9000 and the allocator side
+	// surfaces it.
+	streamConn, err := conn.(tunnel.StreamOpener).OpenStream(9000)
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
 	stream, err := allocatorPair.AcceptStream()
 	if err != nil {
 		t.Fatalf("accept stream: %v", err)
+	}
+	if stream.Target.Port != 9000 {
+		t.Fatalf("stream target port = %d; want 9000", stream.Target.Port)
 	}
 
 	// Payload round-trip, larger than one packet: the mesh segments and
@@ -83,11 +91,11 @@ func TestLiveMeshRoundTrip(t *testing.T) {
 	payload := bytes.Repeat([]byte("r1s-live-mesh-payload|"), 400) // ~8.8 KB > packet MTU
 	writeDone := make(chan error, 1)
 	go func() {
-		if _, err := conn.Write(payload); err != nil {
+		if _, err := streamConn.Write(payload); err != nil {
 			writeDone <- err
 			return
 		}
-		writeDone <- conn.CloseWrite()
+		writeDone <- streamConn.CloseWrite()
 	}()
 
 	var got []byte
@@ -154,10 +162,14 @@ func TestLiveMeshTwoStreams(t *testing.T) {
 		t.Fatalf("accept side: %v", err)
 	}
 
-	// The default stream (from WritePreamble) plus a named http stream.
-	httpConn, err := conn.(tunnel.StreamOpener).OpenStream("http")
+	// Two concurrent streams, one per container port.
+	httpConn, err := conn.(tunnel.StreamOpener).OpenStream(8080)
 	if err != nil {
-		t.Fatalf("open http stream: %v", err)
+		t.Fatalf("open 8080 stream: %v", err)
+	}
+	appConn, err := conn.(tunnel.StreamOpener).OpenStream(9000)
+	if err != nil {
+		t.Fatalf("open 9000 stream: %v", err)
 	}
 
 	streams := make([]*IncomingStream, 2)
@@ -177,31 +189,34 @@ func TestLiveMeshTwoStreams(t *testing.T) {
 		t.Fatalf("collect streams: %v", err)
 	}
 
-	var allocHTTP, allocDefault tunnel.Conn
+	var allocHTTP, allocApp tunnel.Conn
 	for _, s := range streams {
-		if s.Target.ID == "http" {
+		switch s.Target.Port {
+		case 8080:
 			allocHTTP = s.Conn
-		} else {
-			allocDefault = s.Conn
+		case 9000:
+			allocApp = s.Conn
+		default:
+			t.Fatalf("unexpected stream target port: %d", s.Target.Port)
 		}
 	}
-	if allocHTTP == nil || allocDefault == nil {
-		t.Fatal("expected one http stream and one default stream")
+	if allocHTTP == nil || allocApp == nil {
+		t.Fatal("expected one 8080 stream and one 9000 stream")
 	}
 
 	payloadA := bytes.Repeat([]byte("live-a-|"), 300)
 	payloadB := bytes.Repeat([]byte("live-b-|"), 350)
 	writeErr := make(chan error, 2)
 	go func() { _, err := httpConn.Write(payloadA); writeErr <- err }()
-	go func() { _, err := conn.Write(payloadB); writeErr <- err }()
+	go func() { _, err := appConn.Write(payloadB); writeErr <- err }()
 
 	gotA := readAllLive(t, allocHTTP, len(payloadA))
-	gotB := readAllLive(t, allocDefault, len(payloadB))
+	gotB := readAllLive(t, allocApp, len(payloadB))
 	if !bytes.Equal(gotA, payloadA) {
 		t.Fatalf("http payload mismatch: got %d bytes", len(gotA))
 	}
 	if !bytes.Equal(gotB, payloadB) {
-		t.Fatalf("default payload mismatch: got %d bytes", len(gotB))
+		t.Fatalf("app payload mismatch: got %d bytes", len(gotB))
 	}
 	for i := 0; i < 2; i++ {
 		if err := <-writeErr; err != nil {
@@ -213,10 +228,9 @@ func TestLiveMeshTwoStreams(t *testing.T) {
 // liveSession builds the allocator-validated session for a live-mesh test.
 func liveSession(clientPubKey []byte) *tunnel.Session {
 	return &tunnel.Session{
-		ExecutionID:   "live-exec",
-		PeerKey:       append([]byte(nil), clientPubKey...),
-		Targets:       []tunnel.Target{{ID: "", Host: "127.0.0.1", Port: 9000}, {ID: "http", Host: "127.0.0.1", Port: 8080}},
-		DefaultTarget: tunnel.Target{Host: "127.0.0.1", Port: 9000},
+		ExecutionID: "live-exec",
+		PeerKey:     append([]byte(nil), clientPubKey...),
+		Targets:     []tunnel.Target{{Port: 9000}, {Port: 8080}},
 	}
 }
 
