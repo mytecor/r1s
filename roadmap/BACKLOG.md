@@ -264,3 +264,8 @@ This file records unresolved choices so they do not remain implicit in implement
   per-session feed and pending-open off the shared pump (per-session read goroutines or a
   non-blocking pending queue) so one slow or abusive peer cannot throttle the allocator's whole
   tunnel edge.
+- **Tunnel stream multiplexing return** — pending the [F21](./f21-tunnel-rns-dataplane/README.md)
+  benchmark: F21 moves tunnel data to a one-connection = one-Link = one-stream model over a private
+  RNS transport. If `Link` establishment over that transport turns out to be too expensive in
+  practice (F21-05 numbers), a stream multiplexer can be re-introduced as a separate optimization;
+  it is deliberately out of scope for F21 itself.
