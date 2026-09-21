@@ -21,7 +21,7 @@ func (a *Allocator) Recover(ctx context.Context) error {
 		a.mu.Lock()
 		hasActive := false
 		for _, record := range a.executions {
-			hasActive = hasActive || !terminal(record.phase)
+			hasActive = hasActive || !protocol.Terminal(record.phase)
 		}
 		a.mu.Unlock()
 		if hasActive {
@@ -33,7 +33,7 @@ func (a *Allocator) Recover(ctx context.Context) error {
 	a.mu.Lock()
 	ids := make([]string, 0, len(a.executions))
 	for id, record := range a.executions {
-		if !terminal(record.phase) {
+		if !protocol.Terminal(record.phase) {
 			ids = append(ids, id)
 		}
 	}
@@ -46,7 +46,7 @@ func (a *Allocator) Recover(ctx context.Context) error {
 		}
 		a.mu.Lock()
 		record := a.executions[id]
-		if record == nil || terminal(record.phase) {
+		if record == nil || protocol.Terminal(record.phase) {
 			a.mu.Unlock()
 			continue
 		}
@@ -57,7 +57,7 @@ func (a *Allocator) Recover(ctx context.Context) error {
 				return errors.Join(ErrRuntimeStop, err)
 			}
 			a.mu.Lock()
-			if current := a.executions[id]; current != nil && !terminal(current.phase) {
+			if current := a.executions[id]; current != nil && !protocol.Terminal(current.phase) {
 				phase := r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED
 				if reason == protocol.LeaseExpiredDetail {
 					// An interrupted lease eviction resumes to its distinct
@@ -81,7 +81,7 @@ func (a *Allocator) Recover(ctx context.Context) error {
 				return errors.Join(ErrRuntimeStop, err)
 			}
 			a.mu.Lock()
-			if current := a.executions[id]; current != nil && !terminal(current.phase) {
+			if current := a.executions[id]; current != nil && !protocol.Terminal(current.phase) {
 				a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED, protocol.LeaseExpiredDetail, nil, a.now().UTC())
 			}
 			err := a.persistLocked(context.Background())
@@ -105,7 +105,7 @@ func (a *Allocator) Recover(ctx context.Context) error {
 				current.revision++
 			}
 		} else if errors.Is(recoverErr, r1sruntime.ErrExecutionMissing) || errors.Is(recoverErr, r1sruntime.ErrExecutionConflict) {
-			if current != nil && !terminal(current.phase) {
+			if current != nil && !protocol.Terminal(current.phase) {
 				a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED, recoverErr.Error(), nil, a.now().UTC())
 			}
 		} else {

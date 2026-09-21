@@ -56,7 +56,7 @@ func (a *Allocator) AcceptTunnel(executionID, grantID string, peerKey []byte) (*
 		a.mu.Unlock()
 		return nil, fmt.Errorf("%w: %q", ErrExecutionNotFound, executionID)
 	}
-	if terminal(record.phase) {
+	if protocol.Terminal(record.phase) {
 		a.mu.Unlock()
 		return nil, fmt.Errorf("%w: execution %q is %s", ErrInvalidTransition, record.id, record.phase)
 	}
@@ -74,7 +74,7 @@ func (a *Allocator) AcceptTunnel(executionID, grantID string, peerKey []byte) (*
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	record = a.executions[executionID]
-	if record == nil || terminal(record.phase) {
+	if record == nil || protocol.Terminal(record.phase) {
 		a.tunnels.CloseSession(executionID)
 		return nil, fmt.Errorf("%w: execution %q is no longer live", ErrInvalidTransition, executionID)
 	}
@@ -108,7 +108,7 @@ func (a *Allocator) handleTunnelGrant(envelope *r1sv1.Envelope, grant *r1sv1.Exe
 		a.mu.Unlock()
 		return nil, ErrUnauthorized
 	}
-	if terminal(record.phase) {
+	if protocol.Terminal(record.phase) {
 		a.mu.Unlock()
 		return nil, fmt.Errorf("%w: execution %q is %s", ErrInvalidTransition, record.id, record.phase)
 	}
@@ -182,7 +182,7 @@ func (a *Allocator) DialTunnelTarget(ctx context.Context, session *tunnel.Sessio
 		return nil, ErrUnauthorized
 	}
 	record := a.executions[session.ExecutionID]
-	if record == nil || terminal(record.phase) || record.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING {
+	if record == nil || protocol.Terminal(record.phase) || record.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING {
 		a.mu.Unlock()
 		return nil, ErrInvalidTransition
 	}

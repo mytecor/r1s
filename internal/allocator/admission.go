@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/mytecor/r1s/internal/protocol"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 )
 
@@ -98,7 +99,7 @@ func (a *Allocator) admitLocked(owner []byte, assigning bool) error {
 		}
 	}
 	for _, execution := range a.executions {
-		if !terminal(execution.phase) && bytes.Equal(execution.client, owner) {
+		if !protocol.Terminal(execution.phase) && bytes.Equal(execution.client, owner) {
 			executions++
 		}
 	}

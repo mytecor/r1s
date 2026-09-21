@@ -135,7 +135,7 @@ func (a *Allocator) handleCancel(ctx context.Context, envelope *r1sv1.Envelope, 
 		a.mu.Unlock()
 		return nil, ErrUnauthorized
 	}
-	if terminal(record.phase) || record.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING {
+	if protocol.Terminal(record.phase) || record.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING {
 		response, err := a.stateEnvelopeLocked(record, envelope.GetMessageId(), now)
 		a.mu.Unlock()
 		if err != nil {
@@ -176,7 +176,7 @@ func (a *Allocator) handleCancel(ctx context.Context, envelope *r1sv1.Envelope, 
 		a.mu.Unlock()
 		return nil, errors.Join(ErrRuntimeStop, stopErr, persistErr)
 	}
-	if !terminal(current.phase) {
+	if !protocol.Terminal(current.phase) {
 		a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED, cancel.GetReason(), nil, a.now().UTC())
 	}
 	response, responseErr := a.stateEnvelopeLocked(current, envelope.GetMessageId(), a.now().UTC())
@@ -210,7 +210,7 @@ func (a *Allocator) RuntimeCompleted(completion r1sruntime.Completion) error {
 			detail = completion.Err.Error()
 		}
 	}
-	if terminal(record.phase) {
+	if protocol.Terminal(record.phase) {
 		if record.phase == phase {
 			return nil
 		}

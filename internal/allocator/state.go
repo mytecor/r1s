@@ -9,6 +9,7 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/protocol"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -137,7 +138,7 @@ func (a *Allocator) loadLocked(ctx context.Context) error {
 		if saved.Phase < r1sv1.ExecutionPhase_EXECUTION_PHASE_STARTING || saved.Phase > r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED {
 			return fmt.Errorf("%w: invalid durable execution phase", ErrStore)
 		}
-		if saved.StartedAt.IsZero() || saved.OccurredAt.IsZero() || terminal(saved.Phase) != saved.Released {
+		if saved.StartedAt.IsZero() || saved.OccurredAt.IsZero() || protocol.Terminal(saved.Phase) != saved.Released {
 			return fmt.Errorf("%w: inconsistent durable execution %q", ErrStore, saved.ID)
 		}
 		a.executions[saved.ID] = &executionRecord{
@@ -146,12 +147,12 @@ func (a *Allocator) loadLocked(ctx context.Context) error {
 			occurredAt: saved.OccurredAt, startedAt: saved.StartedAt, released: saved.Released, revision: max(1, saved.Revision), resources: saved.Resources, retainUntil: saved.RetainUntil,
 			leaseUntil: saved.LeaseUntil,
 		}
-		if terminal(saved.Phase) && saved.RetainUntil.IsZero() {
+		if protocol.Terminal(saved.Phase) && saved.RetainUntil.IsZero() {
 			a.executions[saved.ID].retainUntil = saved.OccurredAt.Add(retention(request.GetPolicy()))
 		}
 		// A pre-lease snapshot grants running executions one fresh lease so an
 		// upgrade never evicts work that was alive before the restart.
-		if !terminal(saved.Phase) && saved.LeaseUntil.IsZero() {
+		if !protocol.Terminal(saved.Phase) && saved.LeaseUntil.IsZero() {
 			a.executions[saved.ID].leaseUntil = a.now().UTC().Add(a.leaseTTL)
 		}
 	}

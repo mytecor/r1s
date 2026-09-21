@@ -138,12 +138,6 @@ func stateFromRecord(record *executionRecord) *r1sv1.ExecutionState {
 	}
 }
 
-func terminal(phase r1sv1.ExecutionPhase) bool {
-	return phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED ||
-		phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED ||
-		phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED
-}
-
 func authorityKey(identity []byte, id string) string {
 	return string(identity) + "\x00" + id
 }

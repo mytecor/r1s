@@ -11,6 +11,7 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
+	"github.com/mytecor/r1s/internal/protocol"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -32,7 +33,7 @@ func phaseName(phase r1sv1.ExecutionPhase) string {
 }
 
 func terminal(phase r1sv1.ExecutionPhase) bool {
-	return phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED || phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED || phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED
+	return protocol.Terminal(phase)
 }
 
 type stringValues []string

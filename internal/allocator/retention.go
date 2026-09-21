@@ -8,6 +8,7 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/protocol"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 )
 
@@ -71,7 +72,7 @@ func (a *Allocator) checkFreshness(e *r1sv1.Envelope) error {
 	if q := e.GetExecutionTunnelGrant(); q != nil {
 		id = q.GetExecutionId()
 	}
-	if record := a.executions[id]; record != nil && bytes.Equal(record.client, e.GetSender()) && terminal(record.phase) && !record.retainUntil.After(now) {
+	if record := a.executions[id]; record != nil && bytes.Equal(record.client, e.GetSender()) && protocol.Terminal(record.phase) && !record.retainUntil.After(now) {
 		return ErrResultExpired
 	}
 	for _, dead := range a.tombstones {
@@ -129,7 +130,7 @@ func (a *Allocator) Sweep(ctx context.Context) error {
 		eligible := offer.status == offerExpired || offer.status == offerReleased
 		if offer.status == offerAssigned {
 			r := a.executions[offer.execution]
-			eligible = r != nil && terminal(r.phase) && !r.retainUntil.After(now)
+			eligible = r != nil && protocol.Terminal(r.phase) && !r.retainUntil.After(now)
 		}
 		if !eligible {
 			continue

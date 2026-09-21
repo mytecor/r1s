@@ -36,7 +36,7 @@ func (o *Client) Maintain(executionID string, leaseDuration time.Duration) (dest
 	if record.leaseLost {
 		return record.destination, nil, true, nil
 	}
-	if record.state != nil && terminal(record.state.GetPhase()) {
+	if record.state != nil && protocol.Terminal(record.state.GetPhase()) {
 		if isLostLeaseState(record.state) {
 			return o.markLeaseLostLocked(record)
 		}
@@ -85,7 +85,7 @@ func (o *Client) DueLeaseRenewals() []string {
 		if record.leaseDuration <= 0 || record.leaseLost {
 			continue
 		}
-		if record.state != nil && terminal(record.state.GetPhase()) {
+		if record.state != nil && protocol.Terminal(record.state.GetPhase()) {
 			continue
 		}
 		if !record.leaseRenewedAt.IsZero() && now.Before(record.leaseRenewedAt.Add(record.leaseDuration/3)) {
@@ -108,7 +108,7 @@ func (o *Client) RecordLeaseIntent(executionID string, leaseDuration time.Durati
 	if record == nil {
 		return ErrExecutionNotFound
 	}
-	if record.leaseLost || (record.state != nil && terminal(record.state.GetPhase())) {
+	if record.leaseLost || (record.state != nil && protocol.Terminal(record.state.GetPhase())) {
 		return ErrConflict
 	}
 	if leaseDuration <= 0 {
@@ -167,7 +167,7 @@ func (o *Client) LeaseDue(executionID string) bool {
 	if record == nil || record.leaseDuration <= 0 || record.leaseLost {
 		return false
 	}
-	if record.state != nil && terminal(record.state.GetPhase()) {
+	if record.state != nil && protocol.Terminal(record.state.GetPhase()) {
 		return false
 	}
 	return record.leaseRenewedAt.IsZero() || !o.now().UTC().Before(record.leaseRenewedAt.Add(record.leaseDuration/3))

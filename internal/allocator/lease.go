@@ -31,7 +31,7 @@ func (a *Allocator) handleLeaseRenew(envelope *r1sv1.Envelope, renew *r1sv1.Exec
 		a.mu.Unlock()
 		return nil, ErrUnauthorized
 	}
-	if terminal(record.phase) {
+	if protocol.Terminal(record.phase) {
 		a.mu.Unlock()
 		return nil, fmt.Errorf("%w: execution %q is %s", ErrInvalidTransition, record.id, record.phase)
 	}
@@ -113,7 +113,7 @@ func (a *Allocator) EvictExpiredLeases(ctx context.Context) error {
 // expired without renewal. Callers must hold a.mu.
 func (a *Allocator) nextExpiredLeaseLocked(now time.Time) (string, r1sv1.ExecutionPhase) {
 	for id, record := range a.executions {
-		if !terminal(record.phase) && record.phase != r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING && !record.leaseUntil.IsZero() && !record.leaseUntil.After(now) {
+		if !protocol.Terminal(record.phase) && record.phase != r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLING && !record.leaseUntil.IsZero() && !record.leaseUntil.After(now) {
 			return id, record.phase
 		}
 	}
@@ -167,7 +167,7 @@ func (a *Allocator) completeEviction(ctx context.Context, id string, previousPha
 		}
 		return errors.Join(ErrRuntimeStop, stopErr, a.persistLocked(context.Background()))
 	}
-	if !terminal(record.phase) {
+	if !protocol.Terminal(record.phase) {
 		a.finishLocked(record, r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED, protocol.LeaseExpiredDetail, nil, now)
 	}
 	return a.persistLocked(context.Background())

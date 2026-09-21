@@ -114,7 +114,7 @@ func (o *Client) handleStateLocked(envelope *r1sv1.Envelope, state *r1sv1.Execut
 				return ErrConflict
 			}
 		}
-		if terminal(record.state.GetPhase()) && !proto.Equal(record.state, state) {
+		if protocol.Terminal(record.state.GetPhase()) && !proto.Equal(record.state, state) {
 			return ErrConflict
 		}
 	}
@@ -124,7 +124,7 @@ func (o *Client) handleStateLocked(envelope *r1sv1.Envelope, state *r1sv1.Execut
 	record.state = proto.Clone(state).(*r1sv1.ExecutionState)
 	// A terminal eviction for lease expiry converts the intent into a
 	// re-request duty; ordinary completions and cancellations do not.
-	if terminal(record.state.GetPhase()) && isLostLeaseState(record.state) {
+	if protocol.Terminal(record.state.GetPhase()) && isLostLeaseState(record.state) {
 		record.leaseLost = true
 		record.leaseRenewMessageID = ""
 	}

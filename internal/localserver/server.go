@@ -15,6 +15,7 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
+	"github.com/mytecor/r1s/internal/protocol"
 	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -181,7 +182,7 @@ func (s *Server) Result(ctx context.Context, in *r1sv1.LocalResultRequest) (*r1s
 	if err != nil {
 		return nil, err
 	}
-	if !terminal(state.GetPhase()) {
+	if !protocol.Terminal(state.GetPhase()) {
 		return nil, fmt.Errorf("result is not terminal: phase=%s", state.GetPhase())
 	}
 	return &r1sv1.LocalStateResponse{State: state}, nil
@@ -263,10 +264,6 @@ func (s *Server) Watch(in *r1sv1.LocalWatchRequest, stream r1sv1.LocalClient_Wat
 		case <-wake:
 		}
 	}
-}
-
-func terminal(phase r1sv1.ExecutionPhase) bool {
-	return phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED || phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED || phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED
 }
 
 func waitDuration(value *durationpb.Duration) time.Duration {

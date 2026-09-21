@@ -54,7 +54,3 @@ func clonePolicy(value *r1sv1.ExecutionPolicy) *r1sv1.ExecutionPolicy {
 	}
 	return proto.Clone(value).(*r1sv1.ExecutionPolicy)
 }
-
-func terminal(phase r1sv1.ExecutionPhase) bool {
-	return phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED || phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED || phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED
-}
