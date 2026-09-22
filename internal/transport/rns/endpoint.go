@@ -49,7 +49,14 @@ type Config struct {
 	// Node is the endpoint's bounded placement advertisement. It is optional;
 	// when present, the announce descriptor carries the coarse os/arch/runtime
 	// summary and every offer embeds the full NodeCapabilities.
-	Node             *r1sv1.NodeCapabilities
+	Node *r1sv1.NodeCapabilities
+	// Tunnel, when non-nil and enabled, advertises the allocator's tunnel
+	// Backbone/TCP listener (Ygg IPv6 host:port) plus the tunnel RNS destination
+	// hash through the announce descriptor (F21-02). It is the minimum needed
+	// for a client to create a private tunnel RNS transport; no Ygg public key
+	// is advertised. Nil (or Port == 0) advertises no tunnel endpoint.
+	Tunnel *TunnelAdvertisement
+
 	AppName          string
 	Aspect           string
 	AnnounceInterval time.Duration
@@ -66,6 +73,16 @@ type Service struct {
 	Identity    string
 	Descriptor  Descriptor
 	Hops        uint8
+}
+
+// TunnelEndpoint returns the allocator's advertised tunnel Backbone/TCP
+// listener (host:port) and tunnel RNS destination hash, or false when the
+// allocator advertised no tunnel edge.
+func (s Service) TunnelEndpoint() (host string, port int, destination string, ok bool) {
+	if s.Descriptor.TunnelPort <= 0 || s.Descriptor.TunnelHost == "" {
+		return "", 0, "", false
+	}
+	return s.Descriptor.TunnelHost, s.Descriptor.TunnelPort, s.Descriptor.TunnelDestination, true
 }
 
 // Endpoint is the public transport facade. Link establishment and Channel
@@ -103,7 +120,7 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	}
 	var descriptorData []byte
 	if len(config.Capacity) > 0 {
-		descriptor, err := newDescriptor(clusterID, config.Capacity, config.Node)
+		descriptor, err := newDescriptor(clusterID, config.Capacity, config.Node, config.Tunnel)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 		}

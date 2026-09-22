@@ -21,7 +21,11 @@ var ErrInvalidDescriptor = errors.New("invalid RNS service descriptor")
 // Descriptor is the small allocator capability record carried in announce app_data.
 // It must stay within maxDescriptorBytes (the announce app-data budget); the
 // full NodeCapabilities rides allocator offers instead, so the descriptor keeps
-// only the coarse placement summary that fits: os, arch, and runtime.
+// only the coarse placement summary that fits: os, arch, and runtime. When the
+// allocator runs a tunnel edge (F21-02), it also advertises the minimum needed
+// to create a private tunnel RNS transport: the Backbone/TCP listener as host
+// (Ygg IPv6) + port, and the tunnel RNS destination hash. No Ygg public key is
+// ever advertised.
 type Descriptor struct {
 	Protocol  string            `json:"protocol"`
 	ClusterID string            `json:"cluster_id"`
@@ -29,9 +33,26 @@ type Descriptor struct {
 	OS        string            `json:"os,omitempty"`
 	Arch      string            `json:"arch,omitempty"`
 	Runtime   string            `json:"runtime,omitempty"`
+	// TunnelHost is the allocator's tunnel Backbone/TCP listener host (its Ygg
+	// IPv6 address), TunnelPort the tunnel listener port, and TunnelDestination
+	// the hex-encoded tunnel RNS destination hash. All three are absent when no
+	// tunnel edge is enabled.
+	TunnelHost        string `json:"tunnel_host,omitempty"`
+	TunnelPort        int    `json:"tunnel_port,omitempty"`
+	TunnelDestination string `json:"tunnel_destination,omitempty"`
 }
 
-func newDescriptor(clusterID []byte, capacity map[string]uint32, node *r1sv1.NodeCapabilities) (Descriptor, error) {
+// TunnelAdvertisement wraps the allocator tunnel edge fields for newDescriptor.
+type TunnelAdvertisement struct {
+	// Host is the allocator's Ygg IPv6 address for the Backbone/TCP listener.
+	Host string
+	// Port is the tunnel Backbone/TCP listener port. Positive when enabled.
+	Port int
+	// DestinationHash is the hex-encoded tunnel RNS destination hash.
+	DestinationHash string
+}
+
+func newDescriptor(clusterID []byte, capacity map[string]uint32, node *r1sv1.NodeCapabilities, tunnel *TunnelAdvertisement) (Descriptor, error) {
 	if len(clusterID) != 32 {
 		return Descriptor{}, fmt.Errorf("%w: cluster ID must be 32 bytes", ErrInvalidDescriptor)
 	}
@@ -52,6 +73,14 @@ func newDescriptor(clusterID []byte, capacity map[string]uint32, node *r1sv1.Nod
 		descriptor.OS = node.GetOs()
 		descriptor.Arch = node.GetArch()
 		descriptor.Runtime = node.GetRuntime()
+	}
+	if tunnel != nil && tunnel.Port > 0 {
+		if strings.TrimSpace(tunnel.Host) == "" {
+			return Descriptor{}, fmt.Errorf("%w: tunnel host is required when a tunnel port is advertised", ErrInvalidDescriptor)
+		}
+		descriptor.TunnelHost = tunnel.Host
+		descriptor.TunnelPort = tunnel.Port
+		descriptor.TunnelDestination = tunnel.DestinationHash
 	}
 	return descriptor, nil
 }
@@ -82,10 +111,11 @@ func parseDescriptor(data []byte) (Descriptor, error) {
 	if err != nil {
 		return Descriptor{}, fmt.Errorf("%w: cluster ID must be hexadecimal", ErrInvalidDescriptor)
 	}
-	result, err := newDescriptor(clusterID, descriptor.Capacity, nil)
+	result, err := newDescriptor(clusterID, descriptor.Capacity, nil, nil)
 	if err != nil {
 		return Descriptor{}, err
 	}
 	result.OS, result.Arch, result.Runtime = descriptor.OS, descriptor.Arch, descriptor.Runtime
+	result.TunnelHost, result.TunnelPort, result.TunnelDestination = descriptor.TunnelHost, descriptor.TunnelPort, descriptor.TunnelDestination
 	return result, nil
 }

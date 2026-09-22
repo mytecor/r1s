@@ -28,6 +28,18 @@ func (o *Client) RegisterAllocator(candidate Allocator) error {
 	if existed && candidate.Node == nil {
 		candidate.Node = previous.Node
 	}
+	// A registration that carries no tunnel advertisement (for example one
+	// learned from an authenticated outbound session, whose descriptor was
+	// never seen) preserves the previous tunnel advertisement rather than
+	// blanking it. A discovery that explicitly advertises no tunnel edge would
+	// arrive with TunnelPort == 0, which is indistinguishable here; the
+	// descriptor is re-discovered on the next announce, so this is only ever
+	// advisory staleness, matching Node's semantics.
+	if existed && candidate.TunnelPort == 0 {
+		candidate.TunnelHost = previous.TunnelHost
+		candidate.TunnelPort = previous.TunnelPort
+		candidate.TunnelDestination = previous.TunnelDestination
+	}
 	o.allocators.put(candidate)
 	if err := o.persistLocked(context.Background()); err != nil {
 		if existed {
@@ -148,5 +160,8 @@ func cloneAllocator(value Allocator) Allocator {
 	if value.Node != nil {
 		result.Node = proto.Clone(value.Node).(*r1sv1.NodeCapabilities)
 	}
+	result.TunnelHost = value.TunnelHost
+	result.TunnelPort = value.TunnelPort
+	result.TunnelDestination = value.TunnelDestination
 	return result
 }

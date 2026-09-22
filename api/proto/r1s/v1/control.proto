@@ -264,3 +264,46 @@ message ExecutionTunnelGrantAck {
   bytes allocator_endpoint_pubkey = 5;
   repeated TunnelTarget targets = 6;
 }
+
+// ============================================================================
+// Tunnel Open protocol (F21-02). The control plane advertises the minimum
+// needed to create a private tunnel RNS transport, and the first application
+// message on an identified tunnel Link is an explicit Open, replacing the
+// minted-grant flow.
+//
+// These messages are the first application bytes on the tunnel LINK (a private
+// RNS data plane), never an Envelope: tunnel data never crosses the control
+// plane. They are defined here so the protocol, allocator edge, and client edge
+// share one wire contract.
+// ============================================================================
+
+// TunnelOpen is the first application message a client sends on an established,
+// identified tunnel Link. It names the execution and the container-side
+// destination port the stream is spliced to. The allocator responds with
+// TunnelOpenResult: OK begins the byte stream, or a classified error.
+message TunnelOpen {
+  string execution_id = 1;
+  // target_port is the container-side destination port the stream is spliced
+  // to inside the execution. Zero is invalid.
+  uint32 target_port = 2;
+}
+
+// TunnelOpenError classifies why an Open was rejected. The value mirrors
+// LocalTunnelClose.Reason and the tunnel package's classified teardown reasons,
+// so the client edge and CLI surface one consistent diagnostic.
+enum TunnelOpenError {
+  TUNNEL_OPEN_ERROR_UNSPECIFIED = 0;
+  TUNNEL_OPEN_ERROR_UNAUTHORIZED = 1;
+  TUNNEL_OPEN_ERROR_NOT_RUNNING = 2;
+  TUNNEL_OPEN_ERROR_INVALID_PORT = 3;
+  TUNNEL_OPEN_ERROR_NO_ENDPOINT = 4;
+  TUNNEL_OPEN_ERROR_MESH_UNREACHABLE = 5;
+}
+
+// TunnelOpenResult is the allocator's reply to TunnelOpen. ok=true begins the
+// byte stream; otherwise error carries a classified rejection.
+message TunnelOpenResult {
+  bool ok = 1;
+  TunnelOpenError error = 2;
+  string detail = 3;
+}

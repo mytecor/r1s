@@ -62,10 +62,17 @@ collect:
 			// Register the route with the coarse announce summary so selection
 			// has the freshest node evidence; offers carry the full metadata.
 			node := summaryNode(service.Descriptor.OS, service.Descriptor.Arch, service.Descriptor.Runtime)
-			if err := a.client.RegisterAllocator(client.Allocator{
+			alloc := client.Allocator{
 				Identity: identity, Destination: service.Destination, Hops: service.Hops,
 				Capacity: service.Descriptor.Capacity, Node: node,
-			}); err != nil {
+			}
+			// F21-02: populate the tunnel endpoint advertisement from the descriptor.
+			if host, port, dest, ok := service.TunnelEndpoint(); ok {
+				alloc.TunnelHost = host
+				alloc.TunnelPort = port
+				alloc.TunnelDestination = dest
+			}
+			if err := a.client.RegisterAllocator(alloc); err != nil {
 				return "", "", nil, err
 			}
 			// Skip sending to a discovery whose summary positively contradicts

@@ -35,6 +35,10 @@ type persistedAllocator struct {
 	Hops        uint8             `json:"hops"`
 	Capacity    map[string]uint32 `json:"capacity,omitempty"`
 	Node        []byte            `json:"node,omitempty"`
+	// Tunnel advertisement (F21-02), advisory like Node/Capacity.
+	TunnelHost        string `json:"tunnel_host,omitempty"`
+	TunnelPort        int    `json:"tunnel_port,omitempty"`
+	TunnelDestination string `json:"tunnel_destination,omitempty"`
 }
 
 type persistedRequest struct {
@@ -102,6 +106,9 @@ func (o *Client) loadLocked(ctx context.Context) error {
 			return fmt.Errorf("%w: invalid durable allocator", ErrStore)
 		}
 		candidate := Allocator{Identity: saved.Identity, Destination: saved.Destination, Hops: saved.Hops, Capacity: saved.Capacity}
+		candidate.TunnelHost = saved.TunnelHost
+		candidate.TunnelPort = saved.TunnelPort
+		candidate.TunnelDestination = saved.TunnelDestination
 		if len(saved.Node) > 0 {
 			candidate.Node = new(r1sv1.NodeCapabilities)
 			if err := proto.Unmarshal(saved.Node, candidate.Node); err != nil {
@@ -171,6 +178,9 @@ func (o *Client) persistLocked(ctx context.Context) error {
 	state := persistedState{Version: stateVersion, Identity: append([]byte(nil), o.identity...), WatchSeq: o.watchSequence}
 	for _, allocator := range o.allocators.all() {
 		saved := persistedAllocator{Identity: append([]byte(nil), allocator.Identity...), Destination: allocator.Destination, Hops: allocator.Hops, Capacity: allocator.Capacity}
+		saved.TunnelHost = allocator.TunnelHost
+		saved.TunnelPort = allocator.TunnelPort
+		saved.TunnelDestination = allocator.TunnelDestination
 		if allocator.Node != nil {
 			nodeData, err := proto.Marshal(allocator.Node)
 			if err != nil {

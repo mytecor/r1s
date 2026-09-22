@@ -136,6 +136,67 @@ func (ExecutionPhase) EnumDescriptor() ([]byte, []int) {
 	return file_r1s_v1_control_proto_rawDescGZIP(), []int{1}
 }
 
+// TunnelOpenError classifies why an Open was rejected. The value mirrors
+// LocalTunnelClose.Reason and the tunnel package's classified teardown reasons,
+// so the client edge and CLI surface one consistent diagnostic.
+type TunnelOpenError int32
+
+const (
+	TunnelOpenError_TUNNEL_OPEN_ERROR_UNSPECIFIED      TunnelOpenError = 0
+	TunnelOpenError_TUNNEL_OPEN_ERROR_UNAUTHORIZED     TunnelOpenError = 1
+	TunnelOpenError_TUNNEL_OPEN_ERROR_NOT_RUNNING      TunnelOpenError = 2
+	TunnelOpenError_TUNNEL_OPEN_ERROR_INVALID_PORT     TunnelOpenError = 3
+	TunnelOpenError_TUNNEL_OPEN_ERROR_NO_ENDPOINT      TunnelOpenError = 4
+	TunnelOpenError_TUNNEL_OPEN_ERROR_MESH_UNREACHABLE TunnelOpenError = 5
+)
+
+// Enum value maps for TunnelOpenError.
+var (
+	TunnelOpenError_name = map[int32]string{
+		0: "TUNNEL_OPEN_ERROR_UNSPECIFIED",
+		1: "TUNNEL_OPEN_ERROR_UNAUTHORIZED",
+		2: "TUNNEL_OPEN_ERROR_NOT_RUNNING",
+		3: "TUNNEL_OPEN_ERROR_INVALID_PORT",
+		4: "TUNNEL_OPEN_ERROR_NO_ENDPOINT",
+		5: "TUNNEL_OPEN_ERROR_MESH_UNREACHABLE",
+	}
+	TunnelOpenError_value = map[string]int32{
+		"TUNNEL_OPEN_ERROR_UNSPECIFIED":      0,
+		"TUNNEL_OPEN_ERROR_UNAUTHORIZED":     1,
+		"TUNNEL_OPEN_ERROR_NOT_RUNNING":      2,
+		"TUNNEL_OPEN_ERROR_INVALID_PORT":     3,
+		"TUNNEL_OPEN_ERROR_NO_ENDPOINT":      4,
+		"TUNNEL_OPEN_ERROR_MESH_UNREACHABLE": 5,
+	}
+)
+
+func (x TunnelOpenError) Enum() *TunnelOpenError {
+	p := new(TunnelOpenError)
+	*p = x
+	return p
+}
+
+func (x TunnelOpenError) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TunnelOpenError) Descriptor() protoreflect.EnumDescriptor {
+	return file_r1s_v1_control_proto_enumTypes[2].Descriptor()
+}
+
+func (TunnelOpenError) Type() protoreflect.EnumType {
+	return &file_r1s_v1_control_proto_enumTypes[2]
+}
+
+func (x TunnelOpenError) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TunnelOpenError.Descriptor instead.
+func (TunnelOpenError) EnumDescriptor() ([]byte, []int) {
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{2}
+}
+
 // Envelope is the authenticated unit exchanged by transports. Transports MUST
 // replace sender with the identity authenticated for the connection.
 type Envelope struct {
@@ -1847,6 +1908,126 @@ func (x *ExecutionTunnelGrantAck) GetTargets() []*TunnelTarget {
 	return nil
 }
 
+// TunnelOpen is the first application message a client sends on an established,
+// identified tunnel Link. It names the execution and the container-side
+// destination port the stream is spliced to. The allocator responds with
+// TunnelOpenResult: OK begins the byte stream, or a classified error.
+type TunnelOpen struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	// target_port is the container-side destination port the stream is spliced
+	// to inside the execution. Zero is invalid.
+	TargetPort    uint32 `protobuf:"varint,2,opt,name=target_port,json=targetPort,proto3" json:"target_port,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TunnelOpen) Reset() {
+	*x = TunnelOpen{}
+	mi := &file_r1s_v1_control_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TunnelOpen) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TunnelOpen) ProtoMessage() {}
+
+func (x *TunnelOpen) ProtoReflect() protoreflect.Message {
+	mi := &file_r1s_v1_control_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TunnelOpen.ProtoReflect.Descriptor instead.
+func (*TunnelOpen) Descriptor() ([]byte, []int) {
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *TunnelOpen) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *TunnelOpen) GetTargetPort() uint32 {
+	if x != nil {
+		return x.TargetPort
+	}
+	return 0
+}
+
+// TunnelOpenResult is the allocator's reply to TunnelOpen. ok=true begins the
+// byte stream; otherwise error carries a classified rejection.
+type TunnelOpenResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Error         TunnelOpenError        `protobuf:"varint,2,opt,name=error,proto3,enum=r1s.v1.TunnelOpenError" json:"error,omitempty"`
+	Detail        string                 `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TunnelOpenResult) Reset() {
+	*x = TunnelOpenResult{}
+	mi := &file_r1s_v1_control_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TunnelOpenResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TunnelOpenResult) ProtoMessage() {}
+
+func (x *TunnelOpenResult) ProtoReflect() protoreflect.Message {
+	mi := &file_r1s_v1_control_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TunnelOpenResult.ProtoReflect.Descriptor instead.
+func (*TunnelOpenResult) Descriptor() ([]byte, []int) {
+	return file_r1s_v1_control_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *TunnelOpenResult) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *TunnelOpenResult) GetError() TunnelOpenError {
+	if x != nil {
+		return x.Error
+	}
+	return TunnelOpenError_TUNNEL_OPEN_ERROR_UNSPECIFIED
+}
+
+func (x *TunnelOpenResult) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
 var File_r1s_v1_control_proto protoreflect.FileDescriptor
 
 const file_r1s_v1_control_proto_rawDesc = "" +
@@ -1991,7 +2172,16 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12-\n" +
 	"\x12allocator_endpoint\x18\x04 \x01(\fR\x11allocatorEndpoint\x12:\n" +
 	"\x19allocator_endpoint_pubkey\x18\x05 \x01(\fR\x17allocatorEndpointPubkey\x12.\n" +
-	"\atargets\x18\x06 \x03(\v2\x14.r1s.v1.TunnelTargetR\atargets*\xa7\x01\n" +
+	"\atargets\x18\x06 \x03(\v2\x14.r1s.v1.TunnelTargetR\atargets\"P\n" +
+	"\n" +
+	"TunnelOpen\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x1f\n" +
+	"\vtarget_port\x18\x02 \x01(\rR\n" +
+	"targetPort\"i\n" +
+	"\x10TunnelOpenResult\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12-\n" +
+	"\x05error\x18\x02 \x01(\x0e2\x17.r1s.v1.TunnelOpenErrorR\x05error\x12\x16\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail*\xa7\x01\n" +
 	"\x13OfferReleaseOutcome\x12%\n" +
 	"!OFFER_RELEASE_OUTCOME_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eOFFER_RELEASE_OUTCOME_RELEASED\x10\x01\x12!\n" +
@@ -2004,7 +2194,14 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"\x1aEXECUTION_PHASE_CANCELLING\x10\x03\x12\x1d\n" +
 	"\x19EXECUTION_PHASE_CANCELLED\x10\x04\x12\x1d\n" +
 	"\x19EXECUTION_PHASE_COMPLETED\x10\x05\x12\x1a\n" +
-	"\x16EXECUTION_PHASE_FAILED\x10\x06B-Z+github.com/mytecor/r1s/api/gen/r1s/v1;r1sv1b\x06proto3"
+	"\x16EXECUTION_PHASE_FAILED\x10\x06*\xea\x01\n" +
+	"\x0fTunnelOpenError\x12!\n" +
+	"\x1dTUNNEL_OPEN_ERROR_UNSPECIFIED\x10\x00\x12\"\n" +
+	"\x1eTUNNEL_OPEN_ERROR_UNAUTHORIZED\x10\x01\x12!\n" +
+	"\x1dTUNNEL_OPEN_ERROR_NOT_RUNNING\x10\x02\x12\"\n" +
+	"\x1eTUNNEL_OPEN_ERROR_INVALID_PORT\x10\x03\x12!\n" +
+	"\x1dTUNNEL_OPEN_ERROR_NO_ENDPOINT\x10\x04\x12&\n" +
+	"\"TUNNEL_OPEN_ERROR_MESH_UNREACHABLE\x10\x05B-Z+github.com/mytecor/r1s/api/gen/r1s/v1;r1sv1b\x06proto3"
 
 var (
 	file_r1s_v1_control_proto_rawDescOnce sync.Once
@@ -2018,77 +2215,81 @@ func file_r1s_v1_control_proto_rawDescGZIP() []byte {
 	return file_r1s_v1_control_proto_rawDescData
 }
 
-var file_r1s_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_r1s_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_r1s_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_r1s_v1_control_proto_goTypes = []any{
 	(OfferReleaseOutcome)(0),         // 0: r1s.v1.OfferReleaseOutcome
 	(ExecutionPhase)(0),              // 1: r1s.v1.ExecutionPhase
-	(*Envelope)(nil),                 // 2: r1s.v1.Envelope
-	(*Workload)(nil),                 // 3: r1s.v1.Workload
-	(*ExecutionPolicy)(nil),          // 4: r1s.v1.ExecutionPolicy
-	(*NodeCapabilities)(nil),         // 5: r1s.v1.NodeCapabilities
-	(*PlacementConstraints)(nil),     // 6: r1s.v1.PlacementConstraints
-	(*ExecutionRequest)(nil),         // 7: r1s.v1.ExecutionRequest
-	(*ExecutionOffer)(nil),           // 8: r1s.v1.ExecutionOffer
-	(*ExecutionAssign)(nil),          // 9: r1s.v1.ExecutionAssign
-	(*ExecutionOfferRelease)(nil),    // 10: r1s.v1.ExecutionOfferRelease
-	(*ExecutionOfferReleaseAck)(nil), // 11: r1s.v1.ExecutionOfferReleaseAck
-	(*ExecutionCancel)(nil),          // 12: r1s.v1.ExecutionCancel
-	(*ExecutionInspect)(nil),         // 13: r1s.v1.ExecutionInspect
-	(*ExecutionState)(nil),           // 14: r1s.v1.ExecutionState
-	(*CommandError)(nil),             // 15: r1s.v1.CommandError
-	(*ExecutionLogsRequest)(nil),     // 16: r1s.v1.ExecutionLogsRequest
-	(*ExecutionLogsResponse)(nil),    // 17: r1s.v1.ExecutionLogsResponse
-	(*ExecutionLeaseRenew)(nil),      // 18: r1s.v1.ExecutionLeaseRenew
-	(*ExecutionLeaseRenewAck)(nil),   // 19: r1s.v1.ExecutionLeaseRenewAck
-	(*TunnelTarget)(nil),             // 20: r1s.v1.TunnelTarget
-	(*ExecutionTunnelGrant)(nil),     // 21: r1s.v1.ExecutionTunnelGrant
-	(*ExecutionTunnelGrantAck)(nil),  // 22: r1s.v1.ExecutionTunnelGrantAck
-	nil,                              // 23: r1s.v1.Workload.EnvironmentEntry
-	nil,                              // 24: r1s.v1.NodeCapabilities.LabelsEntry
-	nil,                              // 25: r1s.v1.PlacementConstraints.LabelsEntry
-	(*timestamppb.Timestamp)(nil),    // 26: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),      // 27: google.protobuf.Duration
+	(TunnelOpenError)(0),             // 2: r1s.v1.TunnelOpenError
+	(*Envelope)(nil),                 // 3: r1s.v1.Envelope
+	(*Workload)(nil),                 // 4: r1s.v1.Workload
+	(*ExecutionPolicy)(nil),          // 5: r1s.v1.ExecutionPolicy
+	(*NodeCapabilities)(nil),         // 6: r1s.v1.NodeCapabilities
+	(*PlacementConstraints)(nil),     // 7: r1s.v1.PlacementConstraints
+	(*ExecutionRequest)(nil),         // 8: r1s.v1.ExecutionRequest
+	(*ExecutionOffer)(nil),           // 9: r1s.v1.ExecutionOffer
+	(*ExecutionAssign)(nil),          // 10: r1s.v1.ExecutionAssign
+	(*ExecutionOfferRelease)(nil),    // 11: r1s.v1.ExecutionOfferRelease
+	(*ExecutionOfferReleaseAck)(nil), // 12: r1s.v1.ExecutionOfferReleaseAck
+	(*ExecutionCancel)(nil),          // 13: r1s.v1.ExecutionCancel
+	(*ExecutionInspect)(nil),         // 14: r1s.v1.ExecutionInspect
+	(*ExecutionState)(nil),           // 15: r1s.v1.ExecutionState
+	(*CommandError)(nil),             // 16: r1s.v1.CommandError
+	(*ExecutionLogsRequest)(nil),     // 17: r1s.v1.ExecutionLogsRequest
+	(*ExecutionLogsResponse)(nil),    // 18: r1s.v1.ExecutionLogsResponse
+	(*ExecutionLeaseRenew)(nil),      // 19: r1s.v1.ExecutionLeaseRenew
+	(*ExecutionLeaseRenewAck)(nil),   // 20: r1s.v1.ExecutionLeaseRenewAck
+	(*TunnelTarget)(nil),             // 21: r1s.v1.TunnelTarget
+	(*ExecutionTunnelGrant)(nil),     // 22: r1s.v1.ExecutionTunnelGrant
+	(*ExecutionTunnelGrantAck)(nil),  // 23: r1s.v1.ExecutionTunnelGrantAck
+	(*TunnelOpen)(nil),               // 24: r1s.v1.TunnelOpen
+	(*TunnelOpenResult)(nil),         // 25: r1s.v1.TunnelOpenResult
+	nil,                              // 26: r1s.v1.Workload.EnvironmentEntry
+	nil,                              // 27: r1s.v1.NodeCapabilities.LabelsEntry
+	nil,                              // 28: r1s.v1.PlacementConstraints.LabelsEntry
+	(*timestamppb.Timestamp)(nil),    // 29: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),      // 30: google.protobuf.Duration
 }
 var file_r1s_v1_control_proto_depIdxs = []int32{
-	26, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
-	7,  // 1: r1s.v1.Envelope.execution_request:type_name -> r1s.v1.ExecutionRequest
-	8,  // 2: r1s.v1.Envelope.execution_offer:type_name -> r1s.v1.ExecutionOffer
-	9,  // 3: r1s.v1.Envelope.execution_assign:type_name -> r1s.v1.ExecutionAssign
-	12, // 4: r1s.v1.Envelope.execution_cancel:type_name -> r1s.v1.ExecutionCancel
-	14, // 5: r1s.v1.Envelope.execution_state:type_name -> r1s.v1.ExecutionState
-	13, // 6: r1s.v1.Envelope.execution_inspect:type_name -> r1s.v1.ExecutionInspect
-	10, // 7: r1s.v1.Envelope.execution_offer_release:type_name -> r1s.v1.ExecutionOfferRelease
-	11, // 8: r1s.v1.Envelope.execution_offer_release_ack:type_name -> r1s.v1.ExecutionOfferReleaseAck
-	15, // 9: r1s.v1.Envelope.command_error:type_name -> r1s.v1.CommandError
-	16, // 10: r1s.v1.Envelope.execution_logs_request:type_name -> r1s.v1.ExecutionLogsRequest
-	17, // 11: r1s.v1.Envelope.execution_logs_response:type_name -> r1s.v1.ExecutionLogsResponse
-	18, // 12: r1s.v1.Envelope.execution_lease_renew:type_name -> r1s.v1.ExecutionLeaseRenew
-	19, // 13: r1s.v1.Envelope.execution_lease_renew_ack:type_name -> r1s.v1.ExecutionLeaseRenewAck
-	21, // 14: r1s.v1.Envelope.execution_tunnel_grant:type_name -> r1s.v1.ExecutionTunnelGrant
-	22, // 15: r1s.v1.Envelope.execution_tunnel_grant_ack:type_name -> r1s.v1.ExecutionTunnelGrantAck
-	23, // 16: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
-	27, // 17: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
-	24, // 18: r1s.v1.NodeCapabilities.labels:type_name -> r1s.v1.NodeCapabilities.LabelsEntry
-	25, // 19: r1s.v1.PlacementConstraints.labels:type_name -> r1s.v1.PlacementConstraints.LabelsEntry
-	3,  // 20: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
-	4,  // 21: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
-	6,  // 22: r1s.v1.ExecutionRequest.constraints:type_name -> r1s.v1.PlacementConstraints
-	26, // 23: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
-	5,  // 24: r1s.v1.ExecutionOffer.node:type_name -> r1s.v1.NodeCapabilities
+	29, // 0: r1s.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
+	8,  // 1: r1s.v1.Envelope.execution_request:type_name -> r1s.v1.ExecutionRequest
+	9,  // 2: r1s.v1.Envelope.execution_offer:type_name -> r1s.v1.ExecutionOffer
+	10, // 3: r1s.v1.Envelope.execution_assign:type_name -> r1s.v1.ExecutionAssign
+	13, // 4: r1s.v1.Envelope.execution_cancel:type_name -> r1s.v1.ExecutionCancel
+	15, // 5: r1s.v1.Envelope.execution_state:type_name -> r1s.v1.ExecutionState
+	14, // 6: r1s.v1.Envelope.execution_inspect:type_name -> r1s.v1.ExecutionInspect
+	11, // 7: r1s.v1.Envelope.execution_offer_release:type_name -> r1s.v1.ExecutionOfferRelease
+	12, // 8: r1s.v1.Envelope.execution_offer_release_ack:type_name -> r1s.v1.ExecutionOfferReleaseAck
+	16, // 9: r1s.v1.Envelope.command_error:type_name -> r1s.v1.CommandError
+	17, // 10: r1s.v1.Envelope.execution_logs_request:type_name -> r1s.v1.ExecutionLogsRequest
+	18, // 11: r1s.v1.Envelope.execution_logs_response:type_name -> r1s.v1.ExecutionLogsResponse
+	19, // 12: r1s.v1.Envelope.execution_lease_renew:type_name -> r1s.v1.ExecutionLeaseRenew
+	20, // 13: r1s.v1.Envelope.execution_lease_renew_ack:type_name -> r1s.v1.ExecutionLeaseRenewAck
+	22, // 14: r1s.v1.Envelope.execution_tunnel_grant:type_name -> r1s.v1.ExecutionTunnelGrant
+	23, // 15: r1s.v1.Envelope.execution_tunnel_grant_ack:type_name -> r1s.v1.ExecutionTunnelGrantAck
+	26, // 16: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
+	30, // 17: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
+	27, // 18: r1s.v1.NodeCapabilities.labels:type_name -> r1s.v1.NodeCapabilities.LabelsEntry
+	28, // 19: r1s.v1.PlacementConstraints.labels:type_name -> r1s.v1.PlacementConstraints.LabelsEntry
+	4,  // 20: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
+	5,  // 21: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
+	7,  // 22: r1s.v1.ExecutionRequest.constraints:type_name -> r1s.v1.PlacementConstraints
+	29, // 23: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
+	6,  // 24: r1s.v1.ExecutionOffer.node:type_name -> r1s.v1.NodeCapabilities
 	0,  // 25: r1s.v1.ExecutionOfferReleaseAck.outcome:type_name -> r1s.v1.OfferReleaseOutcome
 	1,  // 26: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
-	26, // 27: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
-	27, // 28: r1s.v1.ExecutionLeaseRenew.lease_duration:type_name -> google.protobuf.Duration
-	26, // 29: r1s.v1.ExecutionLeaseRenewAck.expires_at:type_name -> google.protobuf.Timestamp
-	20, // 30: r1s.v1.ExecutionTunnelGrant.targets:type_name -> r1s.v1.TunnelTarget
-	26, // 31: r1s.v1.ExecutionTunnelGrantAck.expires_at:type_name -> google.protobuf.Timestamp
-	20, // 32: r1s.v1.ExecutionTunnelGrantAck.targets:type_name -> r1s.v1.TunnelTarget
-	33, // [33:33] is the sub-list for method output_type
-	33, // [33:33] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	29, // 27: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
+	30, // 28: r1s.v1.ExecutionLeaseRenew.lease_duration:type_name -> google.protobuf.Duration
+	29, // 29: r1s.v1.ExecutionLeaseRenewAck.expires_at:type_name -> google.protobuf.Timestamp
+	21, // 30: r1s.v1.ExecutionTunnelGrant.targets:type_name -> r1s.v1.TunnelTarget
+	29, // 31: r1s.v1.ExecutionTunnelGrantAck.expires_at:type_name -> google.protobuf.Timestamp
+	21, // 32: r1s.v1.ExecutionTunnelGrantAck.targets:type_name -> r1s.v1.TunnelTarget
+	2,  // 33: r1s.v1.TunnelOpenResult.error:type_name -> r1s.v1.TunnelOpenError
+	34, // [34:34] is the sub-list for method output_type
+	34, // [34:34] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_r1s_v1_control_proto_init() }
@@ -2119,8 +2320,8 @@ func file_r1s_v1_control_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_r1s_v1_control_proto_rawDesc), len(file_r1s_v1_control_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   24,
+			NumEnums:      3,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

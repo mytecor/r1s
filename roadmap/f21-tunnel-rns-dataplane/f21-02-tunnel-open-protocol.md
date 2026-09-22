@@ -1,6 +1,36 @@
 # F21-02 — Control-plane advertisement and tunnel Open protocol
 
-**Status:** ⏳ Planned
+**Status:** 🔄 In progress — F21-02 was split into a **wire/advertisement slice** (done, this
+commit) and a **removal slice** (deferred to the F21-05-before-F21-06 removal, which is the
+decision point for deleting the legacy grant path). The focused slice adds the new protocol types
+and the control-plane advertisement without deleting the still-benchmarkable grant machinery, so
+`make check` stays green throughout.
+
+## Progress (this commit)
+
+- **Proto**: added `TunnelOpen { execution_id, target_port }`, `TunnelOpenResult { ok, error,
+  detail }`, and `TunnelOpenError` (unauthorized/not_running/invalid_port/no_endpoint/
+  mesh_unreachable) to `control.proto` as data-plane messages — they are the first application
+  bytes on an identified tunnel Link, **not** `Envelope` payloads, so tunnel data never crosses the
+  control plane ([AGENTS.md](../../AGENTS.md) invariant). `control.pb.go` regenerated.
+- **protocol**: `ValidateTunnelOpen` / `ValidateTunnelOpenResult` / `ClassifyTunnelOpenResult` in
+  `internal/protocol/tunnel_open.go` with tests; the result enum mirrors `LocalTunnelClose.Reason`.
+- **Advertisement**: the control-plane `Descriptor` (announce app_data) now carries the optional
+  `tunnel_host` (Ygg IPv6) + `tunnel_port` + `tunnel_destination` (tunnel RNS destination hash),
+  fed by a new `TunnelAdvertisement` config on `rns.Config`; a tunnel port without a host is
+  rejected. Exposed to clients as `Service.TunnelEndpoint()`.
+- **Client**: `client.Allocator` learns and durably persists the tunnel advertisement
+  (`TunnelHost`/`TunnelPort`/`TunnelDestination`); `workflow.go` discovery populates it from
+  `Service.TunnelEndpoint()`; `RegisterAllocator` preserves a prior advertisement when a
+  session-learned registration carries none.
+
+## Remaining (deferred)
+
+- Delete `ExecutionTunnelGrant`/`ExecutionTunnelGrantAck`, `ygg_peer_pubkey`, grant ID/TTL,
+  `Preamble`, and `Registry.Mint`/`Accept`; rework `LocalTunnelOpen` and the allocator/client edge
+  to the Open flow; switch `r1sd`/`r1s serve` edges to the F21-01 rns transport and populate the
+  descriptor advertisement from the running `rns.Listener` endpoint. This is gated on the F21-05
+  old-vs-new benchmark so the legacy transport stays available to measure.
 
 ## Outcome
 
