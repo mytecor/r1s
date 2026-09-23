@@ -1,11 +1,22 @@
 # F21-05 — Benchmark and live acceptance
 
-**Status:** 🔄 In progress — the old-vs-new benchmark harness (both connectors, the shared
+**Status:** ✅ Blocked found and fixed — the sustained >10s single-stream blocker is closed and
+the matching regression gate passes (see the Notes). What remains for F21-06 is recording the full
+benchmark rows (the go/no-go before F21-06 is back to go in principle, pending those rows being
+recorded on the same methodology). The old-vs-new benchmark harness (both connectors, the shared
 workload suite, host record, and the two-stack connect/concurrent/smoke legs) is in
-[`internal/tunnel/benchmark`](../../internal/tunnel/benchmark). The first recorded run surfaced a
-**blocker**: the new RNS data plane cannot sustain a single-stream transfer that outlives ~10s
-(see note below), so the go/no-go before F21-06 is currently **no-go** until it is fixed and the
-full rows can be recorded.
+[`internal/tunnel/benchmark`](../../internal/tunnel/benchmark).
+
+## Status history
+
+- **2026-09-23 (reported):** a sustained 10 MiB single-stream transfer over the private tunnel RNS
+data plane died with `link not ready` at ~10.0s (client Link → STALE). Go/no-go before F21-06 was
+**no-go**.
+- **2026-09-23 (fixed):** the compat adapter's per-edge liveness beacon (see note below, BACKLOG
+decisions 10/20) keeps both Links out of the v1.2.0 staleness watchdog window; the 10 MiB transfer
+now completes byte-for-byte. The gated test
+`R1S_TEST_SUSTAINED_TUNNEL=1 go test ./internal/tunnel/rns/ -run TestSustainedTransferOutlivesStaleTime -count=1`
+passes.
 
 ## Outcome
 
@@ -58,6 +69,12 @@ finally removed in F21-06.
   regression test (`R1S_TEST_SUSTAINED_TUNNEL=1`) in
   [`internal/tunnel/rns`](../../internal/tunnel/rns). No benchmark rows can be recorded at the
   acceptance sizes until the transfer survives >10s — this is the F21-06 go/no-go gate.
+  **Resolved 2026-09-23** (Status above): the compat adapter's per-edge liveness beacon closes it;
+  the same gate now passes (~16s unraced). Run the gate without `-race`: `go test -race` makes
+  Reticulum-Go's bzip2 `compressData` on a 10 MiB random payload ~15× slower (measured ~97s
+  standalone) and the per-packet timeout-goroutine churn adds enough scheduler starvation that a
+  full `-race` run of this one test stalls for many minutes; that is upstream performance, not the
+  beacon (the same stall reproduces with the beacon disabled).
 
 - If Link establishment turns out to be too expensive, returning multiplexing is a future, separate
   optimization — recorded in [BACKLOG.md](../BACKLOG.md); it is not a blocker for this feature.

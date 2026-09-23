@@ -88,6 +88,26 @@ This file records unresolved choices so they do not remain implicit in implement
     fresh from its own outbound/delivery receipts — ideally by adding a per-conn keepalive
     workaround in `reticulum_compat.go` that forces the signal the watchdog needs.
 
+    **Resolved (2026-09-23):** the private-tunnel compat adapter now keeps every established Link
+    out of the staleness timeout. Each edge runs a liveness beacon (`newReticulumCompatStream` +
+    `reticulumCompatStream.keepaliveLoop`) that sends a tiny user-range Channel frame
+    (`compatKeepaliveType` = 0x4000, separate from the stream's system type) to the peer every
+    `tunnelKeepaliveInterval` (3s, comfortably below the 10s floor). The peer's `Link.HandleInbound`
+    receives it as ordinary inbound data and refreshes `lastInboundNs` — precisely the signal the
+    watchdog needs — so a one-way writer is kept alive by the idle peer's beats even when its own
+    TX window is saturated. Non-blocking (gated on `IsReadyToSend`, never `WaitReady`), does not
+    disturb stream byte order (Channel sequence space is shared; the stream reader declines the
+    keepalive type), and stops when the Link leaves Active. `TestSustainedTransferOutlivesStaleTime`
+    (still env-gated) now passes: a 10 MiB single-stream transfer completes byte-for-byte (~16s at
+    the measured ~0.6 MiB/s rate; under `-race` the same stack runs ~12× slower, so the gate is
+    run without `-race`), and the test additionally samples the writer Link status throughout and
+    asserts it never leaves ACTIVE. The recorded **root cause** is refined from the original note:
+    the writer's Channel ACK/proof traffic is validated by `Transport.handleProofPacket` and never
+    reaches `Link.HandleInbound`, so `lastInboundNs` sits frozen at establishment while
+    `lastOutbound` advances; an upstream fix should refresh `lastInbound` (or treat a validated peer
+    proof for outbound data as activity) — see decision 20 and
+    [F21-05](./f21-tunnel-rns-dataplane/f21-05-benchmark-live-acceptance.md).
+
 ## Resolved
 
 1. **Allocator persistence** — bbolt provides a local, transactional, pure-Go single-file store for
@@ -281,6 +301,22 @@ This file records unresolved choices so they do not remain implicit in implement
     `never renumber or reuse` / `reserve removed numbers` rule in
     [CONTRIBUTING.md](../CONTRIBUTING.md), justified by the tunnel having no supported in-flight
     users. The general invariant for stable-schema messages outside the tunnel stands.
+
+20. **Keepalive/staleness workaround for the F21-05 sustained-transfer blocker (2026-09-23)** —
+    the tunnel Link data plane prevents the Reticulum-Go v1.2.0 keepalive/staleness watchdog from
+    STALEing an edge Link during a long one-way transfer by delivering a periodic, peer-visible
+    inbound Channel frame from every edge (open decision 10). Chosen over the alternatives: r1s
+    does not vendor or fork Reticulum-Go (decision 11), and the upstream-looking fix (raise
+    `KeepaliveMinSec` or scale `staleTime` on low-RTT links, or refresh `lastInbound` when a peer
+    proof for outbound data is validated) must land in a canonical Reticulum-Go release before it
+    is used here. The workaround is an unmodifiable-with-behaviour delta, isolated behind
+    `tunnelReticulumCompat` and removable when upstream issue
+    [#17](https://github.com/Quad4-Software/Reticulum-Go/issues/17) ships the fix; removal is the
+    beacon block in `newReticulumCompatStream` plus `TestSustainedKeepaliveBeaconInstalled` /
+    `TestSustainedKeepaliveDoesNotCorruptStream` and the now-passing
+    `TestSustainedTransferOutlivesStaleTime`. No wire format, Channel message, or application
+    framing is changed; the beacon uses a dedicated user-range Channel message type distinct from
+    the stream's.
 
 ## Deferred
 
