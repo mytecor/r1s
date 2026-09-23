@@ -2,7 +2,9 @@ package benchmark
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -164,5 +166,61 @@ func TestHostRecord(t *testing.T) {
 	}
 	if len(connectorFactories) != 2 {
 		t.Fatalf("expected Ygg and RNS connectors, got %d", len(connectorFactories))
+	}
+}
+
+// TestRecordedBenchmark is the F21-05 acceptance gate that records the full
+// benchmark rows for both transports. It is env-gated (R1S_TEST_F21_BENCHMARK=recorded)
+// so it is excluded from `make check` and never runs under `go test -race`:
+// benchmark rows must describe the production binary rather than race-detector
+// instrumentation, and the Channel packet volume makes the raced run unsuitable
+// as a performance record.
+//
+// Usage:
+//
+//	R1S_TEST_F21_BENCHMARK=recorded go test ./internal/tunnel/benchmark/ \
+//	  -run TestRecordedBenchmark -count=1 > f21-05-bench.txt 2>&1
+//
+// The rows are then reviewed and copied into
+// roadmap/f21-tunnel-rns-dataplane/f21-05-benchmark-live-acceptance.md.
+func TestRecordedBenchmark(t *testing.T) {
+	if os.Getenv("R1S_TEST_F21_BENCHMARK") != "recorded" {
+		t.Skip("set R1S_TEST_F21_BENCHMARK=recorded to record benchmark rows")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	for _, factory := range connectorFactories {
+		t.Run(factory.name, func(t *testing.T) {
+			connector, err := factory.new()
+			if err != nil {
+				t.Fatalf("new %s connector: %v", factory.name, err)
+			}
+			defer connector.Close()
+
+			// Write to a temp file so the output survives stdout truncation, and
+			// concurrently to os.Stdout so `go test ... > file` captures it.
+			f, err := os.CreateTemp("", "r1s-f21-bench-*.txt")
+			if err != nil {
+				t.Fatalf("create temp: %v", err)
+			}
+			fName := f.Name()
+			defer os.Remove(fName)
+			defer f.Close()
+
+			w := io.MultiWriter(f, os.Stdout)
+			if err := Run(ctx, w, connector, DefaultSuite()); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			// Also emit the content through t.Log so it appears in the go test stream.
+			if content, err := os.ReadFile(fName); err == nil {
+				for _, line := range strings.Split(string(content), "\n") {
+					t.Log(line)
+				}
+			}
+
+			fmt.Fprintf(os.Stderr, "\n=== %s recorded to %s ===\n", factory.name, fName)
+		})
 	}
 }

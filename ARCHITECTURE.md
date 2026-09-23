@@ -255,11 +255,22 @@ rule stays if a future mechanism ever carries a requested log range outside the 
 
 ## Transport boundary
 
-The RNS implementation will use announces only for small discovery descriptors. Protobuf control
-messages will travel over authenticated Links, preferably with Channel semantics for ordered,
-reliable delivery. RNS is not the bulk-transfer path: it carries control envelopes and discovery
-descriptors only, never application bytes. Application data transfer outside the workload command
-remains out of scope until separately designed.
+The RNS implementation uses announces only for small discovery descriptors. Protobuf control
+messages travel over authenticated Links with Channel semantics for ordered, reliable delivery.
+RNS is not the bulk-transfer path: it carries control envelopes and discovery descriptors, never
+application bytes.
+
+Execution-tunnel application bytes use the dedicated embedded Yggdrasil adapter from F19/F20. RNS
+authorizes and transports the bounded tunnel-grant exchange; the resulting peer-key-pinned Ygg mesh
+pair carries the multiplexed TCP streams. F21 evaluated replacing this data plane with a separate
+private RNS `Link`/`Channel`/`Buffer` stack over system Ygg, but the recorded F21-05 benchmark was a
+no-go: the optimized compatible path remained 26.7–39.9× slower in representative rows because of
+the small RNS stream payload, bounded Channel window, per-packet signed proofs, IFAC processing,
+and small Backbone writes. The experimental path is rolled back in F21-06; application bytes do not
+move onto the RNS control plane.
+
+Application data transfer outside the execution tunnel remains out of scope until separately
+designed.
 
 An in-memory transport will implement the same interface for deterministic tests; it will not be a
 simulation of routing, cryptography, or link behavior.

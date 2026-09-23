@@ -83,7 +83,7 @@ This file records unresolved choices so they do not remain implicit in implement
     the defect is time-based, not size-based. Gated by
     `TestSustainedTransferOutlivesStaleTime` in [`internal/tunnel/rns`](../internal/tunnel/rns)
     (`R1S_TEST_SUSTAINED_TUNNEL=1`), which reproduces at ~10s. Fix directions to evaluate before
-    F21-06 (no-go until then): upstream the keepalive/stale floor in Reticulum-Go (raise
+    F21-06 (the gate was no-go until then): upstream the keepalive/stale floor in Reticulum-Go (raise
     `KeepaliveMinSec` or scale `staleTime` on low-RTT links), or keep the sender's `lastInbound`
     fresh from its own outbound/delivery receipts — ideally by adding a per-conn keepalive
     workaround in `reticulum_compat.go` that forces the signal the watchdog needs.
@@ -98,10 +98,10 @@ This file records unresolved choices so they do not remain implicit in implement
     TX window is saturated. Non-blocking (gated on `IsReadyToSend`, never `WaitReady`), does not
     disturb stream byte order (Channel sequence space is shared; the stream reader declines the
     keepalive type), and stops when the Link leaves Active. `TestSustainedTransferOutlivesStaleTime`
-    (still env-gated) now passes: a 10 MiB single-stream transfer completes byte-for-byte (~16s at
-    the measured ~0.6 MiB/s rate; under `-race` the same stack runs ~12× slower, so the gate is
-    run without `-race`), and the test additionally samples the writer Link status throughout and
-    asserts it never leaves ACTIVE. The recorded **root cause** is refined from the original note:
+    (still env-gated) now passes: after the compatible compression/readiness workarounds make 10
+    MiB finish before the stale window, the gate uses 64 MiB and completes byte-for-byte in ~12.7s.
+    The test additionally samples the writer Link status throughout and asserts it never leaves
+    ACTIVE. The recorded **root cause** is refined from the original note:
     the writer's Channel ACK/proof traffic is validated by `Transport.handleProofPacket` and never
     reaches `Link.HandleInbound`, so `lastInboundNs` sits frozen at establishment while
     `lastOutbound` advances; an upstream fix should refresh `lastInbound` (or treat a validated peer
@@ -171,7 +171,7 @@ This file records unresolved choices so they do not remain implicit in implement
     dependencies, and the baseline is the standard Go module graph without local `replace`
     directives, vendoring, copied dependencies, or a project-maintained fork; the transport
     adapter remains behind the interface described in [F2](./f2-rns-transport/README.md).
-    **Temporary deviation (F21 tunnel data plane):** the private tunnel RNS transport
+    **Rejected experimental deviation (F21 tunnel data plane):** the private tunnel RNS transport
     ([F21-01](./f21-tunnel-rns-dataplane/f21-01-tunnel-rns-stack.md)) depends on two defects in
     `v1.2.0` that are not upstream in `v1.3.0` either — (a) `pkg/channel` inbound
     emplace/drain/dispatch is not serialized, so the parallel packet-worker pool reorders stream
@@ -182,13 +182,23 @@ This file records unresolved choices so they do not remain implicit in implement
     [`reticulum_compat.go`](../internal/tunnel/rns/reticulum_compat.go) adapter registers a
     per-Link serial ingress proxy and selects Reticulum-Go's public synchronous, process-global
     Backbone Go backend whenever the tunnel is enabled; startup fails closed if another component
-    already selected a native backend. It also contains the negotiated-MDU writer and blocking
-    reader adaptations required by the same version. It does not change the wire format or add
-    stream framing. Removal is two attachment-point edits documented in that file. The regression
-    coverage in
+    already selected a native backend. It also contains the negotiated-MDU writer, blocking
+    reader, and sender-side uncompressed Buffer policy required by the same version. The latter
+    emits the existing `StreamDataMessage` form with `compressed=false`, which remains fully
+    interoperable with Python RNS while avoiding three failed bzip2 probes per incompressible
+    tunnel fragment. It does not change the wire format or add stream framing. Removal is two
+    attachment-point edits documented in that file. The regression coverage in
     [`internal/tunnel/rns/regression_test.go`](../internal/tunnel/rns/regression_test.go) gates the
     adapter and its eventual deletion; upstream tracking is
-    [Reticulum-Go issue #17](https://github.com/Quad4-Software/Reticulum-Go/issues/17).
+    [Reticulum-Go issue #17](https://github.com/Quad4-Software/Reticulum-Go/issues/17) for
+    correctness/parity and
+    [Reticulum-Go issue #18](https://github.com/Quad4-Software/Reticulum-Go/issues/18) for the
+    compatible compression policy. The same adapter temporarily replaces Channel's 5ms
+    `WaitReady` polling with a 100µs reusable-timer poll; this is wire-neutral and tracked for an
+    event-driven upstream replacement in
+    [Reticulum-Go issue #19](https://github.com/Quad4-Software/Reticulum-Go/issues/19). F21-05
+    rejected this transport for production despite those workarounds; F21-06 removes the prototype,
+    so none of these deviations become part of the selected tunnel data plane.
 12. **Bulk application data transfer is out of scope** — the earlier plan for an external,
    capability-authorized data plane (artifact identity, endpoint URIs, Yggdrasil as the first
    network) was removed from the roadmap as undecided work. OCI image distribution remains
@@ -293,14 +303,12 @@ This file records unresolved choices so they do not remain implicit in implement
     daemon and namespace-entry permissions; it fails closed on unsupported configurations.
     See [F20](./f20-client-tunnel-targets/README.md).
 
-19. **Proto cleanup without backward compatibility (2026-09-21)** — [F21](./f21-tunnel-rns-dataplane/README.md)
-    replaces the grant/preamble/peer-key tunnel with an identity/Open scheme, and per the spec the
-    tunnel proto is cleaned directly: no backward compatibility is kept, removed fields
-    (`ExecutionTunnelGrant`/`Ack`, `ygg_peer_pubkey`) are deleted outright without reserving, and
-    surviving messages may be renumbered. This is a **deliberate exception** to the
-    `never renumber or reuse` / `reserve removed numbers` rule in
-    [CONTRIBUTING.md](../CONTRIBUTING.md), justified by the tunnel having no supported in-flight
-    users. The general invariant for stable-schema messages outside the tunnel stands.
+19. **F21 proto-cleanup exception withdrawn (2026-09-23)** — the earlier F21 plan allowed direct
+    deletion and renumbering when replacing the grant/preamble/peer-key tunnel with identity/Open.
+    F21-05 rejected that replacement, so grants and `ygg_peer_pubkey` remain selected and the
+    exception is no longer applicable. F21-06 removes only unused experimental Open/advertisement
+    fields and follows the normal additive Protobuf rule from
+    [CONTRIBUTING.md](../CONTRIBUTING.md): removed numbers and names are reserved and never reused.
 
 20. **Keepalive/staleness workaround for the F21-05 sustained-transfer blocker (2026-09-23)** —
     the tunnel Link data plane prevents the Reticulum-Go v1.2.0 keepalive/staleness watchdog from
@@ -316,7 +324,20 @@ This file records unresolved choices so they do not remain implicit in implement
     `TestSustainedKeepaliveDoesNotCorruptStream` and the now-passing
     `TestSustainedTransferOutlivesStaleTime`. No wire format, Channel message, or application
     framing is changed; the beacon uses a dedicated user-range Channel message type distinct from
-    the stream's.
+    the stream's. The workaround remains benchmark evidence only and is deleted with the rejected
+    private-RNS tunnel package in F21-06.
+
+21. **F21-05 selects Ygg for the execution-tunnel data plane (2026-09-23)** — the private
+    Python-compatible RNS `Link`/`Channel`/`Buffer` prototype is a no-go. After removing automatic
+    bzip2 work and reducing the Go readiness poll from 5ms to 100µs, the recorded 10 MiB row is
+    still 4.80 MB/s versus 159.25 MB/s on Ygg; 10 concurrent streams are 5.70 MB/s versus 227.16
+    MB/s. The remaining gap comes from protocol-compatible behavior — 423-byte stream payloads, a
+    maximum Channel window of 48, an explicit signed proof for every Channel packet, IFAC work,
+    and small Backbone writes — and worsens with RTT. F21-06 therefore retains the embedded Ygg
+    adapter, grants, peer-key pinning, and multiplexed streams, and removes the experimental RNS
+    data plane and unused Open/advertisement slice. RNS remains discovery, identity, and control;
+    it does not carry execution-tunnel application bytes. A future system-Ygg/raw-TCP design, if
+    pursued, requires a separate authenticated capability protocol and benchmark.
 
 ## Deferred
 
@@ -345,8 +366,3 @@ This file records unresolved choices so they do not remain implicit in implement
   per-session feed and pending-open off the shared pump (per-session read goroutines or a
   non-blocking pending queue) so one slow or abusive peer cannot throttle the allocator's whole
   tunnel edge.
-- **Tunnel stream multiplexing return** — pending the [F21](./f21-tunnel-rns-dataplane/README.md)
-  benchmark: F21 moves tunnel data to a one-connection = one-Link = one-stream model over a private
-  RNS transport. If `Link` establishment over that transport turns out to be too expensive in
-  practice (F21-05 numbers), a stream multiplexer can be re-introduced as a separate optimization;
-  it is deliberately out of scope for F21 itself.

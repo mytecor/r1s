@@ -105,10 +105,11 @@ func throughput(ctx context.Context, c Connector, size int) (time.Duration, erro
 	defer stopInterrupt()
 
 	payload := make([]byte, size)
-	// Reticulum's Channel buffer auto-compresses payloads over 32 bytes
-	// (bzip2). A benchmark writing repetitive bytes would measure compression,
-	// not transport; crypto/rand data is incompressible and nearly free to
-	// generate relative to a multi-MiB transfer.
+	// Use incompressible data so the workload models already-compressed or
+	// encrypted tunnel traffic and cannot gain an artificial wire-size advantage
+	// from content. The v1.2.0 compatibility writer sends the standard
+	// uncompressed StreamDataMessage form, so payload generation is nearly free
+	// relative to the transfer.
 	if _, err := rand.Read(payload); err != nil {
 		return 0, fmt.Errorf("random payload: %w", err)
 	}

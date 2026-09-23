@@ -72,6 +72,10 @@ to read the task's namespace and enter it (`CAP_SYS_ADMIN`), plus `CAP_NET_ADMIN
 loopback in a fresh container namespace. Missing permissions fail the stream explicitly;
 normal workload execution does not require enabling tunnels.
 
+RNS remains the discovery, identity, and control plane. Tunnel application bytes use the dedicated
+embedded Yggdrasil adapter; the F21 private-RNS data-plane experiment was rejected by its recorded
+benchmark and is being rolled back without changing the tunnel UX or container-isolation boundary.
+
 `--identity` accepts an existing or new identity file path, or a private RNS identity in the same
 formats as Reticulum-Go's identity importer: 128-character hex, Base32, or Base64. Existing files take
 priority. An inline identity is not persisted; its default state and log paths are placed under

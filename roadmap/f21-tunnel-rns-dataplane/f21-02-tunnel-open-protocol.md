@@ -1,10 +1,8 @@
 # F21-02 — Control-plane advertisement and tunnel Open protocol
 
-**Status:** 🔄 In progress — F21-02 was split into a **wire/advertisement slice** (done, this
-commit) and a **removal slice** (deferred to the F21-05-before-F21-06 removal, which is the
-decision point for deleting the legacy grant path). The focused slice adds the new protocol types
-and the control-plane advertisement without deleting the still-benchmarkable grant machinery, so
-`make check` stays green throughout.
+**Status:** 🛑 Stopped after the experimental wire/advertisement slice — F21-05 selected the Ygg
+data plane, so the production switch and deletion of the legacy grant path are cancelled. F21-06
+removes the unused RNS-only Open/advertisement surface while preserving schema compatibility.
 
 ## Progress (this commit)
 
@@ -24,21 +22,20 @@ and the control-plane advertisement without deleting the still-benchmarkable gra
   `Service.TunnelEndpoint()`; `RegisterAllocator` preserves a prior advertisement when a
   session-learned registration carries none.
 
-## Remaining (deferred)
+## Rejected production switch
 
-- Delete `ExecutionTunnelGrant`/`ExecutionTunnelGrantAck`, `ygg_peer_pubkey`, grant ID/TTL,
-  `Preamble`, and `Registry.Mint`/`Accept`; rework `LocalTunnelOpen` and the allocator/client edge
-  to the Open flow; switch `r1sd`/`r1s serve` edges to the F21-01 rns transport and populate the
-  descriptor advertisement from the running `rns.Listener` endpoint. This is gated on the F21-05
-  old-vs-new benchmark so the legacy transport stays available to measure.
+- Do not delete `ExecutionTunnelGrant`/`ExecutionTunnelGrantAck`, `ygg_peer_pubkey`, grant ID/TTL,
+  `Preamble`, or `Registry.Mint`/`Accept`; they remain part of the selected Ygg data plane.
+- Do not switch `r1sd`/`r1s serve` to the F21-01 RNS transport. F21-06 removes the unused
+  experimental Open/advertisement slice instead.
 
-## Outcome
+## Experimental outcome
 
 The control plane advertises the minimum needed to create a private tunnel transport, and the first
 application message on an identified tunnel Link is an explicit `Open { execution_id, port }`,
 replacing the minted-grant flow entirely.
 
-## Scope
+## Experimental scope
 
 - **Advertisement through the control plane**: `r1sd` advertises `[ygg-ipv6]:port` (the allocator's
   tunnel Backbone/TCP listener) plus the *tunnel RNS destination hash* — and never an Ygg public

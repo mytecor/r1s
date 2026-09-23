@@ -1,14 +1,15 @@
 # F21-03 — Allocator authorization and container splice
 
-**Status:** ⏳ Planned
+**Status:** 🚫 Cancelled — F21-05 rejected the private RNS tunnel data plane; the existing
+grant-authorized Ygg splice remains selected.
 
-## Outcome
+## Rejected outcome
 
-`r1sd` authorizes a tunnel purely from the identified remote RNS identity and the `Open` message,
-then resolves the requested port strictly inside the execution's network namespace — preserving the
-existing security boundary with no grant flow and no peer-key pinning.
+The rejected plan would have authorized a tunnel from the identified remote RNS identity and an
+`Open` message. It is retained here as experiment history only; production keeps the existing Ygg
+grant flow and peer-key pinning.
 
-## Scope
+## Rejected scope
 
 - On an inbound tunnel Link, wait for `Link.Identify()`; treat the verified remote identity as the
   sole application-level authority (never trust an identity copied from an unverified payload).

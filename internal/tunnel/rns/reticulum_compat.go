@@ -19,7 +19,7 @@ import (
 
 // reticulumCompat contains the temporary Reticulum-Go v1.2.0 workarounds used
 // by the private tunnel transport. Keeping all workarounds behind this value
-// makes their removal mechanical once upstream issue #17 is released:
+// makes their removal mechanical once upstream issues #17 and #18 are released:
 //
 //  1. replace ensureBackbone with the normal backbone.Init(auto) path;
 //  2. replace prepareConn in newConn with the stock Link/Buffer construction
@@ -30,11 +30,13 @@ import (
 // No wire format, Channel message, or application framing is changed here: the
 // compat keepalive frame uses a dedicated user-range Channel message type
 // (compatKeepaliveType) distinct from the stream's, so it never appears in the
-// byte stream. The adapter chooses a safe public Backbone backend, serializes
-// the public LinkInterface ingress boundary, supplies the v1.2.0-safe Buffer
-// bridge, and keeps each established Link alive through the keepalive/staleness
-// watchdog (BACKLOG entry 10) by periodically delivering a peer-visible inbound
-// Channel frame from every edge.
+// byte stream. Stream data remains the stock StreamDataMessage wire format; the
+// compat writer only selects its standard uncompressed form so Python RNS peers
+// decode it without a protocol extension. The adapter chooses a safe public
+// Backbone backend, serializes the public LinkInterface ingress boundary,
+// supplies the v1.2.0-safe Buffer bridge, and keeps each established Link alive
+// through the keepalive/staleness watchdog (BACKLOG entry 10) by periodically
+// delivering a peer-visible inbound Channel frame from every edge.
 var tunnelReticulumCompat reticulumCompat
 
 type reticulumCompat struct{}
@@ -148,13 +150,22 @@ const compatKeepaliveType uint16 = 0x4000
 // Keep it under staleTime/2; see TestSustainedTransferOutlivesStaleTime.
 const tunnelKeepaliveInterval = 3 * time.Second
 
+// tunnelChannelReadyPollInterval is the temporary Reticulum-Go #19 workaround.
+// Channel.WaitReady polls every 5ms, which caps a fast Link at roughly
+// WindowMaxFast*payload/5ms (about 4 MiB/s at the negotiated 423-byte tunnel
+// payload). The public Channel API has no delivery notification to wait on, so
+// the compatibility layer polls at a much shorter interval until upstream can
+// provide an event-driven wait. A reusable timer in waitReady avoids allocating
+// one timer per poll.
+const tunnelChannelReadyPollInterval = 100 * time.Microsecond
+
 // reticulumCompatStream adapts the remaining v1.2.0 Buffer API gaps behind a
 // single byte-stream boundary: dynamic MDU sizing, TX-window backpressure,
-// blocking reads, serialized write/half-close, and a periodic liveness beacon
-// that keeps the Link out of the keepalive/staleness timeout described in
-// BACKLOG entry 10. Once upstream provides those semantics, newConn can
-// replace this type with the stock bidirectional Buffer and the compatibility
-// file can be deleted as one unit.
+// blocking reads, serialized write/half-close, an uncompressed writer policy,
+// and a periodic liveness beacon that keeps the Link out of the
+// keepalive/staleness timeout described in BACKLOG entry 10. Once upstream
+// provides those semantics, newConn can replace this type with the stock
+// bidirectional Buffer and the compatibility file can be deleted as one unit.
 //
 // The liveness beacon is flat-out required for any sustained one-direction
 // transfer longer than ~10s and therefore lives here (not in session.go): on a
@@ -173,7 +184,7 @@ const tunnelKeepaliveInterval = 3 * time.Second
 // contract test that gates it.
 type reticulumCompatStream struct {
 	rw        *buffer.Buffer
-	rawW      *buffer.RawChannelWriter
+	writer    *reticulumUncompressedWriter
 	ch        *channel.Channel
 	frag      int
 	readReady chan struct{}
@@ -191,7 +202,6 @@ func (s *reticulumCompatStream) keepaliveInstalled() bool { return s.keepaliveHa
 
 func newReticulumCompatStream(lnk *link.Link, ch *channel.Channel) *reticulumCompatStream {
 	rawR := buffer.NewRawChannelReader(streamID, ch)
-	rawW := buffer.NewRawChannelWriter(streamID, ch)
 	readReady := make(chan struct{}, 1)
 	rawR.AddReadyCallback(func(int) {
 		select {
@@ -201,10 +211,11 @@ func newReticulumCompatStream(lnk *link.Link, ch *channel.Channel) *reticulumCom
 	})
 	frag := reticulumFragmentSize(ch)
 	reader := bufio.NewReader(rawR)
-	writer := bufio.NewWriterSize(&reticulumPacedWriter{ch: ch, rawW: rawW}, frag)
+	uncompressedWriter := &reticulumUncompressedWriter{ch: ch, frag: frag, status: lnk.GetStatus}
+	writer := bufio.NewWriterSize(uncompressedWriter, frag)
 	stream := &reticulumCompatStream{
 		rw:        &buffer.Buffer{ReadWriter: bufio.NewReadWriter(reader, writer)},
-		rawW:      rawW,
+		writer:    uncompressedWriter,
 		ch:        ch,
 		frag:      frag,
 		readReady: readReady,
@@ -263,19 +274,104 @@ func reticulumFragmentSize(ch *channel.Channel) int {
 	return n
 }
 
-// reticulumPacedWriter turns a full Channel window into backpressure instead
-// of a dropped stream write. Closing the Link makes WaitReady return, so Conn
-// cancellation still interrupts an in-flight write through teardown.
-type reticulumPacedWriter struct {
-	ch   *channel.Channel
-	rawW *buffer.RawChannelWriter
+// reticulumUncompressedWriter is the temporary Reticulum-Go #18 compatibility
+// policy for tunnel streams. It emits the existing StreamDataMessage wire type
+// with Compressed=false, which is fully interoperable with Python RNS, while
+// avoiding v1.2.0's three synchronous bzip2 probes for every payload over 32
+// bytes. It also turns a full Channel window into backpressure without using
+// v1.2.0's throughput-limiting 5ms WaitReady poll. Closing the Link changes
+// status, so an in-flight write returns ErrLinkNotReady after at most one short
+// compatibility polling interval.
+type reticulumUncompressedWriter struct {
+	ch     *channel.Channel
+	frag   int
+	status func() byte
+	closed bool
 }
 
-func (w *reticulumPacedWriter) Write(p []byte) (int, error) {
-	if err := w.ch.WaitReady(context.Background()); err != nil {
+func (w *reticulumUncompressedWriter) waitReady(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	isActive := func() bool {
+		if w.status == nil {
+			return false
+		}
+		status := w.status()
+		return status == link.StatusActive || status == rnstransport.StatusActive
+	}
+	if !isActive() {
+		return channel.ErrLinkNotReady
+	}
+	if w.ch.IsReadyToSend() {
+		return nil
+	}
+
+	timer := time.NewTimer(tunnelChannelReadyPollInterval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			if !isActive() {
+				return channel.ErrLinkNotReady
+			}
+			if w.ch.IsReadyToSend() {
+				return nil
+			}
+			timer.Reset(tunnelChannelReadyPollInterval)
+		}
+	}
+}
+
+func (w *reticulumUncompressedWriter) send(msg *buffer.StreamDataMessage) error {
+	for {
+		if err := w.waitReady(context.Background()); err != nil {
+			return err
+		}
+		err := w.ch.Send(msg)
+		if errors.Is(err, channel.ErrLinkNotReady) {
+			// A best-effort keepalive can consume the last slot between the
+			// readiness check and Send. Wait for the next slot and retry; Channel
+			// reserves no sequence and transmits nothing on this error.
+			continue
+		}
+		return err
+	}
+}
+
+func (w *reticulumUncompressedWriter) Write(p []byte) (int, error) {
+	if w.closed {
+		return 0, io.ErrClosedPipe
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if len(p) > w.frag {
+		p = p[:w.frag]
+	}
+	if err := w.send(&buffer.StreamDataMessage{
+		StreamID: streamID,
+		Data:     p,
+	}); err != nil {
 		return 0, err
 	}
-	return w.rawW.Write(p)
+	return len(p), nil
+}
+
+func (w *reticulumUncompressedWriter) Close() error {
+	if w.closed {
+		return nil
+	}
+	if err := w.send(&buffer.StreamDataMessage{
+		StreamID: streamID,
+		EOF:      true,
+	}); err != nil {
+		return err
+	}
+	w.closed = true
+	return nil
 }
 
 func (s *reticulumCompatStream) Read(p []byte, closed <-chan struct{}) (int, error) {
@@ -327,5 +423,5 @@ func (s *reticulumCompatStream) CloseWrite() error {
 	if err := s.rw.ReadWriter.Writer.Flush(); err != nil {
 		return err
 	}
-	return s.rawW.Close()
+	return s.writer.Close()
 }

@@ -1,44 +1,39 @@
-# F21-06 — Remove embedded Ygg adapter, key machinery, and dependencies
+# F21-06 — Roll back private RNS tunnel and retain Ygg
 
-**Status:** ⏳ Planned
+**Status:** ⏳ Planned — F21-05 recorded a no-go for the private RNS data plane.
 
 ## Outcome
 
-The embedded Yggdrasil transport and every Ygg-derived/tunnel-grant artifact are deleted from the
-tree, and the direct dependencies `yggdrasil-go`, `ironwood`, and `gologme/log` fall out of
-`go.mod`/`go.sum` — leaving Reticulum-Go as the tunnel's only networking/crypto dependency.
+The embedded Yggdrasil adapter remains the execution-tunnel data plane. Experimental F21 code and
+protocol surface that exist only for the rejected private RNS-over-system-Ygg path are removed or
+reverted without changing the established F19/F20 tunnel UX, authorization, or container namespace
+isolation.
 
 ## Scope
 
-- Delete [`internal/tunnel/yggdrasil`](../../internal/tunnel/yggdrasil): `core.go`, `node.go`,
-  `edge.go`, `mux.go`, `pair.go`, `framing.go`, `stream.go`, `dial.go`, `listen.go`, and the
-  associated live-mesh/unit tests.
-- Delete Ygg-specific identity/key machinery: `NodeKeyContext`, `ClientNodeKeyContext`,
-  `AllocatorNodeKeyContext`, `NodeKeyFromSeed`, `NodePubKey`, Ygg peer public-key pinning,
-  `tunnel.Conn.PeerKey()`, `MaxPeerKeySize`, `ErrPeerKeyMismatch`, and `Endpoint.PubKey` if it is
-  unused after the new scheme.
-- Delete the custom tunnel wire protocol over the Ygg `PacketConn`: no DATA/EOF/WINDOW_UPDATE/
-  PREAMBLE/ACCEPT frames, no custom stream IDs, no segmentation/reassembly, no custom
-  retransmission/backpressure. The payload uses only `Link`/`Channel`/`Buffer`.
-- Narrow the generic [`internal/tunnel`](../../internal/tunnel) contract: `Conn` becomes
-  `io.ReadWriteCloser` + `CloseWrite()`; keep `CloseRead()` only if the live forwarding path
-  actually needs it. Remove `PeerKey`, `Preamble`, `PreambleWriter`, `StreamOpener`, the old
-  `Listener` shape, and the session registry where they exist only for the Ygg adapter.
-- Remove the tunnel grant remnants from the `internal/tunnel` registry
-  (`Mint`, `Accept`, grant expiry/reuse semantics) now covered by the Open flow.
-- Run `go mod tidy`; confirm `github.com/yggdrasil-network/yggdrasil-go`,
-  `github.com/Arceliar/ironwood`, and `github.com/gologme/log` are no longer direct (or transitive
-  reachable) dependencies.
-- Update `README.md` "Build from source"/tunnel text and `ARCHITECTURE.md` transport-boundary prose
-  to describe the system-Ygg + private-RNS data plane and the removed embedded node.
+- Keep [`internal/tunnel/yggdrasil`](../../internal/tunnel/yggdrasil), `yggdrasil-go`, Ironwood,
+  the authenticated mesh pair, multiplexed tunnel streams, Ygg-derived edge identity, peer-key
+  pinning, and the existing grant/preamble/accept flow.
+- Keep `r1s tunnel <execution> --port <host>:<container>`, the service-backed `LocalTunnel` API,
+  client-managed target ports, and allocator-side `DialExecution` unchanged.
+- Remove the experimental [`internal/tunnel/rns`](../../internal/tunnel/rns) data-plane package
+  after retaining any transport-independent regression knowledge in tests or roadmap notes.
+- Remove `TunnelOpen`, `TunnelOpenResult`, private tunnel destination advertisement, and related
+  generated/schema fields if they have no user outside the rejected RNS path. Preserve Protobuf
+  compatibility according to the repository rules; do not reuse field numbers.
+- Remove benchmark-only connector wiring only after the final F21-05 record remains preserved in
+  [F21-05](./f21-05-benchmark-live-acceptance.md).
+- Reconcile README, architecture, CLI help, flags, and roadmap text with the retained embedded-Ygg
+  implementation. Do not introduce a system-Ygg/raw-TCP replacement in this rollback.
+- Run `go mod tidy` only for dependencies made unreachable by the rollback; do not remove the Ygg
+  dependency graph used by the production tunnel adapter.
 
 ## Acceptance
 
-- No `import "github.com/yggdrasil-network/yggdrasil-go"` and no `import ironwood` anywhere; a
-  grep over the module surfaces none.
-- No Ygg-derived keys, no Ygg public keys in the control protocol, no tunnel grants, no custom
-  mux/framing, and no DATA/EOF/WINDOW protocol remain.
-- `tunnel.Conn` is `io.ReadWriteCloser` + `CloseWrite()` (plus `CloseRead` only if forwarding needs
-  it); dead generic abstractions are absent.
-- `go build ./...`, `go vet ./...`, `go test -race ./...`, and `make check` pass; the F21-05
-  benchmark was completed against the old transport before this removal.
+- `internal/tunnel/yggdrasil` remains the selected client and allocator tunnel transport.
+- The private RNS tunnel package and its unused advertisement/Open protocol surface are absent.
+- Owner authorization, peer-key pinning, grant consumption, concurrent streams, half-close,
+  classified teardown, and container-network-namespace isolation retain their existing tests.
+- No tunnel application byte crosses the RNS control plane or an RNS `Channel`/`Buffer`.
+- The F21-05 no-go measurements remain recorded as the reason for the rollback.
+- `go build ./...`, `go vet ./...`, `go test -race ./...`, and `make check` pass.

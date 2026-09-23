@@ -235,18 +235,18 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 
 ## [F21. Tunnel data plane over system Yggdrasil + private RNS](./roadmap/f21-tunnel-rns-dataplane/README.md)
 
-> The tunnel drops its embedded `yggdrasil-go`/`ironwood` node and becomes two independent halves:
-> an untouched authenticated control plane, and a separate private Reticulum tunnel data plane that
-> rides the system `yggdrasil` daemon as a pure IP underlay. One local TCP connection is one RNS
-> Link and one tunnel stream, authorized by the client's existing persistent RNS identity
-> (`Link.Identify` + `Open { execution_id, port }`) — no grants, no preamble, no Ygg keys.
+> F21 evaluated replacing the embedded Ygg tunnel with a private Python-compatible RNS
+> `Link`/`Channel`/`Buffer` data plane over system Ygg. The recorded benchmark rejected that path:
+> after compression and readiness-poll workarounds, RNS remains 26.7–39.9× slower in the relevant
+> rows because of its 423-byte stream payload, bounded Channel window, per-packet signed proofs,
+> IFAC work, and small Backbone writes. RNS remains the control plane; Ygg remains the application
+> data plane.
 
-- **Status:** ⏳ planned
-- **Done when:** the embedded Ygg adapter, tunnel grants, and Ygg identity/key machinery are
-  removed; tunnel data flows only through the separate private RNS transport over system Yggdrasil;
-  `r1s tunnel <execution> --port <host>:<container>` keeps its behavior; container-side namespace
-  isolation is retained; `go build ./...`, `go vet ./...`, `go test -race ./...` and `make check`
-  pass.
+- **Status:** 🔄 no-go recorded; F21-06 rollback planned
+- **Done when:** the experimental private-RNS tunnel package and its unused Open/advertisement
+  surface are removed, while the F19/F20 embedded-Ygg adapter, grants, multiplexed streams,
+  user-facing tunnel UX, owner authorization, and container namespace isolation remain intact;
+  `go build ./...`, `go vet ./...`, `go test -race ./...` and `make check` pass.
 - **Depends on:** [F19](#f19-universal-tunnel-rework),
   [F20](#f20-client-managed-tunnel-targets), [F17](#f17-execution-lease),
   [F13](#f13-local-client-api), [F12](#f12-shared-secret-cluster-membership).
@@ -277,10 +277,10 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   allocator config to the `r1s` client — `r1s tunnel <id> --port <host>:<container>` binds a local
   listener and sends the container port in the grant, `r1sd` drops `--tunnel-target` /
   `--tunnel-default-target` and becomes a proxy/splice point to grant-carried ports.
-- [F21](#f21-tunnel-data-plane-over-system-yggdrasil--private-rns) is the next active vertical: it
-  replaces the embedded `yggdrasil-go`/`ironwood` tunnel with a system-Ygg-underlay + private-RNS
-  data plane (`Link`/`Channel`/`Buffer`, one connection = one link), removes grants, preamble, and
-  Ygg key machinery, and authorizes tunnels by the client's persistent RNS identity.
+- [F21](#f21-tunnel-data-plane-over-system-yggdrasil--private-rns) reached its benchmark decision:
+  the private RNS tunnel is a no-go, the embedded Ygg adapter remains selected, and F21-06 rolls
+  back the experimental RNS package and unused Open/advertisement slice. The benchmark and upstream
+  Reticulum-Go findings remain recorded; they no longer gate tunnel delivery.
 - [F16](#f16-node-capabilities-and-placement) landed (2026): allocators advertise bounded
   OS/arch/runtime/device/resource-profile/label capabilities in offers and a compact RNS announce
   summary; clients express exact-match `--constraints`, and only compatible allocators receive the

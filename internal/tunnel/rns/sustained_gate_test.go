@@ -20,21 +20,11 @@ import (
 // run explicitly to gate the fix, never inside `make check`.
 //
 // Timing (2026-09-23, macOS loopback, Reticulum-Go v1.2.0 + compat adapter).
-// Two orthogonal *unraced* costs: the bzip2 compressData pass in
-// RawChannelWriter.Write executes before any WaitReady and is content-
-// -dependent (compressing this 10 MiB pseudo-random payload standalone is
-// ~6.4s, a low-entropy one ~3.6s), and the transfer itself takes ~16s unraced.
-//
-// This gate is deliberately *not* run under `-race`. The race detector slows
-// bzip2 compressData on this payload to ~97s standalone, and the envelope-
-// timeout goroutines that Reticulum-Go spawns per channel packet add a fluent-
-// starvation effect that makes the full `-race` transfer take tens of minutes
-// (measured: still 0 bytes written after 8+ min). That is upstream Reticulum-Go
-// + `go test -race` performance, unrelated to the liveness beacon: the same
-// 0-byte stall reproduces with the beacon disabled. The timeout below is a
-// deadlock-safety net for the *unraced* gate, not a `-race` budget. `make check`
-// runs `go test -race ./...` but env-gated tests are skipped there, so this
-// cost never lands in CI; run this gate explicitly without `-race`.
+// The uncompressed-writer workaround raises loopback throughput to ~4 MiB/s,
+// so the original 10 MiB payload no longer crosses staleTime. The 64 MiB gate
+// takes ~13s unraced and therefore still proves the Link remains ACTIVE beyond
+// the 10s watchdog boundary. It remains env-gated because its packet volume is
+// unsuitable for the default suite, especially under the race detector.
 //
 // Context. On this private tunnel transport the Links run over a raw loopback
 // Backbone/TCP interface with an RTT far below KeepaliveMaxRTT (1.75s).
@@ -58,13 +48,13 @@ import (
 // cover this: it addresses a write-interest stall, not the keepalive/staleness
 // timeout.
 //
-// Measured (2026-09-23, macOS loopback, Reticulum-Go v1.2.0 + compat adapter):
-// without the beacon the 10 MiB transfer fails with "link not ready" at ~10.0s
-// and ~6.4 MiB written; with the beacon it completes, currently ~16s. Because
-// the defect is that the writer's Link goes STALE, this test also samples the
-// client (writer) Link status throughout and asserts it never leaves ACTIVE,
-// so a transfer that merely survives without the liveness beacon (e.g. one that
-// errors and is retried) cannot pass it.
+// Historical reproduction (2026-09-23, before the uncompressed-writer
+// workaround): without the beacon the 10 MiB transfer failed with "link not
+// ready" at ~10.0s and ~6.4 MiB written. The current 64 MiB payload preserves
+// the same >10s liveness contract at the faster data rate. Because the defect
+// is that the writer's Link goes STALE, this test also samples the client
+// (writer) Link status throughout and asserts it never leaves ACTIVE, so a
+// transfer that merely survives through another path cannot pass it.
 func TestSustainedTransferOutlivesStaleTime(t *testing.T) {
 	if os.Getenv("R1S_TEST_SUSTAINED_TUNNEL") != "1" {
 		t.Skip("set R1S_TEST_SUSTAINED_TUNNEL=1 to gate the sustained >10s tunnel transfer")
@@ -78,8 +68,8 @@ func TestSustainedTransferOutlivesStaleTime(t *testing.T) {
 	defer clientConn.Close()
 
 	// Sized so the transfer necessarily outlives staleTime (10s) at the
-	// measured ~0.6 MiB/s single-stream rate on loopback.
-	const size = 10 << 20
+	// measured ~4 MiB/s uncompressed single-stream rate on loopback.
+	const size = 64 << 20
 	payload := make([]byte, size)
 	for i := range payload {
 		payload[i] = byte(i * 31)

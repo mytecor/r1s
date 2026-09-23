@@ -1,10 +1,10 @@
 # F21-05 — Benchmark and live acceptance
 
-**Status:** ✅ Blocked found and fixed — the sustained >10s single-stream blocker is closed and
-the matching regression gate passes (see the Notes). What remains for F21-06 is recording the full
-benchmark rows (the go/no-go before F21-06 is back to go in principle, pending those rows being
-recorded on the same methodology). The old-vs-new benchmark harness (both connectors, the shared
-workload suite, host record, and the two-stack connect/concurrent/smoke legs) is in
+**Status:** ✅ Complete — the full old-vs-new rows are measured on the same host/methodology and
+the decision is **no-go for the private RNS tunnel data plane**. F21-06 retains Ygg and rolls back
+the experimental RNS path. The sustained >10s correctness blocker is closed and its regression
+gate passes, but the optimized RNS path remains 26.7–39.9× slower in the representative benchmark
+rows. The old-vs-new harness is in
 [`internal/tunnel/benchmark`](../../internal/tunnel/benchmark).
 
 ## Status history
@@ -17,13 +17,16 @@ decisions 10/20) keeps both Links out of the v1.2.0 staleness watchdog window; t
 now completes byte-for-byte. The gated test
 `R1S_TEST_SUSTAINED_TUNNEL=1 go test ./internal/tunnel/rns/ -run TestSustainedTransferOutlivesStaleTime -count=1`
 passes.
+- **2026-09-23 (decision):** even after compatible workarounds disable automatic bzip2 and reduce
+  the Go readiness poll from 5ms to 100µs, the RNS path reaches only 4.80 MB/s for 10 MiB and 5.70
+  MB/s for 10 concurrent streams, versus 159.25 and 227.16 MB/s on Ygg. The remaining costs are
+  inherent to the Python-compatible Channel/Buffer path, so the F21-06 decision is **no-go**.
 
 ## Outcome
 
-A recorded benchmark compares the old embedded-Ygg tunnel and the new RNS Link + `Channel`/`Buffer`
-transport (over Backbone/TCP over the system `yggdrasil` daemon), and a two-stack e2e/live scheme
-proves the target data plane end-to-end. The benchmark must complete **before** the old transport is
-finally removed in F21-06.
+A recorded benchmark compares the embedded-Ygg tunnel and the experimental RNS Link +
+`Channel`/`Buffer` transport over Backbone/TCP. Its result selects Ygg for the production tunnel
+and prevents the removal that the original F21-06 plan proposed.
 
 ## Scope
 
@@ -31,9 +34,10 @@ finally removed in F21-06.
   1 MiB, 10 MiB, a single TCP stream, 10 concurrent streams, and an HTTP request/response latency.
   Run both transports on the same host/environment; record numbers and host/environment/version in
   the task notes or a referenced run record.
-- **Two-stack e2e/live scheme**: two private Reticulum stacks over a Backbone/TCP pair (and, where a
-  real system `yggdrasil` daemon + homelab is available, through the live procedure in
-  [F7-02](../f7-verification/f7-02-live-regression.md)) verifying:
+- **Prototype verification scheme**: two private Reticulum stacks over a Backbone/TCP pair verify
+  the following deterministic behavior. The originally planned real-system-Ygg production live
+  leg was cancelled after the benchmark selected no-go; a rejected data plane is not promoted by
+  completing additional live acceptance.
   - owner can open a tunnel to their own execution;
   - another RNS identity gets `unauthorized`;
   - tunnel to a stopped/completed execution is rejected;
@@ -49,13 +53,69 @@ finally removed in F21-06.
 
 ## Acceptance
 
-- All benchmark rows exist for both the old and the new transport with the same methodology; the
-  measured overhead of the RNS Link/Channel/Buffer path is explicitly recorded and reviewed for
-  go/no-go before F21-06.
-- The live/e2e matrix above passes under `go test -race` (with the live leg run per
-  [F7-02](../f7-verification/f7-02-live-regression.md) when a real daemon is available); a skipped
-  live gate is not a pass.
+- All benchmark rows exist for both transports with the same methodology, the RNS overhead is
+  explicitly recorded, and the F21-06 decision is no-go.
+- The deterministic two-stack matrix remains regression coverage for the experimental findings.
+  The production live leg is cancelled rather than counted as a pass because F21-06 removes the
+  prototype instead of deploying it.
 - `go build ./...`, `go vet ./...`, `go test -race ./...`, and `make check` pass.
+
+## Measurements
+
+The recorded old-vs-new rows, both transports run on the same host with the same methodology
+([`DefaultSuite`](../../internal/tunnel/benchmark/bench.go) sizes: 1 MiB / 10 MiB single-stream
+transfers, 200 HTTP round-trips over an established connection, 10 concurrent × 1 MiB streams,
+20 fresh-connection opens). Recorded 2026-09-23 by
+`R1S_TEST_F21_BENCHMARK=recorded go test ./internal/tunnel/benchmark/ -run TestRecordedBenchmark \
+-count=1` (unraced; see the Notes for why the recorded run must not be `-race`ed).
+
+Host: `darwin/arm64 | cpu=8 | go=1.27.1 | commit=1b385c1` plus the working-tree
+Reticulum-Go compatibility workarounds recorded below.
+
+| row | Ygg (old embedded) | RNS (new private) | ratio (RNS/Ygg) |
+| --- | ---: | ---: | ---: |
+| Transfer 1 MiB | 8.0 ms (125.46 MB/s) | 213.2 ms (4.69 MB/s) | 26.7× |
+| Transfer 10 MiB | 62.8 ms (159.25 MB/s) | 2085.5 ms (4.80 MB/s) | 33.2× |
+| HTTP round-trip | 144 µs | 749 µs | 5.2× |
+| Concurrent 10×1 MiB | 44.0 ms total (227.16 MB/s) | 1754.9 ms total (5.70 MB/s) | 39.9× |
+| Open (new connection) | 118 µs | 288 µs | 2.4× |
+
+Raw rows as emitted by the driver:
+
+```
+BenchmarkYgg/Transfer/1MiB-8          1    7970875.00 ns/op
+  1048576 bytes        125.46 MB/s
+BenchmarkYgg/Transfer/10MiB-8          1   62794708.00 ns/op
+  10485760 bytes        159.25 MB/s
+BenchmarkYgg/HTTP-8          1     143728.15 ns/op
+BenchmarkYgg/Concurrent-8          1    4402262.50 ns/op
+  10485760 bytes        227.16 MB/s
+BenchmarkYgg/Open-8          1     118120.85 ns/op
+
+BenchmarkRNS/Transfer/1MiB-8          1  213162875.00 ns/op
+  1048576 bytes          4.69 MB/s
+BenchmarkRNS/Transfer/10MiB-8          1  2085492209.00 ns/op
+  10485760 bytes          4.80 MB/s
+BenchmarkRNS/HTTP-8          1     749447.69 ns/op
+BenchmarkRNS/Concurrent-8          1  175487712.50 ns/op
+  10485760 bytes          5.70 MB/s
+BenchmarkRNS/Open-8          1     287581.20 ns/op
+```
+
+The compat writer now selects the standard uncompressed `StreamDataMessage` representation for the
+tunnel data plane. Python RNS already accepts that representation, so this is a sender policy and
+not a wire-format fork. It avoids Reticulum-Go v1.2.0's three bzip2 probes for every payload over 32
+bytes while upstream [issue #18](https://github.com/Quad4-Software/Reticulum-Go/issues/18) tracks a
+supported compression-policy API. The compat layer also replaces Channel's 5ms `WaitReady` poll
+with a reusable 100µs timer while upstream
+[issue #19](https://github.com/Quad4-Software/Reticulum-Go/issues/19) tracks an event-driven API.
+Against the first recorded rows the two workarounds make RNS 11.2× faster at 1 MiB, 8.4× faster at
+10 MiB, 8.4× faster for HTTP round-trips, and 5.1× faster for the concurrent workload. Shortening
+the poll alone improves the 10 MiB row by another 20%, from 4.00 to 4.80 MB/s; reducing it further
+to 10µs produced no material improvement, showing that per-packet proofs, IFAC work, small-MDU
+packet processing and Backbone writes are now the limit. The concurrent row reports total wall
+time on both sides; the previous table mixed per-stream `ns/op` with total time and overstated its
+ratio by 10×.
 
 ## Notes
 
@@ -69,12 +129,11 @@ finally removed in F21-06.
   regression test (`R1S_TEST_SUSTAINED_TUNNEL=1`) in
   [`internal/tunnel/rns`](../../internal/tunnel/rns). No benchmark rows can be recorded at the
   acceptance sizes until the transfer survives >10s — this is the F21-06 go/no-go gate.
-  **Resolved 2026-09-23** (Status above): the compat adapter's per-edge liveness beacon closes it;
-  the same gate now passes (~16s unraced). Run the gate without `-race`: `go test -race` makes
-  Reticulum-Go's bzip2 `compressData` on a 10 MiB random payload ~15× slower (measured ~97s
-  standalone) and the per-packet timeout-goroutine churn adds enough scheduler starvation that a
-  full `-race` run of this one test stalls for many minutes; that is upstream performance, not the
-  beacon (the same stall reproduces with the beacon disabled).
+  **Resolved 2026-09-23** (Status above): the compat adapter's per-edge liveness beacon closes it.
+  After disabling automatic compression for tunnel writes, 10 MiB completes in ~2.5s and no longer
+  crosses `staleTime`; the gate therefore sends 64 MiB and passes in ~12.7s, preserving the same
+  >10s liveness assertion at the faster data rate. Run this high-packet-volume gate explicitly and
+  without `-race`; it remains excluded from `make check`.
 
-- If Link establishment turns out to be too expensive, returning multiplexing is a future, separate
-  optimization — recorded in [BACKLOG.md](../BACKLOG.md); it is not a blocker for this feature.
+- Link establishment was not the deciding cost. The small-MDU reliable Channel path dominates
+  steady-state transfer, so multiplexing Links would not reverse the no-go decision.

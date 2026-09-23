@@ -1,15 +1,14 @@
 # F21-04 — Client edge and CLI/config cleanup
 
-**Status:** ⏳ Planned
+**Status:** 🚫 Cancelled — the embedded Ygg client edge and its current CLI/configuration remain.
 
-## Outcome
+## Rejected outcome
 
-The `r1s` client-side edge starts with `r1s serve --tunnel` and dials the allocator over the private
-tunnel RNS transport; the user-facing `r1s tunnel <execution> --port <host>:<container>` UX and the
-service-backed `LocalTunnel` surface stay identical while their transport internals change. Runner
-config is reduced to the new, Ygg-underlay-based surface.
+The rejected plan would have switched `r1s serve --tunnel` to the private RNS transport and removed
+the embedded Ygg client edge. It is retained here as experiment history only; production keeps the
+current F19/F20 Ygg edge, CLI, and `LocalTunnel` behavior.
 
-## Scope
+## Rejected scope
 
 - **Client edge**: `r1s serve --tunnel` constructs the private tunnel RNS transport (F21-01) using
   the client's persistent identity, dials the advertised `[ygg-ipv6]:port`, establishes the Link,

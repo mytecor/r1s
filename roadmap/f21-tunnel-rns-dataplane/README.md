@@ -1,102 +1,67 @@
-# F21. Tunnel data plane over system Yggdrasil + private RNS
+# F21. Evaluate a private-RNS tunnel data plane
 
-Corresponds to a future milestone in
-[ROADMAP.md](../../ROADMAP.md#f21-tunnel-data-plane-over-system-yggdrasil--private-rns).
+Corresponds to the F21 milestone in [ROADMAP.md](../../ROADMAP.md).
 
-**Status:** ⏳ Planned
+**Status:** 🔄 No-go recorded — F21-05 demonstrated that a Python-compatible RNS
+`Link`/`Channel`/`Buffer` stream is not suitable for the execution-tunnel data plane. F21-06 now
+rolls back the experimental private-RNS path and retains the embedded Yggdrasil tunnel implemented
+by F19/F20.
 
-## Outcome
+## Decision
 
-The tunnel subsystem is simplified down to its two independent halves, and the embedded
-`yggdrasil-go`/`ironwood` stack is removed from `r1s` entirely:
+The experiment keeps the architecture's original transport boundary:
 
-- The **control plane** is untouched: `r1s` (and `r1s serve`) reaches `r1sd` through the existing
-  authenticated RNS control plane. Tunnel data never crosses it.
-- The **tunnel data plane** becomes a separate, private Reticulum transport running over the
-  system `yggdrasil` daemon, which is used only as an IP underlay / NAT-traversal provider — never
-  as an `r1s`-owned mesh. One local TCP connection maps to one RNS Link and one tunnel stream, so
-  the custom packet multiplexer, framing, and per-stream flow control all disappear.
+- **RNS remains the control plane** for discovery, authenticated commands, lifecycle, and tunnel
+  grant exchange.
+- **Yggdrasil remains the tunnel data plane** carrying SSH, HTTP, and arbitrary application bytes.
+- The private RNS-over-system-Ygg transport under [`internal/tunnel/rns`](../../internal/tunnel/rns)
+  is benchmark evidence and temporary code only; it does not replace the working
+  [`internal/tunnel/yggdrasil`](../../internal/tunnel/yggdrasil) adapter.
+- F21-06 does **not** remove `yggdrasil-go`, Ironwood, tunnel grants, the authenticated mesh pair,
+  or its multiplexed streams. It removes or reverts the experimental RNS tunnel integration while
+  preserving the F19/F20 user-facing and container-isolation contracts.
 
-Authorization is delegated to the existing persistent RNS identity: on an inbound tunnel Link the
-client calls `Link.Identify()`, and the allocator splices only after checking that the identified
-remote identity owns a **running** execution and the requested container port is valid. Channel
-grants, preamble handshakes, peer-key pinning, Ygg key derivation, and the proto `ygg_peer_pubkey`
-field are deleted. The user-facing UX — `r1s tunnel <execution> --port <host>:<container>` and the
-container network-namespace-isolated `DialExecution` path — is preserved unchanged.
+The deciding F21-05 rows are 4.80 MB/s for a 10 MiB RNS single stream versus 159.25 MB/s for Ygg,
+and 5.70 MB/s versus 227.16 MB/s for 10 concurrent streams. Disabling automatic bzip2 and reducing
+the Go implementation's 5ms readiness poll improved the prototype substantially but did not change
+the decision. The remaining gap is dominated by protocol-compatible RNS behavior: a 423-byte
+stream payload, a maximum Channel window of 48, an explicit signed proof for every Channel packet,
+IFAC work, and one small Backbone write per frame. Those costs also constrain interoperability with
+Python RNS and worsen with RTT; they are not a temporary application-level tuning problem.
 
-## Dependencies
+This no-go does not abandon the upstream Reticulum-Go fixes found during the experiment. Issues
+[#17](https://github.com/Quad4-Software/Reticulum-Go/issues/17),
+[#18](https://github.com/Quad4-Software/Reticulum-Go/issues/18), and
+[#19](https://github.com/Quad4-Software/Reticulum-Go/issues/19) remain useful for RNS control-plane
+and general Buffer correctness/performance, but F21 no longer depends on them for tunnel throughput.
 
-- [F19](./../f19-tunnel-rework/README.md) and [F20](./../f20-client-tunnel-targets/README.md) —
-  the tunnel UX (`--port <host>:<container>`) and client-owned target model being preserved,
-  whose transport internals this feature replaces.
-- [F17](./../f17-execution-lease/README.md) — execution owner/lease semantics the tunnel
-  authorization reuses.
-- [F13](./../f13-local-client-api/README.md) — the service-backed tunnel surface.
-- [F12](./../f12-cluster-membership/README.md) — the shared cluster secret the tunnel IFAC is
-  derived from.
+## Preserved contracts
 
-## Scope
+- `r1s tunnel <execution> --port <host>:<container>` remains service-backed and process-attached.
+- The authenticated execution owner is the only principal allowed to open the tunnel.
+- Client-selected ports are validated and dialled only inside the selected execution's network
+  namespace; the allocator host namespace is never a fallback.
+- Concurrent local TCP connections remain independent streams on the authenticated Ygg mesh pair.
+- Closing the tunnel does not affect execution lifetime, which remains controlled by the durable
+  client-held lease.
+- Container stdout/stderr remains allocator-local and is never attached to tunnel teardown.
 
-- Add a minimal private tunnel RNS transport as a new `rns` subpackage under
-  [`internal/tunnel`](../../internal/tunnel): a **separate** `Transport` instance
-  (`EnableTransport == false`) with exactly one Ygg-backed Backbone/TCP interface and no interface
-  from the control RNS; it never participates in public RNS routing/discovery.
-- Hold `Link`/`Channel`/`Buffer` as the only tunnel data primitives; enforce the
-  **one local TCP connection = one RNS Link = one tunnel stream** model; drop every custom
-  DATA/EOF/WINDOW_UPDATE/PREAMBLE/ACCEPT frame, stream ID, segmentation and retransmission,
-  and per-stream flow control.
-- Authorize a tunnel by RNS identity only: `Link.Identify()`, then the first application message
-  is `Open { execution_id, port }`; allocator replies `OK` or a classified error. No separate
-  tunnel HMAC challenge, no edge key derivation, no `ygg_peer_pubkey` in the control protocol.
-- Advertise the minimum for creating a private tunnel transport through the control plane:
-  `[ygg-ipv6]:port` (Backbone/TCP listener address) plus the tunnel RNS destination hash; never an
-  Ygg public key.
-- Derive the tunnel Backbone/TCP IFAC from the cluster secret, e.g.
-  `network_name = "r1s-tunnel"`, `passphrase = HKDF(cluster-key, "r1s/tunnel-ifac/v1")`, so the
-  IFAC only proves early cluster membership — never a substitute for owner authorization.
-- Delete the embedded adapter
-  [`internal/tunnel/yggdrasil`](../../internal/tunnel/yggdrasil) (`core.go`, `node.go`, `edge.go`,
-  `mux.go`, `pair.go`, `framing.go`, `stream.go`, `dial.go`, `listen.go` + live-mesh/unit tests),
-  the NodeKey contexts and `NodeKeyFromSeed`/`NodePubKey`, peer-key pinning, `PeerKey()`,
-  `MaxPeerKeySize`, `ErrPeerKeyMismatch`, `Endpoint.PubKey` (if no longer needed), tunnel grants
-  (`ExecutionTunnelGrant`/`Ack`, grant ID, TTL, `Registry.Mint`/`Accept`, single-use semantics),
-  and the `ygg_peer_pubkey` proto field. Clean the proto directly; no backward compatibility is
-  kept — removed fields are deleted outright without reserving, and surviving messages may be
-  renumbered. This is a deliberate exception to the renumber/reserve rule (the tunnel moves to an
-  identity/Open scheme with no in-flight users).
-- Very narrowly cut `tunnel.Conn` to `io.ReadWriteCloser` + `CloseWrite()`; keep `CloseRead()`
-  only if the real forwarding path needs it, not for the old tests/adapter. Revisit the old
-  `internal/tunnel` generic abstractions (PeerKey, Preamble, PreambleWriter, StreamOpener, old
-  Listener shape, session registry) and drop what only the Ygg adapter needed.
-- Remove the now-meaningless runner flags: `--tunnel-peer`, `--tunnel-endpoint-pubkey`, and the
-  opaque-Ygg `--tunnel-endpoint`. Add clear config on `r1sd` (`--tunnel-enabled`,
-  `--tunnel-interface ygg0`, `--tunnel-port 4242`) and keep `r1s serve --tunnel`. Public Ygg peers
-  are entirely the system `yggdrasil` service's concern, never an `r1s` config.
-- Keep the container side ([`Allocator.DialTunnelTarget`](../../internal/allocator) →
-  containerd `DialExecution`) unchanged; the tunnel never falls back into the allocator namespace.
-- Run `go mod tidy` and confirm direct dependencies `yggdrasil-go`, `ironwood`, and `gologme/log`
-  disappear unless used elsewhere; Reticulum-Go remains the tunnel's only networking/crypto
-  dependency.
-- Compare the old embedded-Ygg tunnel and the new RNS-over-Ygg transport with a recorded benchmark
-  before the old transport is finally removed.
-- Add a two-stack e2e/live test scheme and verify the acceptance matrix below.
+## Follow-up boundary
 
-## Completion criteria
-
-- No `import "github.com/yggdrasil-network/yggdrasil-go"` and no `import ironwood` in the repo.
-- No Ygg-derived keys and no Ygg public keys in the control protocol; no tunnel grants; no custom
-  packet mux/framing; no own DATA/EOF/WINDOW protocol.
-- Tunnel data flows only through the separate private RNS transport over system Yggdrasil; the main
-  RNS is used exclusively as the control plane.
-- `r1s tunnel <execution> --port <host>:<container>` keeps its current behavior.
-- Container-side namespace isolation is retained.
-- `go build ./...`, `go vet ./...`, `go test -race ./...`, and `make check` pass.
+Replacing the embedded Ygg library with raw TCP over a system Ygg interface may be evaluated later,
+but only as a separate data-plane design with an explicit authentication/capability protocol and
+its own benchmark. It must not route application bytes through RNS `Channel`/`Buffer`, and it is not
+part of this rollback.
 
 ## Tasks
 
-- [F21-01 — Private tunnel RNS transport stack](./f21-01-tunnel-rns-stack.md)
-- [F21-02 — Control-plane advertisement and tunnel Open protocol](./f21-02-tunnel-open-protocol.md)
-- [F21-03 — Allocator authorization and container splice](./f21-03-allocator-auth-splice.md)
-- [F21-04 — Client edge and CLI/config cleanup](./f21-04-client-edge-cli-cleanup.md)
-- [F21-05 — Benchmark and live acceptance](./f21-05-benchmark-live-acceptance.md)
-- [F21-06 — Remove embedded Ygg adapter, key machinery, and dependencies](./f21-06-remove-ygg-adapter.md)
+- [F21-01 — Private tunnel RNS stack prototype](./f21-01-tunnel-rns-stack.md) — experimental,
+  benchmark-only.
+- [F21-02 — RNS tunnel Open protocol prototype](./f21-02-tunnel-open-protocol.md) — partial slice
+  landed; production switch cancelled.
+- [F21-03 — Allocator authorization and container splice](./f21-03-allocator-auth-splice.md) —
+  cancelled.
+- [F21-04 — Client edge and CLI/config cleanup](./f21-04-client-edge-cli-cleanup.md) — cancelled.
+- [F21-05 — Benchmark and live acceptance](./f21-05-benchmark-live-acceptance.md) — complete,
+  recorded no-go.
+- [F21-06 — Roll back private RNS tunnel and retain Ygg](./f21-06-remove-ygg-adapter.md) — planned.

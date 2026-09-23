@@ -1,8 +1,9 @@
 # F21-01 — Private tunnel RNS transport stack
 
-**Status:** ⏳ Planned
+**Status:** 🧪 Experimental prototype — implemented and retained only through the F21-05 benchmark;
+F21-06 removes it after the RNS data-plane no-go.
 
-## Outcome
+## Prototype outcome
 
 A minimal, self-contained tunnel transport in a new `rns` subpackage of
 [`internal/tunnel`](../../internal/tunnel)
@@ -14,7 +15,7 @@ The package deliberately does **not** reuse [`internal/transport/rns`](../../int
 (whose `Endpoint` is tuned for the control plane: announces, allocator discovery, protobuf
 Envelope, cluster HMAC challenge, connection registry). It is a fresh, minimal implementation.
 
-## Scope
+## Prototype scope
 
 - `stack.go` — construct a Reticulum-Go `Transport` that is independent of the control-plane
   transport: `EnableTransport = false`, no interface borrowed from the control RNS, only one
