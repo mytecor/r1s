@@ -1,6 +1,11 @@
 # F21-05 — Benchmark and live acceptance
 
-**Status:** ⏳ Planned
+**Status:** 🔄 In progress — the old-vs-new benchmark harness (both connectors, the shared
+workload suite, host record, and the two-stack connect/concurrent/smoke legs) is in
+[`internal/tunnel/benchmark`](../../internal/tunnel/benchmark). The first recorded run surfaced a
+**blocker**: the new RNS data plane cannot sustain a single-stream transfer that outlives ~10s
+(see note below), so the go/no-go before F21-06 is currently **no-go** until it is fixed and the
+full rows can be recorded.
 
 ## Outcome
 
@@ -42,6 +47,17 @@ finally removed in F21-06.
 - `go build ./...`, `go vet ./...`, `go test -race ./...`, and `make check` pass.
 
 ## Notes
+
+- **Blocker found by the first recorded run (2026-09-23):** a sustained 10 MiB single-stream
+  transfer over the private tunnel RNS transport fails with `link not ready` at exactly ~10.0s;
+  the client Link flips ACTIVE → STALE at that instant while the allocator stays ACTIVE. Root
+  cause is Reticulum-Go's keepalive/staleness floor (`keepalive` = `KeepaliveMinSec` = 5s on
+  low-RTT links, `staleTime` = 10s) not the Backbone evWrite race. The BackendGo workaround does
+  not cover it. Recorded in [BACKLOG entry 10](../BACKLOG.md) with the measured curve (1 MiB
+  ~2.3s, 4 MiB ~6.7s, 10×1 MiB concurrent ~9.4s all pass; 10 MiB dies at ~10s) and a gated
+  regression test (`R1S_TEST_SUSTAINED_TUNNEL=1`) in
+  [`internal/tunnel/rns`](../../internal/tunnel/rns). No benchmark rows can be recorded at the
+  acceptance sizes until the transfer survives >10s — this is the F21-06 go/no-go gate.
 
 - If Link establishment turns out to be too expensive, returning multiplexing is a future, separate
   optimization — recorded in [BACKLOG.md](../BACKLOG.md); it is not a blocker for this feature.

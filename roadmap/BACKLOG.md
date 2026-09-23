@@ -69,6 +69,24 @@ This file records unresolved choices so they do not remain implicit in implement
    container port `80`. Authorization stays owner-only on
    the grant; peer-key pinning and one-live-session-per-execution remain. Resolved by
    [F20-01](./f20-client-tunnel-targets/f20-01-client-supplied-target-slots.md).
+10. **Tunnel data plane cannot sustain a >10s single-stream transfer (F21-05)** — found by the
+    F21-05 old-vs-new benchmark on 2026-09-23 (macOS loopback, Reticulum-Go v1.2.0): a sustained
+    10 MiB single-stream transfer over the private tunnel RNS transport fails with `link not
+    ready` at exactly ~10.0s, with the client Link flipping ACTIVE → STALE at that instant while
+    the allocator Link stays ACTIVE. Root cause is Reticulum-Go's keepalive/staleness model, not
+    the Backbone evWrite race the compat adapter (entry 11) already contains: on a low-RTT link
+    `keepalive` floors at `KeepaliveMinSec` (5s) and `staleTime = keepalive * 2` is therefore
+    10s; during a one-direction transfer the sender's `lastInbound` ages as fast as the peer's
+    Channel ACK/proof traffic refreshes it, which on this loopback path does not stay ahead of
+    `staleTime`, so the watchdog CASes the link STALE and `WaitReady` fails the write. Transfers
+    that finish inside `staleTime` pass (1 MiB ~2.3s, 4 MiB ~6.7s, 10×1 MiB concurrent ~9.4s);
+    the defect is time-based, not size-based. Gated by
+    `TestSustainedTransferOutlivesStaleTime` in [`internal/tunnel/rns`](../internal/tunnel/rns)
+    (`R1S_TEST_SUSTAINED_TUNNEL=1`), which reproduces at ~10s. Fix directions to evaluate before
+    F21-06 (no-go until then): upstream the keepalive/stale floor in Reticulum-Go (raise
+    `KeepaliveMinSec` or scale `staleTime` on low-RTT links), or keep the sender's `lastInbound`
+    fresh from its own outbound/delivery receipts — ideally by adding a per-conn keepalive
+    workaround in `reticulum_compat.go` that forces the signal the watchdog needs.
 
 ## Resolved
 
