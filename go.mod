@@ -10,7 +10,7 @@ require (
 	github.com/gologme/log v1.3.0
 	github.com/yggdrasil-network/yggdrasil-go v0.5.14
 	go.etcd.io/bbolt v1.4.3
-	golang.org/x/term v0.46.0
+	golang.org/x/sys v0.48.0
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 )
@@ -74,7 +74,7 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260406210006-6f92a3bedf2d // indirect
 	kernel.org/pub/linux/libs/security/libcap/psx v1.2.77 // indirect

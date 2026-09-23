@@ -1,13 +1,12 @@
 package rns
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"io"
 	"sync"
+	"time"
 
-	"github.com/Quad4-Software/Reticulum-Go/pkg/buffer"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/link"
 	rnstransport "github.com/Quad4-Software/Reticulum-Go/pkg/transport"
@@ -49,12 +48,19 @@ type Conn interface {
 // per established Link.
 type conn struct {
 	link     *link.Link
-	rw       *buffer.Buffer
-	rawW     *buffer.RawChannelWriter
+	stream   *reticulumCompatStream
 	remoteID atomicBytes // verified remote identity hash
 
 	// identified is signalled (closed) when the remote identity is captured.
-	identified chan struct{}
+	identified     chan struct{}
+	identifiedOnce sync.Once
+	// remoteIdentified, when non-nil, is invoked with the verified remote
+	// identity once it is captured, whether that happens via the Link's
+	// identified callback or via awaitIdentification's poll of the Link's
+	// recorded identity.
+	remoteIdentified func([]byte)
+	closed           chan struct{}
+	closedOnce       sync.Once
 
 	closeOnce sync.Once
 	closeErr  error
@@ -94,68 +100,78 @@ func (a *atomicBytes) get() []byte {
 // Channel and teardown to the registered Link guarantees the Conn reads and
 // writes the same channel the transport feeds.
 func newConn(transport *rnstransport.Transport, rnsLink *link.Link, remoteIdentified func([]byte)) (*conn, error) {
-	if registered, ok := transport.FindLink(rnsLink.GetLinkID()).(*link.Link); ok && registered != nil {
-		rnsLink = registered
+	preparedLink, stream, err := tunnelReticulumCompat.prepareConn(transport, rnsLink)
+	if err != nil {
+		return nil, err
 	}
-	ch := rnsLink.GetChannel()
-	// Build the reader and writer directly so the Conn can reach the raw
-	// channel writer for CloseWrite (EOF-marked terminal message).
-	rawR := buffer.NewRawChannelReader(streamID, ch)
-	rawW := buffer.NewRawChannelWriter(streamID, ch)
-	reader := bufio.NewReader(rawR)
-	writer := bufio.NewWriter(rawW)
-	rw := &buffer.Buffer{ReadWriter: bufio.NewReadWriter(reader, writer)}
-	c := &conn{link: rnsLink, rw: rw, rawW: rawW, identified: make(chan struct{})}
+	rnsLink = preparedLink
+	c := &conn{
+		link:             rnsLink,
+		stream:           stream,
+		identified:       make(chan struct{}),
+		remoteIdentified: remoteIdentified,
+		closed:           make(chan struct{}),
+	}
 	rnsLink.SetRemoteIdentifiedCallback(func(_ *link.Link, remote *identity.Identity) {
-		if remote == nil {
-			return
-		}
-		c.remoteID.set(remote.Hash())
-		if remoteIdentified != nil {
-			remoteIdentified(remote.Hash())
-		}
-		select {
-		case <-c.identified:
-		default:
-			close(c.identified)
-		}
+		c.capture(remote)
+	})
+	rnsLink.SetLinkClosedCallback(func(*link.Link) {
+		c.signalClosed()
 	})
 	return c, nil
+}
+
+// capture records the verified remote identity and signals identification. It
+// is the single place the Conn learns who the peer is, reachable from either
+// the Link's identified callback or awaitIdentification's poll of the Link's
+// recorded identity, so both fast-path and late-registration identification
+// converge on the same state.
+func (c *conn) capture(remote *identity.Identity) {
+	if remote == nil {
+		return
+	}
+	c.remoteID.set(remote.Hash())
+	if c.remoteIdentified != nil {
+		c.remoteIdentified(remote.Hash())
+	}
+	c.identifiedOnce.Do(func() {
+		close(c.identified)
+	})
 }
 
 // Read reads from the Link's Buffer. It returns io.EOF when the peer has
 // half-closed (CloseWrite) this direction and the buffer is drained.
 func (c *conn) Read(p []byte) (int, error) {
-	return c.rw.Read(p)
+	return c.stream.Read(p, c.closed)
 }
 
-// Write writes through the Buffer to the Link's Channel. Payloads larger than
-// the RNS MTU are carried as stock Channel messages; no application framing is
-// injected.
+// Write sends and flushes bytes through the compatibility-isolated stock
+// Channel/Buffer stream.
 func (c *conn) Write(p []byte) (int, error) {
-	return c.rw.Write(p)
+	return c.stream.Write(p)
 }
 
 // CloseWrite half-closes the write side: it sends a terminal EOF-marked
 // Channel message so the peer's read side sees io.EOF. It does not tear down
-// the Link. buffer.Buffer.Close only flushes; the EOF-marked message is sent
-// by the raw channel writer's Close, which sets its EOF flag and transmits a
-// terminal zero-length StreamDataMessage.
+// the Link.
 func (c *conn) CloseWrite() error {
-	if err := c.rw.ReadWriter.Writer.Flush(); err != nil {
-		return err
-	}
-	return c.rawW.Close()
+	return c.stream.CloseWrite()
 }
 
 // Close tears down the whole tunnel Link, ending both directions. It is safe
 // to call concurrently with Read/Write/CloseWrite.
 func (c *conn) Close() error {
 	c.closeOnce.Do(func() {
-		_ = c.rawW.Close()
+		c.signalClosed()
 		c.link.Teardown()
 	})
 	return c.closeErr
+}
+
+func (c *conn) signalClosed() {
+	c.closedOnce.Do(func() {
+		close(c.closed)
+	})
 }
 
 // RemoteIdentity returns the verified remote identity hash.
@@ -168,13 +184,36 @@ func (c *conn) RemoteIdentity() []byte { return c.remoteID.get() }
 // the caller supplied a fallback via identifyFrom; that is handled by the
 // edge, not here.
 func (c *conn) awaitIdentification(ctx context.Context) error {
-	select {
-	case <-c.identified:
-		if len(c.remoteID.get()) == 0 {
-			return errors.New("tunnel RNS link closed without identification")
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.identified:
+			if len(c.remoteID.get()) == 0 {
+				return errors.New("tunnel RNS link closed without identification")
+			}
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+		// Reticulum's HandleIdentification records the verified remote identity
+		// regardless of whether the identified callback was registered when the
+		// identification arrived. The peer's Identify may be processed before
+		// Accept/Dial's newConn registers the callback (the registered callback
+		// is captured at HandleIdentification time, and a late registration is
+		// dropped by its once-only guard), so the callback alone is not a
+		// reliable completion signal. Poll the Link's recorded identity to
+		// close that race: whichever of the callback or this poll observes the
+		// identity first completes identification.
+		if remote := c.link.GetRemoteIdentity(); remote != nil {
+			c.capture(remote)
+			return nil
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }

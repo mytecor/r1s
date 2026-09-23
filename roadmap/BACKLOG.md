@@ -130,9 +130,27 @@ This file records unresolved choices so they do not remain implicit in implement
     cross-compile).
 11. **Reticulum-Go is consumed through its canonical GitHub module path** — upstream `v1.2.0`
     publishes `github.com/Quad4-Software/Reticulum-Go` with externally resolvable first-party
-    dependencies. r1s therefore uses the standard Go module graph without local `replace`
-    directives, vendoring, copied dependencies, or a project-maintained fork; the transport adapter
-    remains behind the interface described in [F2](./f2-rns-transport/README.md).
+    dependencies, and the baseline is the standard Go module graph without local `replace`
+    directives, vendoring, copied dependencies, or a project-maintained fork; the transport
+    adapter remains behind the interface described in [F2](./f2-rns-transport/README.md).
+    **Temporary deviation (F21 tunnel data plane):** the private tunnel RNS transport
+    ([F21-01](./f21-tunnel-rns-dataplane/f21-01-tunnel-rns-stack.md)) depends on two defects in
+    `v1.2.0` that are not upstream in `v1.3.0` either — (a) `pkg/channel` inbound
+    emplace/drain/dispatch is not serialized, so the parallel packet-worker pool reorders stream
+    data and corrupts tunnel bytes; (b) `pkg/backbone` hub can clobber its own `evWrite` interest
+    when `QueueSend` races `writeStream`, stranding queued bytes and stalling both tunnel links at
+    ~10s. r1s does not vendor, copy, or locally replace Reticulum-Go. Until the fixes land in a
+    canonical release, the deliberately removable
+    [`reticulum_compat.go`](../internal/tunnel/rns/reticulum_compat.go) adapter registers a
+    per-Link serial ingress proxy and selects Reticulum-Go's public synchronous, process-global
+    Backbone Go backend whenever the tunnel is enabled; startup fails closed if another component
+    already selected a native backend. It also contains the negotiated-MDU writer and blocking
+    reader adaptations required by the same version. It does not change the wire format or add
+    stream framing. Removal is two attachment-point edits documented in that file. The regression
+    coverage in
+    [`internal/tunnel/rns/regression_test.go`](../internal/tunnel/rns/regression_test.go) gates the
+    adapter and its eventual deletion; upstream tracking is
+    [Reticulum-Go issue #17](https://github.com/Quad4-Software/Reticulum-Go/issues/17).
 12. **Bulk application data transfer is out of scope** — the earlier plan for an external,
    capability-authorized data plane (artifact identity, endpoint URIs, Yggdrasil as the first
    network) was removed from the roadmap as undecided work. OCI image distribution remains

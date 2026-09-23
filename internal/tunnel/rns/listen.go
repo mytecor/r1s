@@ -7,26 +7,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Quad4-Software/Reticulum-Go/pkg/backbone"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/destination"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/link"
 )
-
-// ensureBackbone initialises the process-wide backbone I/O hub so Backbone/TCP
-// interfaces can be created. Init is safe to call repeatedly and returns the
-// existing hub. The hub is process-global and intentionally never torn down
-// here: multiple tunnel stacks (allocator + several clients in tests, or a
-// client plus its dial edge) share it, and process exit cleans it up.
-func ensureBackbone() error {
-	if backbone.Get() != nil {
-		return nil
-	}
-	if _, err := backbone.Init(backbone.ParseBackend("")); err != nil {
-		return fmt.Errorf("initialise backbone I/O hub: %w", err)
-	}
-	return nil
-}
 
 // ListenerConfig tunes the allocator-side tunnel edge.
 type ListenerConfig struct {
