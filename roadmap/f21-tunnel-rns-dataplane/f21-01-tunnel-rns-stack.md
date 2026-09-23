@@ -32,12 +32,12 @@ Envelope, cluster HMAC challenge, connection registry). It is a fresh, minimal i
   `tunnel.Conn` (`io.ReadWriteCloser` + `CloseWrite()`); implement the one-Link-per-stream model so
   one local TCP connection is one tunnel stream. Use only stock `Channel`/`Buffer` primitives; no
   custom mux, framing, stream IDs, segmentation, or per-stream flow control.
-- `reticulum_compat.go` — isolate the temporary Reticulum-Go v1.2.0 workarounds behind two
-  removable attachment points: Backbone initialisation and connection preparation. The adapter
-  contains the per-Link serial ingress proxy, negotiated-MDU/blocking Buffer bridge, and public
-  synchronous Backbone Go backend. Do not change the wire format; fail startup if the
-  process-global Backbone hub was already initialised with an unsafe native backend. Remove it when
-  [upstream issue #17](https://github.com/Quad4-Software/Reticulum-Go/issues/17) is released.
+- `backbone.go` (with `compat.go` and `writer.go`) — isolate the temporary Reticulum-Go v1.2.0
+  workarounds behind removable attachment points: Backbone initialisation and connection
+  preparation. The layer contains the per-Link serial ingress proxy, negotiated-MDU/blocking
+  Buffer bridge, and public synchronous Backbone Go backend. Do not change the wire format; fail
+  startup if the process-global Backbone hub was already initialised with an unsafe native
+  backend. Remove it when [upstream issue #17](https://github.com/Quad4-Software/Reticulum-Go/issues/17) is released.
 - Keep the constructor signatures such that the allocator and client edges can be swapped into the
   F21-03/F21-04 integration points without inventing transport-specific protocol types in the core.
 

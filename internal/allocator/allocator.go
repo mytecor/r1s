@@ -1,11 +1,9 @@
-// Package allocator implements transport-independent allocation and execution transitions.
 package allocator
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -17,103 +15,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const (
-	defaultOfferTTL       = 30 * time.Second
-	defaultReplayTTL      = 10 * time.Minute
-	defaultReplayCapacity = 4096
-	// defaultLeaseTTL is the initial lease granted at assignment. A client
-	// extends it with authenticated ExecutionLeaseRenew messages.
-	defaultLeaseTTL = protocol.DefaultLease
-	// maxLeaseTTL bounds a single renewal. It matches the command replay
-	// horizon so a durable lease never outlives the tombstones that guard it.
-	maxLeaseTTL = CommandHorizon
-)
-
-// Config defines local allocator authority and fixed class capacities.
-type Config struct {
-	MaxRecords     int
-	Identity       []byte
-	Capacity       map[string]uint32
-	OfferTTL       time.Duration
-	LeaseTTL       time.Duration
-	ReplayTTL      time.Duration
-	ReplayCapacity int
-	Now            func() time.Time
-	NewID          func() string
-	Store          StateStore
-	Admission      AdmissionPolicy
-	Logs           r1sruntime.LogStore
-	// Tunnel is the allocator-local F14 direct-access tunnel authorization
-	// surface. It is transport-neutral (opaque endpoint bytes, no network
-	// library) and in-memory: grants are never persisted and a restart
-	// invalidates them by construction.
-	Tunnel TunnelConfig
-	// Node is the allocator's bounded local capability metadata. When nil, the
-	// allocator advertises no placement details and only matches empty
-	// constraints (every node accepts every request); an explicit placement
-	// constraint is then rejected so the client is never told a node matches
-	// without evidence.
-	Node *r1sv1.NodeCapabilities
-}
-
-type offerStatus uint8
-
-const (
-	offerOutstanding offerStatus = iota + 1
-	offerAssigned
-	offerExpired
-	offerReleased
-)
-
-type offerRecord struct {
-	offer     *r1sv1.ExecutionOffer
-	request   *r1sv1.ExecutionRequest
-	client    []byte
-	status    offerStatus
-	execution string
-	resources r1sruntime.Resources
-}
-
-type executionRecord struct {
-	id            string
-	offerID       string
-	client        []byte
-	resourceClass string
-	request       *r1sv1.ExecutionRequest
-	phase         r1sv1.ExecutionPhase
-	detail        string
-	exitCode      *int32
-	occurredAt    time.Time
-	startedAt     time.Time
-	released      bool
-	retainUntil   time.Time
-	// leaseUntil is the durable client-held lease expiry. It is zero only for
-	// terminal executions, whose lifetime no longer needs a lease.
-	leaseUntil time.Time
-	revision   uint64
-	resources  r1sruntime.Resources
-}
-
-// OfferSnapshot is a read-only view of allocator offer state.
-type OfferSnapshot struct {
-	Offer       *r1sv1.ExecutionOffer
-	Client      []byte
-	Outstanding bool
-	Assigned    bool
-	Expired     bool
-	Released    bool
-	ExecutionID string
-}
-
-// ExecutionSnapshot is a read-only view of allocator execution state.
-type ExecutionSnapshot struct {
-	ExecutionID   string
-	OfferID       string
-	Client        []byte
-	ResourceClass string
-	Request       *r1sv1.ExecutionRequest
-	State         *r1sv1.ExecutionState
-}
+// maxLeaseTTL bounds a single renewal. It matches the command replay horizon
+// so a durable lease never outlives the tombstones that guard it.
+const maxLeaseTTL = CommandHorizon
 
 // Allocator coordinates command handling around local policy, durable state,
 // capacity accounting, replay protection, and the runtime boundary.
@@ -145,6 +49,12 @@ type Allocator struct {
 }
 
 // New restores or constructs an allocator.
+//
+// New is the allocator's composition root: it validates Config, builds the
+// capacity ledger, replay cache, and tunnel registry, and loads durable state
+// for the allocator's own identity. Command routing happens in Handle
+// (dispatch.go), state transitions in the per-command files, and durable
+// load/persist in state.go.
 func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 	if len(config.Identity) == 0 {
 		return nil, fmt.Errorf("%w: identity is required", ErrInvalidConfig)
@@ -232,65 +142,4 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 		return nil, err
 	}
 	return result, nil
-}
-
-// Handle validates an authenticated envelope and applies one allocator command.
-// Duplicate message IDs from the same sender are acknowledged without mutation.
-func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1sv1.Envelope, error) {
-	if err := protocol.ValidateEnvelope(envelope); err != nil {
-		return nil, err
-	}
-	if err := a.checkFreshness(envelope); err != nil {
-		return a.errorResponse(envelope, err), err
-	}
-	if envelope.GetExecutionLogsRequest() != nil {
-		return a.handleLogs(ctx, envelope)
-	}
-	switch envelope.GetPayload().(type) {
-	case *r1sv1.Envelope_ExecutionRequest, *r1sv1.Envelope_ExecutionAssign, *r1sv1.Envelope_ExecutionCancel, *r1sv1.Envelope_ExecutionInspect, *r1sv1.Envelope_ExecutionOfferRelease, *r1sv1.Envelope_ExecutionLeaseRenew, *r1sv1.Envelope_ExecutionTunnelGrant:
-	default:
-		return nil, ErrUnsupportedMessage
-	}
-
-	replayKey := authorityKey(envelope.GetSender(), envelope.GetMessageId())
-	entry, duplicate, replayErr := a.beginReplay(replayKey, envelope, a.now().UTC())
-	if replayErr != nil {
-		return a.errorResponse(envelope, replayErr), replayErr
-	}
-	if duplicate {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-entry.done:
-			return cloneEnvelopes(entry.responses), entry.err
-		}
-	}
-
-	var responses []*r1sv1.Envelope
-	var err error
-	switch payload := envelope.GetPayload().(type) {
-	case *r1sv1.Envelope_ExecutionRequest:
-		responses, err = a.handleRequest(envelope, payload.ExecutionRequest)
-	case *r1sv1.Envelope_ExecutionAssign:
-		responses, err = a.handleAssign(ctx, envelope, payload.ExecutionAssign)
-	case *r1sv1.Envelope_ExecutionCancel:
-		responses, err = a.handleCancel(ctx, envelope, payload.ExecutionCancel)
-	case *r1sv1.Envelope_ExecutionInspect:
-		responses, err = a.handleInspect(envelope, payload.ExecutionInspect)
-	case *r1sv1.Envelope_ExecutionOfferRelease:
-		responses, err = a.handleOfferRelease(envelope, payload.ExecutionOfferRelease)
-	case *r1sv1.Envelope_ExecutionLeaseRenew:
-		responses, err = a.handleLeaseRenew(envelope, payload.ExecutionLeaseRenew)
-	case *r1sv1.Envelope_ExecutionTunnelGrant:
-		responses, err = a.handleTunnelGrant(envelope, payload.ExecutionTunnelGrant)
-	default:
-		panic("payload type checked above")
-	}
-	if err != nil && len(responses) == 0 {
-		responses = a.errorResponse(envelope, err)
-	}
-	if persistErr := a.finishReplay(entry, responses, err); persistErr != nil {
-		err = errors.Join(err, persistErr)
-	}
-	return responses, err
 }

@@ -86,7 +86,7 @@ This file records unresolved choices so they do not remain implicit in implement
     F21-06 (the gate was no-go until then): upstream the keepalive/stale floor in Reticulum-Go (raise
     `KeepaliveMinSec` or scale `staleTime` on low-RTT links), or keep the sender's `lastInbound`
     fresh from its own outbound/delivery receipts — ideally by adding a per-conn keepalive
-    workaround in `reticulum_compat.go` that forces the signal the watchdog needs.
+    workaround in `compat.go` (`newReticulumCompatStream`'s keepalive beacon) that forces the signal the watchdog needs.
 
     **Resolved (2026-09-23):** the private-tunnel compat adapter now keeps every established Link
     out of the staleness timeout. Each edge runs a liveness beacon (`newReticulumCompatStream` +
@@ -179,15 +179,16 @@ This file records unresolved choices so they do not remain implicit in implement
     when `QueueSend` races `writeStream`, stranding queued bytes and stalling both tunnel links at
     ~10s. r1s does not vendor, copy, or locally replace Reticulum-Go. Until the fixes land in a
     canonical release, the deliberately removable
-    [`reticulum_compat.go`](../internal/tunnel/rns/reticulum_compat.go) adapter registers a
-    per-Link serial ingress proxy and selects Reticulum-Go's public synchronous, process-global
+    compatibility layer under [`internal/tunnel/rns`](../internal/tunnel/rns) (split across
+    `backbone.go`, `compat.go`, and `writer.go`) registers a per-Link serial ingress proxy and
+    selects Reticulum-Go's public synchronous, process-global
     Backbone Go backend whenever the tunnel is enabled; startup fails closed if another component
     already selected a native backend. It also contains the negotiated-MDU writer, blocking
     reader, and sender-side uncompressed Buffer policy required by the same version. The latter
     emits the existing `StreamDataMessage` form with `compressed=false`, which remains fully
     interoperable with Python RNS while avoiding three failed bzip2 probes per incompressible
-    tunnel fragment. It does not change the wire format or add stream framing. Removal is two
-    attachment-point edits documented in that file. The regression coverage in
+    tunnel fragment. It does not change the wire format or add stream framing. Removal is a few
+    attachment-point edits documented in those files. The regression coverage in
     [`internal/tunnel/rns/regression_test.go`](../internal/tunnel/rns/regression_test.go) gates the
     adapter and its eventual deletion; upstream tracking is
     [Reticulum-Go issue #17](https://github.com/Quad4-Software/Reticulum-Go/issues/17) for

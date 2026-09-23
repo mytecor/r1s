@@ -12,6 +12,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// This file is the durable lease-holding intent policy of the client: how a
+// lease is recorded, probed, rebound, and reported as lost. The protocol side
+// — how the client reacts to a renewal ack or an explicit lease loss — lives
+// in lease_ack.go. The intent record is the client's own durable memory; the
+// ack handlers are the reaction to allocator replies.
+
 // clientDefaultLease is the lease duration recorded by a bare Maintain call
 // when no explicit duration is supplied. It matches the allocator's default
 // initial lease so one-shot callers renew at a sane cadence.
@@ -196,6 +202,8 @@ func (o *Client) LostLeaseIntents() []string {
 	return lost
 }
 
+// RequestForExecution returns the recorded workload request backing one
+// execution, so a re-request after lease loss can replay it verbatim.
 func (o *Client) RequestForExecution(executionID string) (*r1sv1.ExecutionRequest, bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -247,66 +255,4 @@ func (o *Client) RebindLeaseIntent(oldExecutionID, newExecutionID string) error 
 		return err
 	}
 	return nil
-}
-
-// handleRenewAckLocked applies an allocator lease-renewal ack. Callers must
-// hold o.mu.
-func (o *Client) handleRenewAckLocked(envelope *r1sv1.Envelope, ack *r1sv1.ExecutionLeaseRenewAck) error {
-	record := o.executions[ack.GetExecutionId()]
-	if record == nil {
-		return ErrExecutionNotFound
-	}
-	// An empty pending renewal never matches: an ack without a correlation ID
-	// cannot authorize itself even when it comes from the right allocator.
-	if record.leaseRenewMessageID == "" || !bytes.Equal(record.allocatorID, envelope.GetSender()) || record.leaseRenewMessageID != envelope.GetCorrelationId() {
-		return ErrUnauthorized
-	}
-	if record.leaseLost {
-		return ErrConflict
-	}
-	previousID := record.leaseRenewMessageID
-	previousRenewedAt := record.leaseRenewedAt
-	record.leaseRenewMessageID = ""
-	record.leaseRenewedAt = o.now().UTC()
-	record.leaseExpiresAt = ack.GetExpiresAt().AsTime()
-	if err := o.persistLocked(context.Background()); err != nil {
-		record.leaseRenewMessageID = previousID
-		record.leaseRenewedAt = previousRenewedAt
-		record.leaseExpiresAt = time.Time{}
-		return err
-	}
-	return nil
-}
-
-// markRenewalFailureLocked reacts to a renewal command error. Only an
-// authoritative loss (the execution is gone or its result expired) converts
-// the intent to a re-request; transient failures keep the intent for retry.
-// Callers must hold o.mu.
-func (o *Client) markRenewalFailureLocked(executionID, code string) {
-	switch code {
-	case "NOT_FOUND", "EXPIRED":
-	default:
-		return
-	}
-	if record := o.executions[executionID]; record != nil {
-		record.leaseRenewMessageID = ""
-		record.leaseLost = true
-		_ = o.persistLocked(context.Background())
-	}
-}
-
-func (o *Client) markLeaseLostLocked(record *executionRecord) (string, *r1sv1.Envelope, bool, error) {
-	record.leaseLost = true
-	if err := o.persistLocked(context.Background()); err != nil {
-		record.leaseLost = false
-		return "", nil, false, err
-	}
-	return record.destination, nil, true, nil
-}
-
-// isLostLeaseState reports whether an observed terminal state marks an
-// execution evicted for lease expiry, which is distinguishable from a client
-// cancellation and from an ordinary workload failure.
-func isLostLeaseState(state *r1sv1.ExecutionState) bool {
-	return state.GetPhase() == r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED && state.GetDetail() == protocol.LeaseExpiredDetail
 }

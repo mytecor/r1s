@@ -5,70 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	r1sruntime "github.com/mytecor/r1s/internal/runtime"
-	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
 	"google.golang.org/protobuf/proto"
 )
 
-const stateVersion = 2
-
 // StateStore atomically loads and saves one opaque allocator snapshot.
 // Implementations must not retain or mutate the supplied byte slices.
+// The durable schema itself lives in state_schema.go.
 type StateStore interface {
 	Load(context.Context) ([]byte, error)
 	Save(context.Context, []byte) error
-}
-
-type persistedState struct {
-	HighWater  time.Time            `json:"high_water,omitempty"`
-	Tombstones map[string]tombstone `json:"tombstones,omitempty"`
-	Version    int                  `json:"version"`
-	Identity   []byte               `json:"identity"`
-	Offers     []persistedOffer     `json:"offers,omitempty"`
-	Executions []persistedExecution `json:"executions,omitempty"`
-	Replay     []persistedReplay    `json:"replay,omitempty"`
-}
-
-type persistedOffer struct {
-	Resources    r1sruntime.Resources `json:"resources,omitzero"`
-	Offer        []byte               `json:"offer"`
-	Request      []byte               `json:"request"`
-	Client       []byte               `json:"client,omitempty"`
-	LegacySender []byte               `json:"owner,omitempty"`
-	Status       offerStatus          `json:"status"`
-	Execution    string               `json:"execution,omitempty"`
-}
-
-type persistedExecution struct {
-	RetainUntil   time.Time            `json:"retain_until,omitempty"`
-	LeaseUntil    time.Time            `json:"lease_until,omitempty"`
-	Resources     r1sruntime.Resources `json:"resources,omitzero"`
-	ID            string               `json:"id"`
-	OfferID       string               `json:"offer_id"`
-	Client        []byte               `json:"client,omitempty"`
-	LegacySender  []byte               `json:"owner,omitempty"`
-	ResourceClass string               `json:"resource_class"`
-	Request       []byte               `json:"request"`
-	Phase         r1sv1.ExecutionPhase `json:"phase"`
-	Detail        string               `json:"detail,omitempty"`
-	ExitCode      *int32               `json:"exit_code,omitempty"`
-	OccurredAt    time.Time            `json:"occurred_at"`
-	StartedAt     time.Time            `json:"started_at"`
-	Released      bool                 `json:"released"`
-	Revision      uint64               `json:"revision,omitempty"`
-}
-
-type persistedReplay struct {
-	Key       string    `json:"key"`
-	SeenAt    time.Time `json:"seen_at"`
-	Envelope  []byte    `json:"envelope"`
-	Responses [][]byte  `json:"responses,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	ErrorCode string    `json:"error_code,omitempty"`
-	Complete  bool      `json:"complete"`
 }
 
 func (a *Allocator) loadLocked(ctx context.Context) error {
