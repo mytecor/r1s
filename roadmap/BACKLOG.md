@@ -107,6 +107,18 @@ This file records unresolved choices so they do not remain implicit in implement
     `lastOutbound` advances; an upstream fix should refresh `lastInbound` (or treat a validated peer
     proof for outbound data as activity) — see decision 20 and
     [F21-05](./f21-tunnel-rns-dataplane/f21-05-benchmark-live-acceptance.md).
+11. **Shared-instance RNS transport** — whether r1s should run against an already-running RNS
+    shared instance instead of each process embedding a private, isolated Reticulum stack is
+    undecided and unimplemented. Reticulum-Go fully supports the model (`pkg/sharedinstance` with
+    `ModeDisabled`/`ModeServer`/`ModeClient`, Unix-abstract-socket or TCP, a msgpack RPC server,
+    and Python-RNS interop), but r1s never wires it: `internal/transport/rns/stack.go` always calls
+    `rnstransport.NewTransport(config)` directly and no `ShareInstance`/`SharedInstanceType`/
+    `InstanceName` config reaches `pkg/common/shared_instance.go`. A shared instance would let
+    several r1s processes — and r1s alongside the stock Python RNS tools — reuse one RNS daemon.
+    Backward compatibility with the current private per-process stack is deliberately **not**
+    retained; the shared-instance path becomes the standard bootstrap. The change is addititve to
+    the transport configuration and must not change the wire protocol, authority model, lease
+    semantics, or Protobuf schema. Planned as [F22](./f22-rns-shared-instance/README.md).
 
 ## Resolved
 
