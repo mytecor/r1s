@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -39,16 +38,6 @@ type daemon struct {
 	// tunnelStaticEndpoint carries an explicitly configured advertisement when
 	// the embedded edge is off (--tunnel-endpoint/--tunnel-endpoint-pubkey).
 	tunnelStaticEndpoint tunnel.Endpoint
-}
-
-// tunnelEndpointAdvertisement returns the endpoint advertisement handed to
-// minted grants: the running edge's address and node key when the edge is on,
-// the explicitly configured static value otherwise.
-func (d *daemon) tunnelEndpointAdvertisement() tunnel.Endpoint {
-	if d.tunnel != nil {
-		return d.tunnel.listener.Endpoint()
-	}
-	return d.tunnelStaticEndpoint
 }
 
 func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writer) (*daemon, error) {
@@ -164,40 +153,6 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 		return nil, err
 	}
 	return result, nil
-}
-
-func readAdmission(path string, capacity map[string]uint32) (allocator.AdmissionPolicy, error) {
-	var reader io.Reader
-	if path != "" {
-		file, err := os.Open(path)
-		if err != nil {
-			return allocator.AdmissionPolicy{}, err
-		}
-		defer file.Close()
-		reader = file
-	}
-	admission, err := allocator.ReadAdmission(reader, capacity)
-	if err != nil {
-		return allocator.AdmissionPolicy{}, fmt.Errorf("admission policy: %w", err)
-	}
-	return admission, nil
-}
-
-func (d *daemon) handleEnvelope(_ context.Context, envelope *r1sv1.Envelope) error {
-	responses, handleErr := d.core.Handle(context.Background(), envelope)
-	if handleErr != nil {
-		d.logger.Printf("reject message %q from %x: %v", envelope.GetMessageId(), envelope.GetSender(), handleErr)
-	}
-	var responseErr error
-	for _, response := range responses {
-		sendContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		sendErr := d.endpoint.Send(sendContext, hex.EncodeToString(envelope.GetSender()), response)
-		cancel()
-		if sendErr != nil {
-			responseErr = errors.Join(responseErr, fmt.Errorf("send response: %w", sendErr))
-		}
-	}
-	return errors.Join(handleErr, responseErr)
 }
 
 func (d *daemon) serve(ctx context.Context) error {
