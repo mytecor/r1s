@@ -260,7 +260,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > persistence remains. The switch is intentionally incompatible: old client state and CLI surfaces
 > are not migrated or supported.
 
-- **Status:** 🚧 in progress — F22-01 through F22-05 complete
+- **Status:** 🚧 in progress — F22-01 through F22-06 complete
 - **Done when:** `r1s run` owns discovery, deterministic placement, leases, rescheduling, log
   tailing, and tunnels across stable `run_id`/monotonic attempts; detached runs retain output;
   cluster choice is explicit; production transport requires a shared RNS instance; legacy client
@@ -318,7 +318,14 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   ownership, authenticated inspection recovery, conclusive-loss rescheduling, best-effort signal
   cancellation, workload-derived exit status, foreground byte-offset log tailing, and detached runs
   that record PID and output under `~/.local/state/r1s/runs/<run-id>/` with a `-d` ownership
-  handshake. The remaining tasks add run-owned tunnels, then remove the legacy client DB and local API.
+  handshake. F22-05 makes foreground and detached run output continuous (bounded retained logs with
+  byte-offset tailing and resumed appends after reschedule). F22-06 moves the tunnel surface into
+  repeatable `r1s run [-p host:container]`, replacing the mint/grant flow with an additive
+  owner-authenticated open handshake: the allocator binds the authenticated run owner's edge key and
+  container ports to the execution for its lifetime (no grant ID/TTL/single-use), and a run
+  process's loopback listeners stay bound across reschedules while each new stream is authenticated
+  and spliced to the currently active execution. The remaining task removes the legacy client DB
+  and local API.
 
 The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
 (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live

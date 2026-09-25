@@ -1,28 +1,16 @@
 package tunnel
 
-import "time"
-
-// Grant is a minted, single-use, execution-scoped access grant.
-type Grant struct {
-	ExecutionID string
-	ID          string
-	ExpiresAt   time.Time
-}
-
-// grantState is the mutable grant record: identity and single-use consumption.
-type grantState struct {
-	id        string
-	expiresAt time.Time
-	consumed  bool
-}
-
-// record is the grant-and-session state for one execution.
+// record is the mutable tunnel state for one execution: the owner-bound edge
+// peer key and target list, the allocator endpoint advertisement, and the
+// single live session. It replaces the retired grant token (F22-06): there is
+// no grant ID, no TTL, and no single-use consumption. The binding is
+// established by the authenticated owner's ExecutionTunnelOpen and lives for
+// the execution's lifetime; an allocator restart drops it (the run re-opens).
 type record struct {
 	executionID string
 	peerKey     []byte
 	targets     []Target
 	endpoint    Endpoint
-	grant       *grantState
 	session     *Session
 }
 

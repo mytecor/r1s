@@ -57,7 +57,7 @@ func (e *tunnelEdge) runAcceptLoop(ctx context.Context, core *allocator.Allocato
 			// the tunnel edge down.
 			return
 		}
-		session, err := core.AcceptTunnel(incoming.Preamble().ExecutionID, incoming.Preamble().GrantID, incoming.PeerKey())
+		session, err := core.OpenTunnelSession(incoming.Preamble().ExecutionID, incoming.PeerKey())
 		if err != nil {
 			_ = incoming.Reject(classifyRejection(err), err.Error())
 			continue
@@ -105,11 +105,7 @@ func classifyRejection(err error) tunnel.Reason {
 	switch {
 	case errors.Is(err, allocator.ErrUnauthorized), errors.Is(err, tunnel.ErrPeerKeyMismatch), errors.Is(err, tunnel.ErrUnknownTargetPort):
 		return tunnel.ReasonUnauthorized
-	case errors.Is(err, tunnel.ErrGrantExpired):
-		return tunnel.ReasonGrantExpired
-	case errors.Is(err, tunnel.ErrGrantNotFound), errors.Is(err, tunnel.ErrGrantReused):
-		return tunnel.ReasonGrantRejected
-	case errors.Is(err, tunnel.ErrSessionBusy):
+	case errors.Is(err, tunnel.ErrTunnelNotBound), errors.Is(err, tunnel.ErrSessionBusy):
 		return tunnel.ReasonGrantRejected
 	case errors.Is(err, allocator.ErrExecutionNotFound), errors.Is(err, allocator.ErrInvalidTransition):
 		return tunnel.ReasonExecutionEnded

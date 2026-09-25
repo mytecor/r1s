@@ -9,15 +9,12 @@ import (
 
 	"github.com/mytecor/r1s/internal/cluster"
 	"github.com/mytecor/r1s/internal/localserver"
-	"github.com/mytecor/r1s/internal/tunnel/yggdrasil"
 )
 
 // serveOptions are parsed from `r1s serve`.
 type serveOptions struct {
-	socketPath  string
-	permission  uint32
-	tunnel      bool
-	tunnelPeers []string
+	socketPath string
+	permission uint32
 }
 
 // serve runs the persistent local client behind a versioned gRPC API on a Unix
@@ -38,24 +35,6 @@ func (a *application) serve(args []string, stderr io.Writer) error {
 	}
 	defer a.stop(stderr)
 
-	// Construct the client-side tunnel edge for this serve process. The edge
-	// derives its overlay node key from the client identity (F14-01), so grants
-	// and sessions survive reconnects within their TTL. The edge starts eagerly
-	// with the service (the same policy as the allocator side); a failure to
-	// build it is reported here so `r1s tunnel` later fails with a clear
-	// reason instead of a silent "edge not configured".
-	if options.tunnel {
-		node, nodeErr := yggdrasil.NewNode(a.identity, yggdrasil.ClientNodeKeyContext, yggdrasil.NodeOptions{Peers: options.tunnelPeers})
-		if nodeErr != nil {
-			fmt.Fprintf(stderr, "serve: tunnel edge: %v (tunnel sessions unavailable)\n", nodeErr)
-		} else if dialer, dialerErr := yggdrasil.NewDialer(node); dialerErr != nil {
-			_ = node.Close()
-			fmt.Fprintf(stderr, "serve: tunnel edge: %v (tunnel sessions unavailable)\n", dialerErr)
-		} else {
-			a.tunnelDialer = dialer
-		}
-	}
-
 	go a.runLeaseMaintainer(a.ctx, stderr)
 
 	fmt.Fprintf(stderr, "serving local client API on %s\n", options.socketPath)
@@ -67,8 +46,6 @@ func parseServeOptions(args []string, stderr io.Writer) (serveOptions, error) {
 	flags := newFlagSet("r1s serve", stderr)
 	socketPath := flags.String("socket", "", "Unix socket path (defaults to ~/.config/r1s/<identity>.sock)")
 	permission := flags.Uint64("socket-mode", 0o600, "Unix socket permission bits")
-	tunnelEnabled := flags.Bool("tunnel", false, "enable the direct-access tunnel edge (F14); start the embedded Yggdrasil node for tunnel sessions")
-	tunnelPeers := flags.String("tunnel-peer", "", "comma-separated bootstrap peer URIs for the tunnel edge (defaults to the public Yggdrasil overlay)")
 	if err := flags.Parse(args); err != nil {
 		return serveOptions{}, err
 	}
@@ -86,10 +63,8 @@ func parseServeOptions(args []string, stderr io.Writer) (serveOptions, error) {
 		*socketPath = path
 	}
 	return serveOptions{
-		socketPath:  *socketPath,
-		permission:  uint32(*permission),
-		tunnel:      *tunnelEnabled,
-		tunnelPeers: tunnelPeerList(*tunnelPeers),
+		socketPath: *socketPath,
+		permission: uint32(*permission),
 	}, nil
 }
 

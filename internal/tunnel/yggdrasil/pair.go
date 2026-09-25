@@ -22,12 +22,13 @@ import (
 //   - Client edge: the caller registers a pair (mux.register), writes the
 //     routing preamble through WritePreamble, waits for the allocator's accept
 //     frame, then opens one or more streams with OpenStream. Each stream
-//     carries an optional target_slot in its stream-open frame.
+//     names the container port it is spliced to in its stream-open frame.
 //   - Allocator edge: mux.accept returns a pending pair whose preamble has
-//     arrived. The allocator core validates it (AcceptTunnel -> a Session with
-//     the slot list), then Authorize sets the slot list and sends the accept
+//     arrived. The allocator core opens the execution's owner-authenticated
+//     session (OpenTunnelSession -> a Session carrying the client-supplied
+//     target port list), then Authorize pins the session and sends the accept
 //     frame. From then on the pair opens allocator-side streams for authorized
-//     stream-open frames and pushes them (with their resolved target) to
+//     stream-open frames and pushes them (with their resolved target port) to
 //     AcceptStream, so the r1sd edge can splice each stream independently.
 //
 // Packets arrive through the pair's owner mux, which routes a decoded frame to
@@ -49,8 +50,8 @@ type pairConn struct {
 	nextID   uint32
 	closed   bool
 	closeErr error
-	// session is the allocator-validated session (with the slot list) set by
-	// Authorize; nil on the client edge.
+	// session is the allocator-validated session (with the client-supplied
+	// target port list) set by Authorize; nil on the client edge.
 	session *tunnel.Session
 	// clientReady is set once the allocator's accept frame arrived, so the
 	// client edge may open streams.

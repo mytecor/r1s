@@ -1,6 +1,6 @@
 # F22-06 — Run-owned published ports and tunnel rebinding
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete
 
 ## Outcome
 

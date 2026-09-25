@@ -100,13 +100,11 @@ func TestPairCloseUnblocksStreams(t *testing.T) {
 
 func TestRegistryInvalidationClosesPair(t *testing.T) {
 	client, allocator := establishPair(t)
-	registry, _ := tunnel.NewRegistry(tunnel.RegistryConfig{NewID: func() string { return "g" }})
-	now := time.Now()
-	grant, err := registry.Mint("e", clientKey, []tunnel.Target{{Port: 9000}}, tunnel.Endpoint{}, time.Minute, now)
-	if err != nil {
+	registry := tunnel.NewRegistry()
+	if err := registry.Bind("e", clientKey, []tunnel.Target{{Port: 9000}}, tunnel.Endpoint{}); err != nil {
 		t.Fatal(err)
 	}
-	session, err := registry.Accept("e", grant.ID, clientKey, now)
+	session, err := registry.Open("e", clientKey)
 	if err != nil {
 		t.Fatal(err)
 	}

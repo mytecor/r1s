@@ -16,7 +16,6 @@ import (
 	"github.com/mytecor/r1s/internal/client"
 	"github.com/mytecor/r1s/internal/localserver"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
-	"github.com/mytecor/r1s/internal/tunnel"
 )
 
 // TestServiceBackedCLIMatchesDirectWorkflow proves F13-02 acceptance: the same
@@ -30,7 +29,6 @@ type cliWorkflowBackend struct {
 	clientCore *client.Client
 	allocator  *allocator.Allocator
 	now        time.Time
-	tunnelConn func(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error)
 }
 
 func (b *cliWorkflowBackend) RunRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration, constraints *r1sv1.PlacementConstraints) (string, string, []byte, error) {
@@ -151,15 +149,6 @@ func (b *cliWorkflowBackend) WatchAfter(ctx context.Context, after uint64) ([]cl
 
 func (b *cliWorkflowBackend) SubscribeWatch(ctx context.Context, observer func(client.WatchEvent)) (cancel func()) {
 	return func() {}
-}
-
-// Tunnel is not exercised by the workflow equivalence tests unless a tunnel
-// connector is injected.
-func (b *cliWorkflowBackend) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error) {
-	if b.tunnelConn != nil {
-		return b.tunnelConn(ctx, executionID, targets, targetPort)
-	}
-	return nil, "", fmt.Errorf("tunnel: not exercised")
 }
 
 // newCLIWorkflowBackend builds a real client + allocator pair over one clock.

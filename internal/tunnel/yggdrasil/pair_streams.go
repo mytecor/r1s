@@ -110,14 +110,14 @@ func (p *pairConn) openAllocatorStream(f frame) {
 	case p.incoming <- &IncomingStream{Conn: s, Target: target, ID: f.streamID}:
 	default:
 		// The edge is not keeping up; drop the newest stream rather than grow
-		// unbounded. The client's stream on this slot fails to splice.
+		// unbounded. The client's stream on this port fails to splice.
 		p.remove(f.streamID)
 		p.writeFrame(frameTypeClose, f.streamID, closePayload(tunnel.ReasonSessionFailed, "allocator edge is not accepting streams"))
 	}
 }
 
 // Authorize marks the allocator-side pair validated and sends the accept frame.
-// session carries the slot list the pair resolves stream-opens against.
+// session carries the target port list the pair resolves stream-opens against.
 func (p *pairConn) Authorize(session *tunnel.Session) error {
 	p.mu.Lock()
 	if p.closed {
@@ -168,7 +168,7 @@ func (p *pairConn) AcceptStream() (*IncomingStream, error) {
 }
 
 // IncomingStream is one allocator-side stream, authorized and ready to splice.
-// It carries the resolved target slot the edge splices to and the byte stream.
+// It carries the resolved target port the edge splices to and the byte stream.
 type IncomingStream struct {
 	Conn   tunnel.Conn
 	Target tunnel.Target

@@ -137,7 +137,7 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 		Identity: identityHash, Capacity: options.capacity, Store: result.stateStore,
 		Admission: admission, Logs: logs, MaxRecords: options.maxRecords, Node: node,
 		Tunnel: allocator.TunnelConfig{
-			Enabled: options.tunnelEnabled, GrantTTL: options.tunnelGrantTTL,
+			Enabled:  options.tunnelEnabled,
 			Endpoint: result.tunnelEndpointAdvertisement(),
 		},
 	}, result.runtime)

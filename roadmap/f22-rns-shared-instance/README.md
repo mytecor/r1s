@@ -2,7 +2,7 @@
 
 Corresponds to the [F22 milestone](../../ROADMAP.md#f22-shared-instance-rns-and-run-oriented-client).
 
-**Status:** 🚧 In progress — F22-01 through F22-05 complete
+**Status:** 🚧 In progress — F22-01 through F22-06 complete
 
 ## Outcome
 
@@ -91,5 +91,5 @@ not migrated or supported after the switch.
 - [F22-03 — Multi-cluster credential store and explicit selection](./f22-03-cluster-selection.md) — complete
 - [F22-04 — Ephemeral run engine and deterministic placement](./f22-04-run-engine.md) — complete
 - [F22-05 — Foreground and detached log continuity](./f22-05-detached-logs.md) — complete
-- [F22-06 — Run-owned published ports and tunnel rebinding](./f22-06-run-tunnels.md)
+- [F22-06 — Run-owned published ports and tunnel rebinding](./f22-06-run-tunnels.md) — complete
 - [F22-07 — Legacy client removal and allocator-local retention](./f22-07-client-cleanup.md)

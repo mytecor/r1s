@@ -39,7 +39,7 @@ func TestListenerAcceptSurvivesMalformedPreamble(t *testing.T) {
 
 	validKey := []byte("valid-peer-key-00000000000000000000")
 	validPair := newPair(newTestPacketIO(), validKey, validKey, m)
-	validPreamble := encodePreamble(tunnel.Preamble{ExecutionID: "exec-1", GrantID: "grant-1"})
+	validPreamble := encodePreamble(tunnel.Preamble{ExecutionID: "exec-1"})
 	validPair.mu.Lock()
 	validPair.raw = appendFrame(nil, frameTypePreamble, streamIDNone, validPreamble)
 	validPair.mu.Unlock()
@@ -62,7 +62,7 @@ func TestListenerAcceptSurvivesMalformedPreamble(t *testing.T) {
 			done <- err
 			return
 		}
-		if sess.Preamble() != (tunnel.Preamble{ExecutionID: "exec-1", GrantID: "grant-1"}) {
+		if sess.Preamble() != (tunnel.Preamble{ExecutionID: "exec-1"}) {
 			done <- fmt.Errorf("preamble mismatch: %+v", sess.Preamble())
 			return
 		}

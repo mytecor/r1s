@@ -4,68 +4,54 @@ import (
 	"bytes"
 	"errors"
 	"sync"
-	"time"
 )
 
-// RegistryConfig controls grant identity generation.
-type RegistryConfig struct {
-	// NewID generates a unique grant ID. Required.
-	NewID func() string
-}
-
 // Registry is the allocator-side in-memory registry of per-execution tunnel
-// grants and active sessions (F14-01). It stores exactly one record per
-// execution: a repeat mint replaces an outstanding unconfirmed grant, a re-mint
-// immediately after a session close is instantaneous, and the single live
-// session per execution is enforced at accept, not at mint.
+// bindings and active sessions (F22-06). It stores exactly one record per
+// execution: a repeat open replaces the outstanding binding (repinning the peer
+// key and target list), a re-open immediately after a session close is
+// instantaneous, and the single live session per execution is enforced at
+// accept, not at bind.
 //
 // The registry is deliberately not persisted: after an allocator restart the
-// client simply requests a new grant. Expiry is evaluated lazily at mint and
-// at accept; there is no TTL sweeper goroutine. Revocation is record removal
-// via Invalidate. Callers must hold their own execution authority; this
-// registry only manages grant and session lifecycle.
+// client simply re-declares a fresh authenticated open. There is no TTL
+// sweeper goroutine because there is no TTL: the binding lives for the
+// execution's lifetime and is revoked by record removal via Invalidate (a
+// terminal execution) or CloseSession (an ended session). Callers must hold
+// their own execution authority; this registry only manages binding and
+// session lifecycle.
 type Registry struct {
 	mu      sync.Mutex
-	newID   func() string
 	records map[string]*record
 }
 
 // NewRegistry constructs an empty registry.
-func NewRegistry(config RegistryConfig) (*Registry, error) {
-	if config.NewID == nil {
-		return nil, errors.New("invalid tunnel registry configuration: ID generator is required")
-	}
-	return &Registry{
-		newID:   config.NewID,
-		records: make(map[string]*record),
-	}, nil
+func NewRegistry() *Registry {
+	return &Registry{records: make(map[string]*record)}
 }
 
-// Mint creates the outstanding grant for one execution, or replaces a
-// previously minted, still-unconsumed grant. The peer key, target slot list,
-// and endpoint from the grant request are pinned into the record; a repeat
-// mint with new values repins all three. A mint while a session is active
-// replaces the outstanding grant without disturbing the session — the
-// per-execution cap of one session is enforced at accept. Expiry is granted
-// from now; a TTL is not tracked in the record because it is evaluated lazily
-// at accept.
+// Bind records the authenticated owner's tunnel declaration for one execution
+// (F22-06): the client's edge node public key and container-port target list
+// are bound to the execution, replacing any previously bound values. A bind
+// while a session is active replaces the binding without disturbing the
+// session — each open stream still resolves its target against the bound list
+// recorded at the time it is authorized, and the per-execution cap of one
+// session is enforced at accept. The endpoint advertisement is the allocator's
+// transport-neutral overlay destination returned in the open ack.
 //
-// targets is the client-supplied container port list bound into the grant.
-func (r *Registry) Mint(executionID string, peerKey []byte, targets []Target, endpoint Endpoint, ttl time.Duration, now time.Time) (Grant, error) {
+// Bind itself is not authorization: the caller (the allocator) must first
+// verify the authenticated transport sender is the execution owner. targets is
+// the client-supplied container port list bound to the execution.
+func (r *Registry) Bind(executionID string, peerKey []byte, targets []Target, endpoint Endpoint) error {
 	if executionID == "" {
-		return Grant{}, errors.New("invalid tunnel grant: execution ID is required")
+		return errors.New("tunnel binding: execution ID is required")
 	}
-	if ttl <= 0 {
-		return Grant{}, errors.New("invalid tunnel grant: grant TTL must be positive")
+	if len(peerKey) == 0 {
+		return errors.New("tunnel binding: peer key is required")
 	}
 	if len(targets) == 0 {
-		return Grant{}, errors.New("invalid tunnel grant: at least one target port is required")
+		return errors.New("tunnel binding: at least one target port is required")
 	}
-	id := r.newID()
-	if id == "" {
-		return Grant{}, errors.New("invalid tunnel registry: ID generator returned an empty ID")
-	}
-	expiresAt := now.Add(ttl)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	rec := r.records[executionID]
@@ -76,53 +62,38 @@ func (r *Registry) Mint(executionID string, peerKey []byte, targets []Target, en
 	rec.peerKey = append([]byte(nil), peerKey...)
 	rec.targets = cloneTargets(targets)
 	// Clone the endpoint slices: the caller owns the backing arrays and may
-	// reuse them, and the record outlives the Mint call. peerKey is cloned
+	// reuse them, and the record outlives the Bind call. peerKey is cloned
 	// above for the same reason.
 	rec.endpoint = Endpoint{
 		Address: append([]byte(nil), endpoint.Address...),
 		PubKey:  append([]byte(nil), endpoint.PubKey...),
 	}
-	// A repeat mint replaces the outstanding grant, keeping any active session
-	// intact; the new grant is unconsumed and single-use.
-	rec.grant = &grantState{id: id, expiresAt: expiresAt}
-	return Grant{ExecutionID: executionID, ID: id, ExpiresAt: expiresAt}, nil
+	return nil
 }
 
-// Accept validates the routing preamble (execution ID and grant ID) against
-// the authenticated peer key and opens the execution's single live session.
-// The grant is consumed only on a successful accept. It rejects:
+// Open validates the edge's authenticated mesh peer key against the execution's
+// bound peer key and opens the execution's single live session. It rejects:
 //
-//   - an unknown execution or grant;
-//   - an expired grant (expiry is evaluated here, lazily);
-//   - a reused (already consumed) grant;
-//   - a grant pinned to a different peer key than the authenticated one;
-//   - a second accept while the execution already has a live session.
+//   - an unknown execution or a binding that was never declared;
+//   - a peer key that does not match the execution's bound key;
+//   - a second open while the execution already has a live session.
 //
 // The ordering matters for an unauthenticated peer:
 //
-//   - the auth checks (grant existence, grant ID, expiry, peer key) all
-//     precede the liveness (busy) check, so an unauthenticated client cannot
-//     probe whether an execution's session is busy;
-//   - expiry is evaluated before the peer key so a stale grant fails fast and
-//     uniformly; the expiry bit is low-sensitivity (it only reveals that a
-//     grant is no longer usable), unlike session liveness, so leaking it to
-//     an unauthenticated peer is acceptable.
-func (r *Registry) Accept(executionID, grantID string, peerKey []byte, now time.Time) (*Session, error) {
-	if executionID == "" || grantID == "" {
-		return nil, errors.New("invalid tunnel accept: execution and grant IDs are required")
+//   - the auth checks (binding existence, peer key) both precede the liveness
+//     (busy) check, so an unauthenticated client cannot probe whether an
+//     execution's session is busy;
+//   - execution liveness is validated by the allocator around this call, so the
+//     registry itself never needs to know execution phase.
+func (r *Registry) Open(executionID string, peerKey []byte) (*Session, error) {
+	if executionID == "" {
+		return nil, errors.New("invalid tunnel open: execution ID is required")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	rec := r.records[executionID]
-	if rec == nil || rec.grant == nil {
-		return nil, ErrGrantNotFound
-	}
-	grant := rec.grant
-	if grant.id != grantID {
-		return nil, ErrGrantNotFound
-	}
-	if !rec.grant.expiresAt.After(now) {
-		return nil, ErrGrantExpired
+	if rec == nil {
+		return nil, ErrTunnelNotBound
 	}
 	// The peer key is validated before the liveness (busy) check so an
 	// unauthenticated peer cannot probe whether an execution's session is busy.
@@ -132,10 +103,6 @@ func (r *Registry) Accept(executionID, grantID string, peerKey []byte, now time.
 	if rec.session != nil {
 		return nil, ErrSessionBusy
 	}
-	if grant.consumed {
-		return nil, ErrGrantReused
-	}
-	grant.consumed = true
 	session := &Session{
 		ExecutionID: executionID,
 		done:        make(chan struct{}),
@@ -166,8 +133,9 @@ func (r *Registry) Session(executionID string) (*Session, bool) {
 }
 
 // CloseSession ends the active session for an execution without cancelling the
-// execution and without disturbing any outstanding grant. Losing a tunnel
-// never cancels the execution.
+// execution and without disturbing the outstanding binding. Losing a tunnel
+// never cancels the execution; a later owner connection re-opens a fresh
+// session against the same binding.
 func (r *Registry) CloseSession(executionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -178,10 +146,11 @@ func (r *Registry) CloseSession(executionID string) {
 }
 
 // Invalidate deletes the single record for an execution: it closes any active
-// session and drops any outstanding grant. It is the terminal cleanup path —
-// when an execution becomes terminal the allocator calls this in the same
-// local sweep that commits the terminal state. Reuse of an invalidated grant is
-// rejected (the record no longer exists).
+// session and drops the binding. It is the terminal cleanup path — when an
+// execution becomes terminal the allocator calls this in the same local sweep
+// that commits the terminal state. A later connection against the deleted
+// binding is rejected (the record no longer exists), so a stale execution can
+// never win a tunnel after it ends.
 func (r *Registry) Invalidate(executionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

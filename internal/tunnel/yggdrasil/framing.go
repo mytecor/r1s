@@ -172,14 +172,13 @@ func reasonCode(reason tunnel.Reason) byte {
 // preambleWire is the JSON shape of the one-time routing preamble.
 type preambleWire struct {
 	ExecutionID string `json:"execution_id"`
-	GrantID     string `json:"grant_id"`
 }
 
 // encodePreamble serializes the routing preamble for the preamble frame. It
 // is deliberately self-describing JSON: the preamble is small, sent once per
 // mesh connection, never on the payload path, and the format stays debuggable.
 func encodePreamble(p tunnel.Preamble) []byte {
-	encoded, _ := json.Marshal(preambleWire{ExecutionID: p.ExecutionID, GrantID: p.GrantID})
+	encoded, _ := json.Marshal(preambleWire{ExecutionID: p.ExecutionID})
 	return encoded
 }
 
@@ -189,10 +188,10 @@ func decodePreamble(payload []byte) (tunnel.Preamble, error) {
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return tunnel.Preamble{}, fmt.Errorf("tunnel preamble: %w", err)
 	}
-	if p.ExecutionID == "" || p.GrantID == "" {
-		return tunnel.Preamble{}, errors.New("tunnel preamble: execution and grant IDs are required")
+	if p.ExecutionID == "" {
+		return tunnel.Preamble{}, errors.New("tunnel preamble: execution ID is required")
 	}
-	return tunnel.Preamble{ExecutionID: p.ExecutionID, GrantID: p.GrantID}, nil
+	return tunnel.Preamble{ExecutionID: p.ExecutionID}, nil
 }
 
 // encodeStreamOpen serializes a stream-open frame payload: the container

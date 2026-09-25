@@ -33,8 +33,11 @@ func TestTunnelDialChecksSessionAndExecution(t *testing.T) {
 	a := newTunnelAllocator(t, clock, runtime.fakeRuntime)
 	a.runtime = runtime
 	id := assignRunning(t, a, clock, "a")
-	ack := mustHandle(t, a, tunnelGrantEnvelope(clock.Now(), "grant", "a", id)).GetExecutionTunnelGrantAck()
-	session, err := a.AcceptTunnel(id, ack.GetGrantId(), []byte(testPeerKey))
+	ack := mustHandle(t, a, tunnelOpenEnvelope(clock.Now(), "open-msg", "a", id)).GetExecutionTunnelOpenAck()
+	if ack.GetExecutionId() != id {
+		t.Fatalf("ack execution = %q; want %q", ack.GetExecutionId(), id)
+	}
+	session, err := a.OpenTunnelSession(id, []byte(testPeerKey))
 	if err != nil {
 		t.Fatal(err)
 	}

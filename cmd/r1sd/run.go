@@ -32,7 +32,6 @@ type commandLine struct {
 	clusterSelector       string
 	clusterArguments      []string
 	tunnelEnabled         bool
-	tunnelGrantTTL        time.Duration
 	tunnelEndpoint        []byte
 	tunnelEndpointPubKey  []byte
 	tunnelPeers           []string
@@ -81,7 +80,6 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	admissionPath := flags.String("admission-policy", "", "local resource profiles, allowed identities, and quotas JSON")
 	statePath := flags.String("state", "", "allocator state database (defaults beside the identity file or under ~/.config/r1s)")
 	tunnelEnabled := flags.Bool("tunnel-enabled", false, "enable the direct-access tunnel edge (F14); requires --tunnel-endpoint/--tunnel-endpoint-pubkey or the embedded edge")
-	tunnelGrantTTL := flags.Duration("tunnel-grant-ttl", allocator.DefaultTunnelGrantTTL, "minted tunnel grant lifetime")
 	tunnelEndpoint := flags.String("tunnel-endpoint", "", "opaque transport-neutral allocator endpoint advertisement (hex); set automatically by the F14-02 edge")
 	tunnelEndpointPubKey := flags.String("tunnel-endpoint-pubkey", "", "opaque transport-neutral allocator edge public key (hex); set automatically by the F14-02 edge")
 	tunnelPeers := flags.String("tunnel-peer", "", "comma-separated bootstrap peer URIs for the tunnel edge (defaults to the public Yggdrasil overlay)")
@@ -112,9 +110,6 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	if err != nil {
 		return commandLine{}, err
 	}
-	if *tunnelGrantTTL <= 0 {
-		return commandLine{}, errors.New("--tunnel-grant-ttl must be positive")
-	}
 	tunnelEndpointBytes, err := parseHexBytes("tunnel-endpoint", *tunnelEndpoint)
 	if err != nil {
 		return commandLine{}, err
@@ -142,8 +137,8 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		logPath: *logPath, logBytes: *logBytes, logBudget: *logBudget, maxRecords: *maxRecords,
 		sweepInterval: *sweepInterval, admissionPath: *admissionPath, statePath: *statePath,
 		clusterSelector: flags.Arg(0),
-		tunnelEnabled:   *tunnelEnabled, tunnelGrantTTL: *tunnelGrantTTL,
-		tunnelEndpoint: tunnelEndpointBytes, tunnelEndpointPubKey: tunnelEndpointPubKeyBytes,
+		tunnelEnabled:   *tunnelEnabled,
+		tunnelEndpoint:  tunnelEndpointBytes, tunnelEndpointPubKey: tunnelEndpointPubKeyBytes,
 		tunnelPeers: tunnelPeerList(*tunnelPeers), node: node,
 	}, nil
 }

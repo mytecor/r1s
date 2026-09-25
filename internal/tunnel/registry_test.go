@@ -3,189 +3,164 @@ package tunnel
 import (
 	"errors"
 	"testing"
-	"time"
 )
 
-func testRegistry(t *testing.T) (*Registry, *time.Time) {
+func testRegistry(t *testing.T) *Registry {
 	t.Helper()
-	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
-	idCounter := 0
-	registry, err := NewRegistry(RegistryConfig{
-		NewID: func() string { idCounter++; return "grant-" + string(rune('a'+idCounter)) },
-	})
-	if err != nil {
-		t.Fatalf("NewRegistry: %v", err)
-	}
-	return registry, &now
+	return NewRegistry()
 }
 
-func TestMintCreatesGrant(t *testing.T) {
-	registry, now := testRegistry(t)
-	_, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 9000}}, Endpoint{Address: []byte("addr"), PubKey: []byte("pub")}, 60*time.Second, *now)
-	if err != nil {
-		t.Fatalf("Mint: %v", err)
+func TestBindCreatesRecord(t *testing.T) {
+	registry := testRegistry(t)
+	if err := registry.Bind("exec-1", []byte("peer-key"), []Target{{Port: 9000}}, Endpoint{Address: []byte("addr"), PubKey: []byte("pub")}); err != nil {
+		t.Fatalf("Bind: %v", err)
 	}
 }
 
-func TestMintRequiresIDs(t *testing.T) {
-	registry, _ := testRegistry(t)
-	if _, err := registry.Mint("", []byte("k"), []Target{{Port: 1}}, Endpoint{}, time.Minute, time.Now()); err == nil {
-		t.Fatal("Mint with empty execution ID succeeded")
+func TestBindRequiresFieldst(t *testing.T) {
+	registry := testRegistry(t)
+	if err := registry.Bind("", []byte("k"), []Target{{Port: 1}}, Endpoint{}); err == nil {
+		t.Fatal("Bind with empty execution ID succeeded")
 	}
-	if _, err := registry.Mint("exec-1", []byte("k"), []Target{{Port: 1}}, Endpoint{}, 0, time.Now()); err == nil {
-		t.Fatal("Mint with non-positive TTL succeeded")
+	if err := registry.Bind("exec-1", nil, []Target{{Port: 1}}, Endpoint{}); err == nil {
+		t.Fatal("Bind with no peer key succeeded")
 	}
 }
 
-func TestAcceptOpensSessionAndConsumesGrant(t *testing.T) {
-	registry, now := testRegistry(t)
-	wantExpiry := now.Add(2 * time.Minute)
-	grant, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 8080}}, Endpoint{Address: []byte("addr")}, 2*time.Minute, *now)
-	if err != nil {
-		t.Fatalf("Mint: %v", err)
+func TestBindRequiresATargetPort(t *testing.T) {
+	registry := testRegistry(t)
+	if err := registry.Bind("exec-1", []byte("k"), nil, Endpoint{}); err == nil {
+		t.Fatal("Bind with no target ports succeeded")
 	}
-	if !grant.ExpiresAt.Equal(wantExpiry) {
-		t.Fatalf("expires_at = %v; want %v", grant.ExpiresAt, wantExpiry)
+	if err := registry.Bind("exec-1", []byte("k"), []Target{}, Endpoint{}); err == nil {
+		t.Fatal("Bind with an empty target port list succeeded")
 	}
-	session, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now)
+}
+
+func TestBindDoesNotDisturbActiveSession(t *testing.T) {
+	registry := testRegistry(t)
+	if err := registry.Bind("exec-1", []byte("peer-key"), []Target{{Port: 80}}, Endpoint{Address: []byte("addr")}); err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	if _, err := registry.Open("exec-1", []byte("peer-key")); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	// A re-bind replaces the bound key/list without disturbing the session.
+	if err := registry.Bind("exec-1", []byte("new-key"), []Target{{Port: 80}, {Port: 443}}, Endpoint{Address: []byte("addr")}); err != nil {
+		t.Fatalf("re-bind: %v", err)
+	}
+	if _, ok := registry.Session("exec-1"); !ok {
+		t.Fatal("re-bind closed the active session")
+	}
+}
+
+func TestOpenOpensSession(t *testing.T) {
+	registry := testRegistry(t)
+	if err := registry.Bind("exec-1", []byte("peer-key"), []Target{{Port: 8080}}, Endpoint{Address: []byte("addr"), PubKey: []byte("pub")}); err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	session, err := registry.Open("exec-1", []byte("peer-key"))
 	if err != nil {
-		t.Fatalf("Accept: %v", err)
+		t.Fatalf("Open: %v", err)
 	}
 	if session.ExecutionID != "exec-1" || string(session.PeerKey) != "peer-key" || len(session.Targets) != 1 || session.Targets[0].Port != 8080 {
 		t.Fatalf("unexpected session: %+v", session)
 	}
-}
-
-func TestAcceptRejectsReuse(t *testing.T) {
-	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
-	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); err != nil {
-		t.Fatalf("first Accept: %v", err)
-	}
-	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); !errors.Is(err, ErrSessionBusy) {
-		t.Fatalf("second Accept = %v; want ErrSessionBusy", err)
+	if string(session.Endpoint.Address) != "addr" || string(session.Endpoint.PubKey) != "pub" {
+		t.Fatalf("session endpoint not carried: %+v", session.Endpoint)
 	}
 }
 
-func TestAcceptRejectsExpired(t *testing.T) {
-	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
-	*now = now.Add(61 * time.Second)
-	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); !errors.Is(err, ErrGrantExpired) {
-		t.Fatalf("Accept after expiry = %v; want ErrGrantExpired", err)
-	}
-	// The grant stays unconsumed and reusable within its TTL; a fresh mint
-	// re-arms it for the same execution.
-	if _, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now); err != nil {
-		t.Fatalf("re-mint after expiry: %v", err)
+func TestOpenRejectsUnboundExecution(t *testing.T) {
+	registry := testRegistry(t)
+	if _, err := registry.Open("exec-missing", []byte("peer-key")); !errors.Is(err, ErrTunnelNotBound) {
+		t.Fatalf("Open unknown execution = %v; want ErrTunnelNotBound", err)
 	}
 }
 
-func TestAcceptRejectsPeerKeyMismatch(t *testing.T) {
-	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("pinned-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
-	if _, err := registry.Accept("exec-1", grant.ID, []byte("other-key"), *now); !errors.Is(err, ErrPeerKeyMismatch) {
-		t.Fatalf("Accept with wrong key = %v; want ErrPeerKeyMismatch", err)
+func TestOpenRejectsPeerKeyMismatch(t *testing.T) {
+	registry := testRegistry(t)
+	if err := registry.Bind("exec-1", []byte("pinned-key"), []Target{{Port: 1}}, Endpoint{}); err != nil {
+		t.Fatalf("Bind: %v", err)
 	}
-	// A rejected accept must leave the grant unconsumed and reusable.
-	if _, err := registry.Accept("exec-1", grant.ID, []byte("pinned-key"), *now); err != nil {
-		t.Fatalf("Accept after rejection = %v; want success", err)
+	if _, err := registry.Open("exec-1", []byte("other-key")); !errors.Is(err, ErrPeerKeyMismatch) {
+		t.Fatalf("Open with wrong key = %v; want ErrPeerKeyMismatch", err)
 	}
-}
-
-func TestAcceptRejectsWrongGrantAndUnknownExecution(t *testing.T) {
-	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
-	if _, err := registry.Accept("exec-1", "wrong-grant", []byte("peer-key"), *now); !errors.Is(err, ErrGrantNotFound) {
-		t.Fatalf("Accept with wrong grant = %v; want ErrGrantNotFound", err)
-	}
-	if _, err := registry.Accept("exec-unknown", grant.ID, []byte("peer-key"), *now); !errors.Is(err, ErrGrantNotFound) {
-		t.Fatalf("Accept unknown execution = %v; want ErrGrantNotFound", err)
+	// A rejected open must leave the binding intact and reusable (it is not
+	// single-use, unlike the retired grant token).
+	if _, err := registry.Open("exec-1", []byte("pinned-key")); err != nil {
+		t.Fatalf("Open after rejection = %v; want success", err)
 	}
 }
 
-func TestSessionBusyAtAccept(t *testing.T) {
-	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
-	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); err != nil {
-		t.Fatalf("first Accept: %v", err)
+func TestOpenRejectsSecondSession(t *testing.T) {
+	registry := testRegistry(t)
+	if err := registry.Bind("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}); err != nil {
+		t.Fatalf("Bind: %v", err)
 	}
-	// A repeat mint replaces the outstanding grant; the session stays active
-	// and a second accept for the same execution is rejected at accept time.
-	newGrant, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
-	if err != nil {
-		t.Fatalf("re-mint while session active: %v", err)
+	if _, err := registry.Open("exec-1", []byte("peer-key")); err != nil {
+		t.Fatalf("first Open: %v", err)
 	}
-	if _, err := registry.Accept("exec-1", newGrant.ID, []byte("peer-key"), *now); !errors.Is(err, ErrSessionBusy) {
-		t.Fatalf("second Accept while session active = %v; want ErrSessionBusy", err)
+	if _, err := registry.Open("exec-1", []byte("peer-key")); !errors.Is(err, ErrSessionBusy) {
+		t.Fatalf("second Open = %v; want ErrSessionBusy", err)
 	}
 }
 
-func TestCloseSessionThenRemintIsImmediate(t *testing.T) {
-	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
-	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); err != nil {
-		t.Fatalf("Accept: %v", err)
+func TestCloseSessionThenReopenIsImmediate(t *testing.T) {
+	registry := testRegistry(t)
+	if err := registry.Bind("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}); err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	if _, err := registry.Open("exec-1", []byte("peer-key")); err != nil {
+		t.Fatalf("Open: %v", err)
 	}
 	registry.CloseSession("exec-1")
 	if _, ok := registry.Session("exec-1"); ok {
 		t.Fatal("session still active after CloseSession")
 	}
-	// A re-mint right after a session close is immediate and acceptable.
-	newGrant, err := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
-	if err != nil {
-		t.Fatalf("re-mint after session close: %v", err)
-	}
-	if _, err := registry.Accept("exec-1", newGrant.ID, []byte("peer-key"), *now); err != nil {
-		t.Fatalf("Accept after session close and re-mint: %v", err)
+	// A re-open right after a session close is immediate against the same
+	// binding (no TTL, no single-use consumption).
+	if _, err := registry.Open("exec-1", []byte("peer-key")); err != nil {
+		t.Fatalf("Open after session close: %v", err)
 	}
 }
 
-func TestInvalidateRemovesGrantAndSession(t *testing.T) {
-	registry, now := testRegistry(t)
-	grant, _ := registry.Mint("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}, time.Minute, *now)
-	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); err != nil {
-		t.Fatalf("Accept: %v", err)
+func TestInvalidateRemovesBindingAndSession(t *testing.T) {
+	registry := testRegistry(t)
+	if err := registry.Bind("exec-1", []byte("peer-key"), []Target{{Port: 1}}, Endpoint{}); err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	if _, err := registry.Open("exec-1", []byte("peer-key")); err != nil {
+		t.Fatalf("Open: %v", err)
 	}
 	registry.Invalidate("exec-1")
 	if _, ok := registry.Session("exec-1"); ok {
 		t.Fatal("session survived invalidation")
 	}
-	if _, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now); !errors.Is(err, ErrGrantNotFound) {
-		t.Fatalf("Accept after invalidation = %v; want ErrGrantNotFound", err)
+	if _, err := registry.Open("exec-1", []byte("peer-key")); !errors.Is(err, ErrTunnelNotBound) {
+		t.Fatalf("Open after invalidation = %v; want ErrTunnelNotBound", err)
 	}
 }
 
-func TestAcceptUnknownSessionNil(t *testing.T) {
-	registry, _ := testRegistry(t)
+func TestSessionUnknownNil(t *testing.T) {
+	registry := testRegistry(t)
 	if _, ok := registry.Session("exec-missing"); ok {
 		t.Fatal("Session returned a record for an unknown execution")
 	}
 }
 
-func TestMintRequiresATargetPort(t *testing.T) {
-	registry, now := testRegistry(t)
-	if _, err := registry.Mint("exec-1", []byte("k"), nil, Endpoint{}, time.Minute, *now); err == nil {
-		t.Fatal("Mint with no target ports succeeded")
-	}
-	if _, err := registry.Mint("exec-1", []byte("k"), []Target{}, Endpoint{}, time.Minute, *now); err == nil {
-		t.Fatal("Mint with an empty target port list succeeded")
-	}
-}
-
-// TestMultiPortGrantAndResolve verifies a grant can carry several client-owned
-// container ports and that each opening stream can reference one by port, with
-// an unauthorized port rejected.
-func TestMultiPortGrantAndResolve(t *testing.T) {
-	registry, now := testRegistry(t)
+// TestMultiPortBindingAndResolve verifies a binding can carry several
+// client-owned container ports and that each opening stream can reference one
+// by port, with an unauthorized port rejected.
+func TestMultiPortBindingAndResolve(t *testing.T) {
+	registry := testRegistry(t)
 	ports := []Target{{Port: 2222}, {Port: 8080}, {Port: 9000}}
-	grant, err := registry.Mint("exec-1", []byte("peer-key"), ports, Endpoint{Address: []byte("addr")}, time.Minute, *now)
-	if err != nil {
-		t.Fatalf("Mint: %v", err)
+	if err := registry.Bind("exec-1", []byte("peer-key"), ports, Endpoint{Address: []byte("addr")}); err != nil {
+		t.Fatalf("Bind: %v", err)
 	}
-	session, err := registry.Accept("exec-1", grant.ID, []byte("peer-key"), *now)
+	session, err := registry.Open("exec-1", []byte("peer-key"))
 	if err != nil {
-		t.Fatalf("Accept: %v", err)
+		t.Fatalf("Open: %v", err)
 	}
 	if len(session.Targets) != 3 {
 		t.Fatalf("session carries %d ports; want 3", len(session.Targets))
@@ -204,26 +179,25 @@ func TestMultiPortGrantAndResolve(t *testing.T) {
 }
 
 func TestReleaseDoesNotCloseReplacementSession(t *testing.T) {
-	registry, now := testRegistry(t)
-	mint := func() *Session {
-		grant, err := registry.Mint("e", []byte("k"), []Target{{Port: 80}}, Endpoint{}, time.Minute, *now)
-		if err != nil {
-			t.Fatal(err)
-		}
-		session, err := registry.Accept("e", grant.ID, []byte("k"), *now)
+	registry := testRegistry(t)
+	open := func() *Session {
+		session, err := registry.Open("e", []byte("k"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		return session
 	}
-	old := mint()
+	if err := registry.Bind("e", []byte("k"), []Target{{Port: 80}}, Endpoint{}); err != nil {
+		t.Fatal(err)
+	}
+	old := open()
 	registry.Release(old)
 	select {
 	case <-old.Done():
 	default:
 		t.Fatal("release did not close session")
 	}
-	replacement := mint()
+	replacement := open()
 	registry.Release(old)
 	if !registry.Active(replacement) {
 		t.Fatal("late release removed replacement")

@@ -62,7 +62,7 @@ func runDirectory(runID string) (string, error) {
 // for the child's ownership handshake, and only then prints the run ID, PID,
 // and log path. A child that fails or exits before the handshake is reported
 // as a failed detach, never as a live run.
-func (a *application) launchDetached(clusterID, workloadJSON string, offerWait time.Duration, logFile string, stderr io.Writer) error {
+func (a *application) launchDetached(clusterID, workloadJSON string, offerWait time.Duration, logFile string, publishes []portMapping, stderr io.Writer) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("detach: resolve executable: %w", err)
@@ -74,6 +74,13 @@ func (a *application) launchDetached(clusterID, workloadJSON string, offerWait t
 	// decided before the handshake reports it). When no --log-file was given,
 	// the child resolves the default under the run state directory itself.
 	childArgs := []string{"run", clusterID, workloadJSON, "--offer-wait", offerWait.String()}
+	if len(publishes) > 0 {
+		var bits []string
+		for _, m := range publishes {
+			bits = append(bits, fmt.Sprintf("%d:%d", m.host, m.container))
+		}
+		childArgs = append(childArgs, "--r1s-publish", strings.Join(bits, ","))
+	}
 	if logFile != "" {
 		// The parent already knows an explicit --log-file; carry it to the child
 		// as an internal flag so the child uses exactly this path for the output
@@ -250,7 +257,7 @@ func detachedOutputPath(logFile, runDir string) string {
 // signals ownership to the parent only then, and finally holds the run while a
 // concurrent tail appends every stream and reschedule marker to the same file.
 // On clean exit the PID marker is removed and the output file is retained.
-func (a *application) runDetachedChild(workloadJSON string, offerWait time.Duration, handshakeFD int, logFile string) error {
+func (a *application) runDetachedChild(workloadJSON string, offerWait time.Duration, handshakeFD int, logFile string, publishes []portMapping) error {
 	created, executionID, _, err := a.runRequestJSON(workloadJSON, offerWait)
 	if err != nil {
 		return err
@@ -272,6 +279,20 @@ func (a *application) runDetachedChild(workloadJSON string, offerWait time.Durat
 	}
 	defer file.Close()
 
+	var publisher *runPublisher
+	if len(publishes) > 0 {
+		if err := a.ensureRunTunnelEdge(); err != nil {
+			return fmt.Errorf("detached run %s: %w", runID, err)
+		}
+		publisher, err = newRunPublisher(a.ctx, a, publishes)
+		if err != nil {
+			return fmt.Errorf("detached run %s: %w", runID, err)
+		}
+		publisher.SetActive(executionID)
+		publisher.start()
+		defer publisher.close()
+	}
+
 	// Signal ownership to the parent only now, when the reported paths already
 	// exist. The parent prints run/pid/log and returns; from here the child
 	// keeps the lease itself.
@@ -286,6 +307,9 @@ func (a *application) runDetachedChild(workloadJSON string, offerWait time.Durat
 
 	activeID, state, err := a.holdRun(a.ctx, executionID, offerWait, func(id string, request *r1sv1.ExecutionRequest) {
 		tail.SetActive(id, request.GetRunId(), request.GetAttempt())
+		if publisher != nil {
+			publisher.SetActive(id)
+		}
 	}, nil)
 	close(stop)
 	if err != nil {

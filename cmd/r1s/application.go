@@ -15,6 +15,7 @@ import (
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport/rns"
 	"github.com/mytecor/r1s/internal/tunnel"
+	"github.com/mytecor/r1s/internal/tunnel/yggdrasil"
 )
 
 type application struct {
@@ -168,4 +169,27 @@ func (a *application) close() {
 	if a.store != nil {
 		_ = a.store.Close()
 	}
+}
+
+// ensureRunTunnelEdge builds the run process's client-side Yggdrasil edge (node
+// + dialer) on demand, deriving its overlay node key from the run's ephemeral
+// identity seed. It is built only when `r1s run -p` publishes ports, so a run
+// without published ports never starts an overlay node. The node key is stable
+// for the run's lifetime (the identity seed persists in-memory), so published
+// listeners stay bound and re-establish across attempts against the same key.
+func (a *application) ensureRunTunnelEdge() error {
+	if a.tunnelDialer != nil {
+		return nil
+	}
+	node, err := yggdrasil.NewNode(a.identity, yggdrasil.ClientNodeKeyContext, yggdrasil.NodeOptions{})
+	if err != nil {
+		return fmt.Errorf("tunnel edge: %w", err)
+	}
+	dialer, err := yggdrasil.NewDialer(node)
+	if err != nil {
+		_ = node.Close()
+		return fmt.Errorf("tunnel edge: %w", err)
+	}
+	a.tunnelDialer = dialer
+	return nil
 }

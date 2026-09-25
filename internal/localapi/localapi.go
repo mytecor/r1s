@@ -12,8 +12,6 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
-	"github.com/mytecor/r1s/internal/protocol"
-	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -134,28 +132,4 @@ func (c *Client) List(ctx context.Context) (*r1sv1.LocalListResponse, error) {
 // Watch opens a streaming watch from a durable position.
 func (c *Client) Watch(ctx context.Context, after uint64) (r1sv1.LocalClient_WatchClient, error) {
 	return c.local.Watch(ctx, &r1sv1.LocalWatchRequest{After: after})
-}
-
-// Tunnel opens a bidirectional raw-byte tunnel to a running execution through
-// the local r1s serve bridge. The stream's first message is the open naming the
-// execution; after that it carries raw payload bytes (data) and close
-// half-close/full-close signals in both directions. Setup failures surface as a
-// stream error before any payload is relayed.
-//
-// targets is the client-owned destination container port list sent in the
-// tunnel grant request; at least one destination is required. targetPort is the
-// container port the stream is spliced to, resolved by the allocator against
-// the client-supplied list.
-func (c *Client) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (r1sv1.LocalClient_TunnelClient, error) {
-	stream, err := c.local.Tunnel(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := stream.Send(&r1sv1.LocalTunnelMessage{Payload: &r1sv1.LocalTunnelMessage_Open{Open: &r1sv1.LocalTunnelOpen{
-		ExecutionId: executionID, TargetPort: uint32(targetPort), Targets: protocol.TargetsToProto(targets),
-	}}}); err != nil {
-		_ = stream.CloseSend()
-		return nil, err
-	}
-	return stream, nil
 }

@@ -21,7 +21,7 @@ func TestFrameRoundTrip(t *testing.T) {
 		{"data", frameTypeData, 1, []byte("hello tunnel")},
 		{"empty-eof", frameTypeEOF, 2, nil},
 		{"close", frameTypeClose, 3, closePayload(tunnel.ReasonExecutionEnded, "container exited")},
-		{"preamble", frameTypePreamble, streamIDNone, encodePreamble(tunnel.Preamble{ExecutionID: "exec-1", GrantID: "grant-1"})},
+		{"preamble", frameTypePreamble, streamIDNone, encodePreamble(tunnel.Preamble{ExecutionID: "exec-1"})},
 		{"accept", frameTypeAccept, streamIDNone, nil},
 		{"stream-open", frameTypeStreamOpen, 4, encodeStreamOpen(8080)},
 		{"window-update", frameTypeWindowUpdate, 5, streamWindowPayload(8192)},
@@ -73,7 +73,7 @@ func TestClosePayloadRoundTrip(t *testing.T) {
 
 // TestPreambleRoundTrip verifies the routing preamble survives the wire.
 func TestPreambleRoundTrip(t *testing.T) {
-	p := tunnel.Preamble{ExecutionID: "01HZ...ABC", GrantID: "grant-1"}
+	p := tunnel.Preamble{ExecutionID: "01HZ...ABC"}
 	decoded, err := decodePreamble(encodePreamble(p))
 	if err != nil {
 		t.Fatalf("decodePreamble: %v", err)
@@ -81,7 +81,7 @@ func TestPreambleRoundTrip(t *testing.T) {
 	if decoded != p {
 		t.Fatalf("preamble round-trip mismatch: %+v != %+v", p, decoded)
 	}
-	// An empty preamble is a protocol violation.
+	// An empty preamble (no execution ID) is a protocol violation.
 	if _, err := decodePreamble(encodePreamble(tunnel.Preamble{})); err == nil {
 		t.Fatal("empty preamble accepted")
 	}

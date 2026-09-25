@@ -133,7 +133,7 @@ func establishPairMTU(t *testing.T, mtu uint64) (*pairConn, *pairConn) {
 			acceptDone <- err
 			return
 		}
-		if preamble != (tunnel.Preamble{ExecutionID: "exec-1", GrantID: "grant-1"}) {
+		if preamble != (tunnel.Preamble{ExecutionID: "exec-1"}) {
 			acceptDone <- errors.New("preamble mismatch")
 			return
 		}
@@ -145,7 +145,7 @@ func establishPairMTU(t *testing.T, mtu uint64) (*pairConn, *pairConn) {
 		acceptDone <- pending.pair.Authorize(testSession())
 	}()
 
-	if err := client.WritePreamble(tunnel.Preamble{ExecutionID: "exec-1", GrantID: "grant-1"}); err != nil {
+	if err := client.WritePreamble(tunnel.Preamble{ExecutionID: "exec-1"}); err != nil {
 		t.Fatalf("WritePreamble: %v", err)
 	}
 	if err := <-acceptDone; err != nil {

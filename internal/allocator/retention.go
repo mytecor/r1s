@@ -97,7 +97,7 @@ func (a *Allocator) Sweep(ctx context.Context) error {
 			if q := e.GetExecutionLeaseRenew(); q != nil {
 				drop = a.executions[q.GetExecutionId()] == nil
 			}
-			if q := e.GetExecutionTunnelGrant(); q != nil {
+			if q := e.GetExecutionTunnelOpen(); q != nil {
 				drop = a.executions[q.GetExecutionId()] == nil
 			}
 			if drop {

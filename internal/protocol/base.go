@@ -67,10 +67,10 @@ func ValidateEnvelope(envelope *r1sv1.Envelope) error {
 		return validateLeaseRenew(payload.ExecutionLeaseRenew)
 	case *r1sv1.Envelope_ExecutionLeaseRenewAck:
 		return validateLeaseRenewAck(envelope, payload.ExecutionLeaseRenewAck)
-	case *r1sv1.Envelope_ExecutionTunnelGrant:
-		return validateTunnelGrant(payload.ExecutionTunnelGrant)
-	case *r1sv1.Envelope_ExecutionTunnelGrantAck:
-		return validateTunnelGrantAck(payload.ExecutionTunnelGrantAck)
+	case *r1sv1.Envelope_ExecutionTunnelOpen:
+		return validateTunnelOpen(payload.ExecutionTunnelOpen)
+	case *r1sv1.Envelope_ExecutionTunnelOpenAck:
+		return validateTunnelOpenAck(payload.ExecutionTunnelOpenAck)
 	case *r1sv1.Envelope_ExecutionOfferReleaseAck:
 		return validateOfferReleaseAck(envelope, payload.ExecutionOfferReleaseAck)
 	case nil:

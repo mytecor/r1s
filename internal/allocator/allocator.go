@@ -127,14 +127,10 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 		replay:     newReplayCache(config.ReplayTTL, config.ReplayCapacity),
 		tunnelConfig: TunnelConfig{
 			Enabled:  config.Tunnel.Enabled,
-			GrantTTL: config.Tunnel.GrantTTL,
 			Endpoint: config.Tunnel.Endpoint,
 		},
 	}
-	result.tunnels, err = tunnel.NewRegistry(tunnel.RegistryConfig{NewID: config.NewID})
-	if err != nil {
-		return nil, err
-	}
+	result.tunnels = tunnel.NewRegistry()
 	result.mu.Lock()
 	err = result.loadLocked(context.Background())
 	result.mu.Unlock()

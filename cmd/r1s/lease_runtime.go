@@ -31,11 +31,11 @@ const keepAliveTick = 5 * time.Second
 // defaultRenewWait bounds one lease-renewal ack wait in the hold loop.
 const defaultRenewWait = 30 * time.Second
 
-// grantAckTimeout bounds one tunnel-grant mint ack wait. It is deliberately
-// shorter than the grant TTL the allocator grants (the client does not know
-// that TTL); a mint that does not come back in time is aborted so the caller
-// can surface a clear error and retry.
-const grantAckTimeout = 30 * time.Second
+// openAckTimeout bounds one owner open-ack over the control plane. It is
+// deliberately generous for a first connect across the mesh; an open that does
+// not come back in time is aborted so the caller can surface a clear error and
+// retry.
+const openAckTimeout = 30 * time.Second
 
 // runLeaseMaintainer keeps every recorded lease-holding intent alive while
 // `r1s serve` runs. It is the only continuous renewal holder; one-shot CLI

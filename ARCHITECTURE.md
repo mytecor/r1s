@@ -295,13 +295,13 @@ default on other platforms). Failure to connect is fatal and never elects r1s as
 server. Explicit standalone transports remain confined to deterministic and live test harnesses.
 
 Execution-tunnel application bytes use the dedicated embedded Yggdrasil adapter from F19/F20. RNS
-authorizes and transports the bounded tunnel-grant exchange; the resulting peer-key-pinned Ygg mesh
-pair carries the multiplexed TCP streams. F21 evaluated replacing this data plane with a separate
-private RNS `Link`/`Channel`/`Buffer` stack over system Ygg, but the recorded F21-05 benchmark was a
-no-go: the optimized compatible path remained 26.7–39.9× slower in representative rows because of
-the small RNS stream payload, bounded Channel window, per-packet signed proofs, IFAC processing,
-and small Backbone writes. The experimental path is rolled back in F21-06; application bytes do not
-move onto the RNS control plane.
+authorizes and transports the bounded owner-authenticated open exchange; the resulting
+peer-key-pinned Ygg mesh pair carries the multiplexed TCP streams. F21 evaluated replacing this data
+plane with a separate private RNS `Link`/`Channel`/`Buffer` stack over system Ygg, but the recorded
+F21-05 benchmark was a no-go: the optimized compatible path remained 26.7–39.9× slower in
+representative rows because of the small RNS stream payload, bounded Channel window, per-packet
+signed proofs, IFAC processing, and small Backbone writes. The experimental path is rolled back in
+F21-06; application bytes do not move onto the RNS control plane.
 
 Application data transfer outside the execution tunnel remains out of scope until separately
 designed.
@@ -347,7 +347,7 @@ failure discards the thread. Fresh container loopback is brought up inside that 
 
 A terminal execution closes the session's revocation signal. The edge closes its mesh pair,
 all streams, pending dials, and target sockets. Ending a mesh connection releases only its own
-registry session, allowing a fresh grant without affecting execution lifetime. Pair-level close
+registry session, allowing a later owner open without affecting execution lifetime. Pair-level close
 frames preserve the reason at the remote handshake and active streams. Frame sizing includes
 the seven-byte header both in the packet MTU budget and the receive buffer.
 

@@ -159,7 +159,7 @@ func (c *yggConnector) establishPair() error {
 		_ = conn.Close()
 		return errors.New("ygg conn must implement PreambleWriter")
 	}
-	if err := pw.WritePreamble(tunnel.Preamble{ExecutionID: "bench-exec", GrantID: "bench-grant"}); err != nil {
+	if err := pw.WritePreamble(tunnel.Preamble{ExecutionID: "bench-exec"}); err != nil {
 		_ = conn.Close()
 		return fmt.Errorf("ygg write preamble: %w", err)
 	}

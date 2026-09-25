@@ -20,7 +20,7 @@ const (
 )
 
 // clientTestTargets is the client-supplied destination container port list used
-// by the tunnel grant tests. The allocator no longer owns target resolution; it
+// by the tunnel open tests. The allocator no longer owns target resolution; it
 // binds whatever the client sends, validated only for shape. There are no named
 // slots: each target is just the container port to export.
 var clientTestTargets = []*r1sv1.TunnelTarget{
@@ -31,7 +31,7 @@ var clientTestTargets = []*r1sv1.TunnelTarget{
 
 // newTunnelAllocator builds an allocator with the F14 tunnel surface enabled,
 // mirroring a running allocator edge that advertises an endpoint. Targets are
-// not configured here: the client supplies them in each grant request.
+// not configured here: the client supplies them in each open request.
 func newTunnelAllocator(t *testing.T, clock *fakeClock, runtime *fakeRuntime) *Allocator {
 	t.Helper()
 	allocator, err := New(Config{
@@ -42,7 +42,6 @@ func newTunnelAllocator(t *testing.T, clock *fakeClock, runtime *fakeRuntime) *A
 		NewID:    sequenceIDs(),
 		Tunnel: TunnelConfig{
 			Enabled:  true,
-			GrantTTL: time.Minute,
 			Endpoint: tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
 		},
 	}, runtime)
@@ -63,34 +62,34 @@ func assignRunning(t *testing.T, allocator *Allocator, clock *fakeClock, client 
 	return state.GetExecutionId()
 }
 
-func tunnelGrantEnvelope(now time.Time, messageID, client, executionID string) *r1sv1.Envelope {
+func tunnelOpenEnvelope(now time.Time, messageID, client, executionID string) *r1sv1.Envelope {
 	return &r1sv1.Envelope{
 		MessageId: messageID,
 		Sender:    []byte(client),
 		SentAt:    timestamppb.New(now),
-		Payload: &r1sv1.Envelope_ExecutionTunnelGrant{ExecutionTunnelGrant: &r1sv1.ExecutionTunnelGrant{
+		Payload: &r1sv1.Envelope_ExecutionTunnelOpen{ExecutionTunnelOpen: &r1sv1.ExecutionTunnelOpen{
 			ExecutionId: executionID, YggPeerPubkey: []byte(testPeerKey), Targets: clientTestTargets,
 		}},
 	}
 }
 
-// noTargetGrantEnvelope is a grant request carrying no target slots, which the
+// noTargetOpenEnvelope is an open request carrying no target slots, which the
 // allocator must reject as an invalid request.
-func noTargetGrantEnvelope(now time.Time, messageID, client, executionID string) *r1sv1.Envelope {
+func noTargetOpenEnvelope(now time.Time, messageID, client, executionID string) *r1sv1.Envelope {
 	return &r1sv1.Envelope{
 		MessageId: messageID,
 		Sender:    []byte(client),
 		SentAt:    timestamppb.New(now),
-		Payload: &r1sv1.Envelope_ExecutionTunnelGrant{ExecutionTunnelGrant: &r1sv1.ExecutionTunnelGrant{
+		Payload: &r1sv1.Envelope_ExecutionTunnelOpen{ExecutionTunnelOpen: &r1sv1.ExecutionTunnelOpen{
 			ExecutionId: executionID, YggPeerPubkey: []byte(testPeerKey),
 		}},
 	}
 }
 
-// TestTunnelGrantCommandErrorCodes verifies mint-time configuration failures
+// TestTunnelOpenCommandErrorCodes verifies open-time configuration failures
 // surface as explicit, clear CommandError codes rather than materializing as
 // a malformed ack.
-func TestTunnelGrantCommandErrorCodes(t *testing.T) {
+func TestTunnelOpenCommandErrorCodes(t *testing.T) {
 	clock := newFakeClock()
 	base := Config{
 		Identity: []byte("allocator"), Capacity: map[string]uint32{"default": 1},
@@ -102,7 +101,7 @@ func TestTunnelGrantCommandErrorCodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	assignRunning(t, disabled, clock, "a")
-	responses, handleErr := disabled.Handle(context.Background(), tunnelGrantEnvelope(clock.Now(), "grant-disabled", "a", "execution-a"))
+	responses, handleErr := disabled.Handle(context.Background(), tunnelOpenEnvelope(clock.Now(), "open-disabled", "a", "execution-a"))
 	if !errors.Is(handleErr, ErrTunnelDisabled) || len(responses) != 1 {
 		t.Fatalf("disabled handle: err=%v responses=%d", handleErr, len(responses))
 	}
@@ -111,70 +110,68 @@ func TestTunnelGrantCommandErrorCodes(t *testing.T) {
 		t.Fatalf("command error = %+v; want code TUNNEL with detail", failure)
 	}
 
-	noTarget, err := New(funcCfg(base, TunnelConfig{Enabled: true, GrantTTL: time.Minute, Endpoint: tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)}}), newFakeRuntime())
+	noTarget, err := New(funcCfg(base, TunnelConfig{Enabled: true, Endpoint: tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)}}), newFakeRuntime())
 	if err != nil {
 		t.Fatal(err)
 	}
 	assignRunning(t, noTarget, clock, "b")
-	// A grant with no client-supplied targets is an invalid request, not a
+	// An open with no client-supplied targets is an invalid request, not a
 	// config failure: the allocator binds the client list, so an empty list is
 	// malformed regardless of allocator setup.
-	responses, handleErr = noTarget.Handle(context.Background(), noTargetGrantEnvelope(clock.Now(), "grant-no-target", "b", "execution-b"))
+	responses, handleErr = noTarget.Handle(context.Background(), noTargetOpenEnvelope(clock.Now(), "open-no-target", "b", "execution-b"))
 	if !errors.Is(handleErr, protocol.ErrInvalidEnvelope) {
 		t.Fatalf("no-target handle error = %v", handleErr)
 	}
 	if len(responses) != 0 {
-		t.Fatalf("no-target responses = %+v; want none (validation failed before mint)", responses)
+		t.Fatalf("no-target responses = %+v; want none (validation failed before bind)", responses)
 	}
 }
 
-// TestTunnelGrantMintAndAck verifies a successful mint returns a transport-neutral
-// ack carrying the grant ID, expiry, and opaque endpoint advertisement.
-func TestTunnelGrantMintAndAck(t *testing.T) {
+// TestTunnelOpenBindAndAck verifies a successful open returns a transport-neutral
+// ack echoing the endpoint advertisement and the client-supplied port list.
+func TestTunnelOpenBindAndAck(t *testing.T) {
 	clock := newFakeClock()
 	allocator := newTunnelAllocator(t, clock, newFakeRuntime())
 	executionID := assignRunning(t, allocator, clock, "a")
 
-	response := mustHandle(t, allocator, tunnelGrantEnvelope(clock.Now(), "grant-msg", "a", executionID))
-	ack := response.GetExecutionTunnelGrantAck()
+	response := mustHandle(t, allocator, tunnelOpenEnvelope(clock.Now(), "open-msg", "a", executionID))
+	ack := response.GetExecutionTunnelOpenAck()
 	if ack == nil {
-		t.Fatalf("response = %v; want tunnel grant ack", response)
+		t.Fatalf("response = %v; want tunnel open ack", response)
 	}
-	if ack.GetExecutionId() != executionID || ack.GetGrantId() == "" || ack.GetExpiresAt() == nil {
-		t.Fatalf("unexpected ack: %+v", ack)
+	if ack.GetExecutionId() != executionID {
+		t.Fatalf("ack execution = %q; want %q", ack.GetExecutionId(), executionID)
 	}
 	if string(ack.GetAllocatorEndpoint()) != testEndpoint || string(ack.GetAllocatorEndpointPubkey()) != testPubKey {
 		t.Fatalf("ack endpoint = %x / %x; want %q / %q", ack.GetAllocatorEndpoint(), ack.GetAllocatorEndpointPubkey(), testEndpoint, testPubKey)
 	}
-	wantExpiry := clock.Now().Add(time.Minute)
-	if !ack.GetExpiresAt().AsTime().Equal(wantExpiry) {
-		t.Fatalf("ack expiry = %v; want %v", ack.GetExpiresAt().AsTime(), wantExpiry)
+	if got := ack.GetTargets(); len(got) != len(clientTestTargets) {
+		t.Fatalf("ack echoed %d targets; want %d", len(got), len(clientTestTargets))
 	}
 }
 
-// TestTunnelGrantMintAuthority verifies mint is rejected for a sender that is
-// not the execution owner, for an unknown execution, and for a terminal
-// execution.
-func TestTunnelGrantMintAuthority(t *testing.T) {
+// TestTunnelOpenAuthority verifies open is rejected for a sender that is not
+// the execution owner, for an unknown execution, and for a terminal execution.
+func TestTunnelOpenAuthority(t *testing.T) {
 	clock := newFakeClock()
 	allocator := newTunnelAllocator(t, clock, newFakeRuntime())
 	executionID := assignRunning(t, allocator, clock, "a")
 
-	if _, err := allocator.Handle(context.Background(), tunnelGrantEnvelope(clock.Now(), "grant-other", "other", executionID)); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("non-owner mint error = %v; want ErrUnauthorized", err)
+	if _, err := allocator.Handle(context.Background(), tunnelOpenEnvelope(clock.Now(), "open-other", "other", executionID)); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("non-owner open error = %v; want ErrUnauthorized", err)
 	}
-	if _, err := allocator.Handle(context.Background(), tunnelGrantEnvelope(clock.Now(), "grant-missing", "a", "execution-missing")); !errors.Is(err, ErrExecutionNotFound) {
-		t.Fatalf("unknown execution mint error = %v; want ErrExecutionNotFound", err)
+	if _, err := allocator.Handle(context.Background(), tunnelOpenEnvelope(clock.Now(), "open-missing", "a", "execution-missing")); !errors.Is(err, ErrExecutionNotFound) {
+		t.Fatalf("unknown execution open error = %v; want ErrExecutionNotFound", err)
 	}
 
 	// A terminal execution cannot be tunnelled.
 	mustHandle(t, allocator, cancelEnvelope(clock.Now(), "cancel-a", "a", executionID))
-	if _, err := allocator.Handle(context.Background(), tunnelGrantEnvelope(clock.Now(), "grant-terminal", "a", executionID)); !errors.Is(err, ErrInvalidTransition) {
-		t.Fatalf("terminal mint error = %v; want ErrInvalidTransition", err)
+	if _, err := allocator.Handle(context.Background(), tunnelOpenEnvelope(clock.Now(), "open-terminal", "a", executionID)); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("terminal open error = %v; want ErrInvalidTransition", err)
 	}
 }
 
-func TestTunnelGrantMintRespectsConfig(t *testing.T) {
+func TestTunnelOpenRespectsConfig(t *testing.T) {
 	clock := newFakeClock()
 	base := Config{
 		Identity: []byte("allocator"), Capacity: map[string]uint32{"default": 1},
@@ -182,28 +179,27 @@ func TestTunnelGrantMintRespectsConfig(t *testing.T) {
 	}
 
 	// Enabled but no endpoint: the edge is not ready (the unique
-	// configuration-failure case not covered by TestTunnelGrantCommandErrorCodes;
+	// configuration-failure case not covered by TestTunnelOpenCommandErrorCodes;
 	// disabled and no-target are asserted there).
-	noEndpoint, err := New(funcCfg(base, TunnelConfig{Enabled: true, GrantTTL: time.Minute}), newFakeRuntime())
+	noEndpoint, err := New(funcCfg(base, TunnelConfig{Enabled: true}), newFakeRuntime())
 	if err != nil {
 		t.Fatal(err)
 	}
 	assignRunning(t, noEndpoint, clock, "b")
-	if _, err := noEndpoint.Handle(context.Background(), tunnelGrantEnvelope(clock.Now(), "grant-no-endpoint", "b", "execution-b")); !errors.Is(err, ErrTunnelNoEndpoint) {
-		t.Fatalf("no-endpoint mint error = %v; want ErrTunnelNoEndpoint", err)
+	if _, err := noEndpoint.Handle(context.Background(), tunnelOpenEnvelope(clock.Now(), "open-no-endpoint", "b", "execution-b")); !errors.Is(err, ErrTunnelNoEndpoint) {
+		t.Fatalf("no-endpoint open error = %v; want ErrTunnelNoEndpoint", err)
 	}
 }
 
-func TestTunnelGrantResolvesClientSuppliedTargets(t *testing.T) {
+func TestTunnelOpenResolvesClientSuppliedTargets(t *testing.T) {
 	clock := newFakeClock()
 	allocator := newTunnelAllocator(t, clock, newFakeRuntime())
 	executionID := assignRunning(t, allocator, clock, "a")
-	ack := mustHandle(t, allocator, tunnelGrantEnvelope(clock.Now(), "grant-msg", "a", executionID)).GetExecutionTunnelGrantAck()
-	grantID := ack.GetGrantId()
+	mustHandle(t, allocator, tunnelOpenEnvelope(clock.Now(), "open-msg", "a", executionID))
 
-	session, err := allocator.AcceptTunnel(executionID, grantID, []byte(testPeerKey))
+	session, err := allocator.OpenTunnelSession(executionID, []byte(testPeerKey))
 	if err != nil {
-		t.Fatalf("AcceptTunnel: %v", err)
+		t.Fatalf("OpenTunnelSession: %v", err)
 	}
 	// Every client-supplied container port resolves; sessions carry no named
 	// slots and no default target.
@@ -220,95 +216,79 @@ func TestTunnelGrantResolvesClientSuppliedTargets(t *testing.T) {
 	if _, ok := session.ResolveTarget(3306); ok {
 		t.Fatalf("resolve unauthorized 3306 = %v; want rejected", ok)
 	}
-	// The ack echoes the client-supplied port list so client and edge agree.
-	if got := ack.GetTargets(); len(got) != len(clientTestTargets) {
-		t.Fatalf("ack echoed %d targets; want %d", len(got), len(clientTestTargets))
-	}
 	if string(session.Endpoint.Address) != testEndpoint || string(session.Endpoint.PubKey) != testPubKey {
 		t.Fatalf("session endpoint = %+v", session.Endpoint)
 	}
 }
 
-// TestTunnelGrantExpiryAtAccept verifies expiry is evaluated lazily at accept:
-// after the TTL the grant is rejected, and a fresh mint replaces it.
-func TestTunnelGrantExpiryAtAccept(t *testing.T) {
+// TestTunnelOpenReopenRejected verifies the per-execution cap of one live
+// session is enforced at open.
+func TestTunnelOpenReopenRejected(t *testing.T) {
 	clock := newFakeClock()
 	allocator := newTunnelAllocator(t, clock, newFakeRuntime())
 	executionID := assignRunning(t, allocator, clock, "a")
-	ack := mustHandle(t, allocator, tunnelGrantEnvelope(clock.Now(), "grant-msg", "a", executionID)).GetExecutionTunnelGrantAck()
+	mustHandle(t, allocator, tunnelOpenEnvelope(clock.Now(), "open-msg", "a", executionID))
 
-	clock.Advance(2 * time.Minute)
-	if _, err := allocator.AcceptTunnel(executionID, ack.GetGrantId(), []byte(testPeerKey)); !errors.Is(err, tunnel.ErrGrantExpired) {
-		t.Fatalf("accept after TTL = %v; want ErrGrantExpired", err)
+	if _, err := allocator.OpenTunnelSession(executionID, []byte(testPeerKey)); err != nil {
+		t.Fatalf("first open: %v", err)
 	}
-}
-
-// TestTunnelGrantReuseRejected verifies a consumed grant is rejected at accept
-// and a second accept on the same execution is capped at one session.
-func TestTunnelGrantReuseRejected(t *testing.T) {
-	clock := newFakeClock()
-	allocator := newTunnelAllocator(t, clock, newFakeRuntime())
-	executionID := assignRunning(t, allocator, clock, "a")
-	ack := mustHandle(t, allocator, tunnelGrantEnvelope(clock.Now(), "grant-msg", "a", executionID)).GetExecutionTunnelGrantAck()
-
-	if _, err := allocator.AcceptTunnel(executionID, ack.GetGrantId(), []byte(testPeerKey)); err != nil {
-		t.Fatalf("first accept: %v", err)
-	}
-	// Reusing a spent grant is rejected (session is active).
-	if _, err := allocator.AcceptTunnel(executionID, ack.GetGrantId(), []byte(testPeerKey)); !errors.Is(err, tunnel.ErrSessionBusy) {
-		t.Fatalf("reused grant accept = %v; want ErrSessionBusy", err)
+	// A second open against the same execution is rejected while the first
+	// session is live.
+	if _, err := allocator.OpenTunnelSession(executionID, []byte(testPeerKey)); !errors.Is(err, tunnel.ErrSessionBusy) {
+		t.Fatalf("second open = %v; want ErrSessionBusy", err)
 	}
 	if _, ok := allocator.TunnelSession(executionID); !ok {
-		t.Fatal("no active session after accept")
+		t.Fatal("no active session after open")
 	}
 }
 
-func TestTunnelGrantPeerKeyMismatchRejected(t *testing.T) {
+func TestTunnelOpenPeerKeyMismatchRejected(t *testing.T) {
 	clock := newFakeClock()
 	allocator := newTunnelAllocator(t, clock, newFakeRuntime())
 	executionID := assignRunning(t, allocator, clock, "a")
-	ack := mustHandle(t, allocator, tunnelGrantEnvelope(clock.Now(), "grant-msg", "a", executionID)).GetExecutionTunnelGrantAck()
+	mustHandle(t, allocator, tunnelOpenEnvelope(clock.Now(), "open-msg", "a", executionID))
 
-	if _, err := allocator.AcceptTunnel(executionID, ack.GetGrantId(), []byte("different-key")); !errors.Is(err, tunnel.ErrPeerKeyMismatch) {
-		t.Fatalf("peer-key-mismatch accept = %v; want ErrPeerKeyMismatch", err)
+	if _, err := allocator.OpenTunnelSession(executionID, []byte("different-key")); !errors.Is(err, tunnel.ErrPeerKeyMismatch) {
+		t.Fatalf("peer-key-mismatch open = %v; want ErrPeerKeyMismatch", err)
 	}
-	// A rejected accept leaves the grant unconsumed and reusable.
-	session, err := allocator.AcceptTunnel(executionID, ack.GetGrantId(), []byte(testPeerKey))
+	// A rejected open leaves the binding intact and reusable (it is not
+	// single-use, unlike the retired grant token).
+	session, err := allocator.OpenTunnelSession(executionID, []byte(testPeerKey))
 	if err != nil {
-		t.Fatalf("accept after mismatch = %v; want success", err)
+		t.Fatalf("open after mismatch = %v; want success", err)
 	}
 	if session == nil {
-		t.Fatal("nil session after successful accept")
+		t.Fatal("nil session after successful open")
 	}
 }
 
-func TestTunnelRewindPreambleMismatchRejected(t *testing.T) {
+func TestTunnelOpenNotBoundRejected(t *testing.T) {
 	clock := newFakeClock()
 	allocator := newTunnelAllocator(t, clock, newFakeRuntime())
 	executionID := assignRunning(t, allocator, clock, "a")
-	ack := mustHandle(t, allocator, tunnelGrantEnvelope(clock.Now(), "grant-msg", "a", executionID)).GetExecutionTunnelGrantAck()
 
-	// Wrong grant ID for the same execution, and a grant ID for another execution.
-	if _, err := allocator.AcceptTunnel(executionID, "wrong-grant", []byte(testPeerKey)); !errors.Is(err, tunnel.ErrGrantNotFound) {
-		t.Fatalf("wrong grant accept = %v; want ErrGrantNotFound", err)
+	// A session can only be opened for an execution that first declared a
+	// binding over the control plane.
+	if _, err := allocator.OpenTunnelSession(executionID, []byte(testPeerKey)); !errors.Is(err, tunnel.ErrTunnelNotBound) {
+		t.Fatalf("open without bind = %v; want ErrTunnelNotBound", err)
 	}
-	if _, err := allocator.AcceptTunnel("execution-unknown", ack.GetGrantId(), []byte(testPeerKey)); !errors.Is(err, ErrExecutionNotFound) {
-		t.Fatalf("unknown execution accept = %v; want ErrExecutionNotFound", err)
+	if _, err := allocator.OpenTunnelSession("execution-unknown", []byte(testPeerKey)); !errors.Is(err, ErrExecutionNotFound) {
+		t.Fatalf("unknown execution open = %v; want ErrExecutionNotFound", err)
 	}
 }
 
 // TestTunnelTerminalStateClosesSession verifies that committing terminal state
-// closes the live session and invalidates the grant in the same local sweep,
-// and that a re-mint after the close is immediate.
+// closes the live session in the same local sweep, and that a re-open after the
+// close is rejected because the execution itself is terminal.
 func TestTunnelTerminalStateClosesSession(t *testing.T) {
 	clock := newFakeClock()
 	runtime := newFakeRuntime()
 	allocator := newTunnelAllocator(t, clock, runtime)
 	executionID := assignRunning(t, allocator, clock, "a")
-	ack := mustHandle(t, allocator, tunnelGrantEnvelope(clock.Now(), "grant-msg", "a", executionID)).GetExecutionTunnelGrantAck()
-	session, err := allocator.AcceptTunnel(executionID, ack.GetGrantId(), []byte(testPeerKey))
+	mustHandle(t, allocator, tunnelOpenEnvelope(clock.Now(), "open-msg", "a", executionID))
+	session, err := allocator.OpenTunnelSession(executionID, []byte(testPeerKey))
 	if err != nil {
-		t.Fatalf("accept: %v", err)
+		t.Fatalf("open: %v", err)
 	}
 
 	// Cancel the execution: terminal state must close the session.
@@ -321,16 +301,17 @@ func TestTunnelTerminalStateClosesSession(t *testing.T) {
 	default:
 		t.Fatal("terminal transition did not signal edge revocation")
 	}
-	// A re-mint right after terminal cleanup is rejected because the execution
+	// A re-open right after terminal cleanup is rejected because the execution
 	// itself is terminal, not because the registry is stuck.
-	if _, err := allocator.Handle(context.Background(), tunnelGrantEnvelope(clock.Now(), "grant-after-terminal", "a", executionID)); !errors.Is(err, ErrInvalidTransition) {
-		t.Fatalf("mint on terminal execution = %v; want ErrInvalidTransition", err)
+	if _, err := allocator.Handle(context.Background(), tunnelOpenEnvelope(clock.Now(), "open-after-terminal", "a", executionID)); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("open on terminal execution = %v; want ErrInvalidTransition", err)
 	}
 }
 
-// TestTunnelRestartInvalidatesGrants verifies an allocator restart leaves no
-// outstanding grant behind: the client must request a new grant.
-func TestTunnelRestartInvalidatesGrants(t *testing.T) {
+// TestTunnelRestartRequiresFreshOpen verifies an allocator restart leaves no
+// outstanding binding behind: the client must declare a fresh authenticated
+// open.
+func TestTunnelRestartRequiresFreshOpen(t *testing.T) {
 	clock := newFakeClock()
 	path := t.TempDir() + "/allocator.db"
 	store, err := statebolt.Open(path)
@@ -342,7 +323,7 @@ func TestTunnelRestartInvalidatesGrants(t *testing.T) {
 		Identity: []byte("allocator"), Capacity: map[string]uint32{"default": 1},
 		OfferTTL: 30 * time.Second, Now: clock.Now, NewID: sequenceIDs(), Store: store,
 		Tunnel: TunnelConfig{
-			Enabled: true, GrantTTL: time.Minute,
+			Enabled:  true,
 			Endpoint: tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
 		},
 	}, newFakeRuntime())
@@ -350,11 +331,11 @@ func TestTunnelRestartInvalidatesGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	executionID := assignRunning(t, first, clock, "a")
-	ack := mustHandle(t, first, tunnelGrantEnvelope(clock.Now(), "grant-msg", "a", executionID)).GetExecutionTunnelGrantAck()
+	mustHandle(t, first, tunnelOpenEnvelope(clock.Now(), "open-msg", "a", executionID))
 
 	// Restart: a fresh allocator over the same identity restores execution state
-	// from the store but holds an empty in-memory registry, so the old grant is
-	// gone by construction.
+	// from the store but holds an empty in-memory registry, so the old binding
+	// is gone by construction.
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -368,7 +349,7 @@ func TestTunnelRestartInvalidatesGrants(t *testing.T) {
 		Identity: []byte("allocator"), Capacity: map[string]uint32{"default": 1},
 		OfferTTL: 30 * time.Second, Now: clock.Now, NewID: sequenceIDs(), Store: secondStore,
 		Tunnel: TunnelConfig{
-			Enabled: true, GrantTTL: time.Minute,
+			Enabled:  true,
 			Endpoint: tunnel.Endpoint{Address: []byte(testEndpoint), PubKey: []byte(testPubKey)},
 		},
 	}, runtime)
@@ -378,28 +359,29 @@ func TestTunnelRestartInvalidatesGrants(t *testing.T) {
 	if err := second.Recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	// The old grant is gone; accept returns not found.
-	if _, err := second.AcceptTunnel(executionID, ack.GetGrantId(), []byte(testPeerKey)); !errors.Is(err, tunnel.ErrGrantNotFound) {
-		t.Fatalf("accept after restart = %v; want ErrGrantNotFound", err)
+	// The old binding is gone; but the execution is not itself authoritative,
+	// so the session open now fails as not bound.
+	if _, err := second.OpenTunnelSession(executionID, []byte(testPeerKey)); !errors.Is(err, tunnel.ErrTunnelNotBound) {
+		t.Fatalf("open after restart = %v; want ErrTunnelNotBound", err)
 	}
-	// A fresh mint on the restarted allocator works.
-	if _, err := second.Handle(context.Background(), tunnelGrantEnvelope(clock.Now(), "grant-after-restart", "a", executionID)); err != nil {
-		t.Fatalf("mint after restart: %v", err)
+	// A fresh authenticated open on the restarted allocator works.
+	if _, err := second.Handle(context.Background(), tunnelOpenEnvelope(clock.Now(), "open-after-restart", "a", executionID)); err != nil {
+		t.Fatalf("open after restart: %v", err)
 	}
 }
 
-// TestTunnelGrantDuplicateDeliverySameAck verifies the replay cache serves the
-// recorded ack for a duplicate grant message: the client recovers a stable
-// grant without over-minting.
-func TestTunnelGrantDuplicateDeliverySameAck(t *testing.T) {
+// TestTunnelOpenDuplicateDeliverySameAck verifies the replay cache serves the
+// recorded ack for a duplicate open message: the client recovers a stable ack
+// without re-binding.
+func TestTunnelOpenDuplicateDeliverySameAck(t *testing.T) {
 	clock := newFakeClock()
 	allocator := newTunnelAllocator(t, clock, newFakeRuntime())
 	executionID := assignRunning(t, allocator, clock, "a")
-	envelope := tunnelGrantEnvelope(clock.Now(), "grant-msg", "a", executionID)
+	envelope := tunnelOpenEnvelope(clock.Now(), "open-msg", "a", executionID)
 	first := mustHandle(t, allocator, envelope)
 	second := mustHandle(t, allocator, envelope)
-	if first.GetExecutionTunnelGrantAck().GetGrantId() != second.GetExecutionTunnelGrantAck().GetGrantId() {
-		t.Fatalf("duplicate grant minted a different grant: %q vs %q", first.GetExecutionTunnelGrantAck().GetGrantId(), second.GetExecutionTunnelGrantAck().GetGrantId())
+	if string(first.GetExecutionTunnelOpenAck().GetAllocatorEndpoint()) != string(second.GetExecutionTunnelOpenAck().GetAllocatorEndpoint()) {
+		t.Fatalf("duplicate open returned a different ack: %v vs %v", first, second)
 	}
 }
 

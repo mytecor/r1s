@@ -16,6 +16,10 @@ message Envelope {
   google.protobuf.Timestamp sent_at = 4;
 
   reserved 5 to 9;
+  // 23/24 were the retired ExecutionTunnelGrant/ExecutionTunnelGrantAck oneof
+  // payloads; their names and numbers are reserved and never reused (F22-06).
+  reserved 23, 24;
+  reserved "execution_tunnel_grant", "execution_tunnel_grant_ack";
 
   oneof payload {
     ExecutionRequest execution_request = 10;
@@ -31,8 +35,8 @@ message Envelope {
     ExecutionLogsResponse execution_logs_response = 20;
     ExecutionLeaseRenew execution_lease_renew = 21;
     ExecutionLeaseRenewAck execution_lease_renew_ack = 22;
-    ExecutionTunnelGrant execution_tunnel_grant = 23;
-    ExecutionTunnelGrantAck execution_tunnel_grant_ack = 24;
+    ExecutionTunnelOpen execution_tunnel_open = 25;
+    ExecutionTunnelOpenAck execution_tunnel_open_ack = 26;
   }
 }
 
@@ -243,32 +247,43 @@ message TunnelTarget {
   uint32 port = 3;
 }
 
-// ExecutionTunnelGrant requests a short-lived, single-use, execution-scoped
-// direct-access tunnel to a running execution. The sender must be the
-// authenticated execution owner. ygg_peer_pubkey is the client's edge node
-// public key (HKDF-derived from the client identity seed, opaque to the
-// protocol); the allocator binds it into the minted grant so the tunnel edge
-// accepts only an authenticated peer whose key matches. targets is the
-// client-supplied destination container port list the allocator binds into the
-// minted grant; at least one target (a positive container port) is required.
-message ExecutionTunnelGrant {
+// ExecutionTunnelOpen declares the owned run's tunnel binding. It replaces the
+// retired ExecutionTunnelGrant (field numbers 23/24 reserved above): there is
+// no short-lived grant token, no grant ID, and no TTL. The transport-verified
+// sender IS the authenticated execution owner (the Envelope sender is replaced
+// by the transport from the authenticated connection, never trusted from a
+// payload), and the allocator binds the declared edge node public key and
+// container-port list to the execution for the execution's lifetime. A tunnel
+// peer that later presents the bound edge key to a running execution is
+// authorized directly and spliced; there is no single-use consumption to
+// waste. After an allocator restart the in-memory binding is gone and a fresh
+// authenticated open is required before any stream may be established.
+message ExecutionTunnelOpen {
   string execution_id = 1;
+  // ygg_peer_pubkey is the client edge node public key (HKDF-derived from the
+  // run identity seed, opaque to the protocol) the allocator binds to the
+  // execution. A tunnel connection presenting this authenticated peer key is
+  // authorized; any other key fails closed. It is not a bearer secret: it only
+  // binds the mesh-authenticated peer, and the client holding the private key
+  // is what proves ownership of the key.
   bytes ygg_peer_pubkey = 2;
+  // targets is the client-supplied destination container port list bound to the
+  // execution; at least one target (a positive container port) is required.
   repeated TunnelTarget targets = 3;
 }
 
-// ExecutionTunnelGrantAck is the allocator's mint reply: a grant ID, its
-// expiry, the transport-neutral allocator-local endpoint advertisement
-// (opaque address bytes and opaque public-key bytes), and the echoed
-// client-supplied container port list so the client and edge agree on the
-// resolved ports. Nothing secret is embedded in the advertisement or the ack.
-message ExecutionTunnelGrantAck {
+// ExecutionTunnelOpenAck is the allocator's reply to ExecutionTunnelOpen: the
+// transport-neutral allocator-local endpoint advertisement (opaque address
+// bytes and opaque public-key bytes) and the echoed client-supplied container
+// port list so the client and edge agree on the resolved ports. There is no
+// grant ID and no expiry: the binding lives for the execution's lifetime. On a
+// re-open for the same execution the allocator replaces the binding (repinning
+// the peer key and target list) so a reconnected run re-establishes cleanly.
+message ExecutionTunnelOpenAck {
   string execution_id = 1;
-  string grant_id = 2;
-  google.protobuf.Timestamp expires_at = 3;
-  bytes allocator_endpoint = 4;
-  bytes allocator_endpoint_pubkey = 5;
-  repeated TunnelTarget targets = 6;
+  bytes allocator_endpoint = 2;
+  bytes allocator_endpoint_pubkey = 3;
+  repeated TunnelTarget targets = 4;
 }
 
 // ============================================================================

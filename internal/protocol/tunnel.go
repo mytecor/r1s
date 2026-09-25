@@ -7,50 +7,49 @@ import (
 	"github.com/mytecor/r1s/internal/tunnel"
 )
 
-// validateTunnelGrant validates a client's request to mint a direct-access
-// tunnel grant. The peer node public key is an opaque value; it is required
-// because the allocator pins it into the grant (nothing secret is embedded,
-// but the key must be present to authorize the tunnel edge at connect time).
-func validateTunnelGrant(grant *r1sv1.ExecutionTunnelGrant) error {
-	if grant == nil {
-		return invalid("execution_tunnel_grant", "is required")
+// validateTunnelOpen validates a client's declaration of its tunnel binding to
+// an execution (F22-06). It replaces the retired ExecutionTunnelGrant: there is
+// no grant token, no grant ID, and no TTL. The transport-verified sender is the
+// authenticated owner; the declared edge node public key is an opaque value the
+// allocator binds to the execution so a mesh peer presenting that key is
+// authorized directly. The peer key is required (it is the binding the
+// allocator authorizes), but it is not a bearer secret: it only binds the
+// mesh-authenticated peer, and the client holding the corresponding private key
+// is what proves ownership.
+func validateTunnelOpen(open *r1sv1.ExecutionTunnelOpen) error {
+	if open == nil {
+		return invalid("execution_tunnel_open", "is required")
 	}
-	if strings.TrimSpace(grant.GetExecutionId()) == "" {
-		return invalid("execution_tunnel_grant.execution_id", "is required")
+	if strings.TrimSpace(open.GetExecutionId()) == "" {
+		return invalid("execution_tunnel_open.execution_id", "is required")
 	}
-	if len(grant.GetYggPeerPubkey()) == 0 {
-		return invalid("execution_tunnel_grant.ygg_peer_pubkey", "is required")
+	if len(open.GetYggPeerPubkey()) == 0 {
+		return invalid("execution_tunnel_open.ygg_peer_pubkey", "is required")
 	}
-	if len(grant.GetYggPeerPubkey()) > tunnel.MaxPeerKeySize {
-		return invalid("execution_tunnel_grant.ygg_peer_pubkey", "is too large")
+	if len(open.GetYggPeerPubkey()) > tunnel.MaxPeerKeySize {
+		return invalid("execution_tunnel_open.ygg_peer_pubkey", "is too large")
 	}
-	if len(grant.GetTargets()) == 0 {
-		return invalid("execution_tunnel_grant.targets", "is required")
+	if len(open.GetTargets()) == 0 {
+		return invalid("execution_tunnel_open.targets", "is required")
 	}
-	if _, err := ValidateTunnelTargets(grant.GetTargets()); err != nil {
+	if _, err := ValidateTunnelTargets(open.GetTargets()); err != nil {
 		return err
 	}
 	return nil
 }
 
-// validateTunnelGrantAck validates the allocator's mint reply. The endpoint
-// advertisement is opaque transport-neutral bytes: it may be empty on an older
-// peer that acknowledges a grant before its edge advertises an endpoint, so
-// only the structural fields are enforced here. The ontology of "grant bound to
-// the wrong execution" lives in the allocator, not in wire validation: the ack
-// echoes the execution the allocator minted for.
-func validateTunnelGrantAck(ack *r1sv1.ExecutionTunnelGrantAck) error {
+// validateTunnelOpenAck validates the allocator's reply to an ExecutionTunnelOpen.
+// The endpoint advertisement is opaque transport-neutral bytes: it may be empty
+// on an older peer that acknowledges an open before its edge advertises an
+// endpoint, so only the structural fields are enforced here. The ontology of
+// "open bound to the wrong execution" lives in the allocator, not in wire
+// validation: the ack echoes the execution the allocator bound.
+func validateTunnelOpenAck(ack *r1sv1.ExecutionTunnelOpenAck) error {
 	if ack == nil {
-		return invalid("execution_tunnel_grant_ack", "is required")
+		return invalid("execution_tunnel_open_ack", "is required")
 	}
 	if strings.TrimSpace(ack.GetExecutionId()) == "" {
-		return invalid("execution_tunnel_grant_ack.execution_id", "is required")
-	}
-	if strings.TrimSpace(ack.GetGrantId()) == "" {
-		return invalid("execution_tunnel_grant_ack.grant_id", "is required")
-	}
-	if err := validTimestamp("execution_tunnel_grant_ack.expires_at", ack.GetExpiresAt()); err != nil {
-		return err
+		return invalid("execution_tunnel_open_ack.execution_id", "is required")
 	}
 	return nil
 }

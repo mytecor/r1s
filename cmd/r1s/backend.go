@@ -6,7 +6,6 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
-	"github.com/mytecor/r1s/internal/tunnel"
 )
 
 // The r1s application implements localserver.Backend so both the persistent
@@ -53,8 +52,4 @@ func (a *application) WatchAfter(ctx context.Context, after uint64) ([]client.Wa
 
 func (a *application) SubscribeWatch(ctx context.Context, observer func(client.WatchEvent)) (cancel func()) {
 	return a.client.SubscribeWatch(observer)
-}
-
-func (a *application) Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error) {
-	return a.openTunnelStream(ctx, executionID, targets, targetPort)
 }

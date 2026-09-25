@@ -220,8 +220,8 @@ type Envelope struct {
 	//	*Envelope_ExecutionLogsResponse
 	//	*Envelope_ExecutionLeaseRenew
 	//	*Envelope_ExecutionLeaseRenewAck
-	//	*Envelope_ExecutionTunnelGrant
-	//	*Envelope_ExecutionTunnelGrantAck
+	//	*Envelope_ExecutionTunnelOpen
+	//	*Envelope_ExecutionTunnelOpenAck
 	Payload       isEnvelope_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -409,19 +409,19 @@ func (x *Envelope) GetExecutionLeaseRenewAck() *ExecutionLeaseRenewAck {
 	return nil
 }
 
-func (x *Envelope) GetExecutionTunnelGrant() *ExecutionTunnelGrant {
+func (x *Envelope) GetExecutionTunnelOpen() *ExecutionTunnelOpen {
 	if x != nil {
-		if x, ok := x.Payload.(*Envelope_ExecutionTunnelGrant); ok {
-			return x.ExecutionTunnelGrant
+		if x, ok := x.Payload.(*Envelope_ExecutionTunnelOpen); ok {
+			return x.ExecutionTunnelOpen
 		}
 	}
 	return nil
 }
 
-func (x *Envelope) GetExecutionTunnelGrantAck() *ExecutionTunnelGrantAck {
+func (x *Envelope) GetExecutionTunnelOpenAck() *ExecutionTunnelOpenAck {
 	if x != nil {
-		if x, ok := x.Payload.(*Envelope_ExecutionTunnelGrantAck); ok {
-			return x.ExecutionTunnelGrantAck
+		if x, ok := x.Payload.(*Envelope_ExecutionTunnelOpenAck); ok {
+			return x.ExecutionTunnelOpenAck
 		}
 	}
 	return nil
@@ -483,12 +483,12 @@ type Envelope_ExecutionLeaseRenewAck struct {
 	ExecutionLeaseRenewAck *ExecutionLeaseRenewAck `protobuf:"bytes,22,opt,name=execution_lease_renew_ack,json=executionLeaseRenewAck,proto3,oneof"`
 }
 
-type Envelope_ExecutionTunnelGrant struct {
-	ExecutionTunnelGrant *ExecutionTunnelGrant `protobuf:"bytes,23,opt,name=execution_tunnel_grant,json=executionTunnelGrant,proto3,oneof"`
+type Envelope_ExecutionTunnelOpen struct {
+	ExecutionTunnelOpen *ExecutionTunnelOpen `protobuf:"bytes,25,opt,name=execution_tunnel_open,json=executionTunnelOpen,proto3,oneof"`
 }
 
-type Envelope_ExecutionTunnelGrantAck struct {
-	ExecutionTunnelGrantAck *ExecutionTunnelGrantAck `protobuf:"bytes,24,opt,name=execution_tunnel_grant_ack,json=executionTunnelGrantAck,proto3,oneof"`
+type Envelope_ExecutionTunnelOpenAck struct {
+	ExecutionTunnelOpenAck *ExecutionTunnelOpenAck `protobuf:"bytes,26,opt,name=execution_tunnel_open_ack,json=executionTunnelOpenAck,proto3,oneof"`
 }
 
 func (*Envelope_ExecutionRequest) isEnvelope_Payload() {}
@@ -517,9 +517,9 @@ func (*Envelope_ExecutionLeaseRenew) isEnvelope_Payload() {}
 
 func (*Envelope_ExecutionLeaseRenewAck) isEnvelope_Payload() {}
 
-func (*Envelope_ExecutionTunnelGrant) isEnvelope_Payload() {}
+func (*Envelope_ExecutionTunnelOpen) isEnvelope_Payload() {}
 
-func (*Envelope_ExecutionTunnelGrantAck) isEnvelope_Payload() {}
+func (*Envelope_ExecutionTunnelOpenAck) isEnvelope_Payload() {}
 
 // Workload describes an OCI workload without exposing a concrete runtime API.
 type Workload struct {
@@ -1771,37 +1771,48 @@ func (x *TunnelTarget) GetPort() uint32 {
 	return 0
 }
 
-// ExecutionTunnelGrant requests a short-lived, single-use, execution-scoped
-// direct-access tunnel to a running execution. The sender must be the
-// authenticated execution owner. ygg_peer_pubkey is the client's edge node
-// public key (HKDF-derived from the client identity seed, opaque to the
-// protocol); the allocator binds it into the minted grant so the tunnel edge
-// accepts only an authenticated peer whose key matches. targets is the
-// client-supplied destination container port list the allocator binds into the
-// minted grant; at least one target (a positive container port) is required.
-type ExecutionTunnelGrant struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
-	YggPeerPubkey []byte                 `protobuf:"bytes,2,opt,name=ygg_peer_pubkey,json=yggPeerPubkey,proto3" json:"ygg_peer_pubkey,omitempty"`
-	Targets       []*TunnelTarget        `protobuf:"bytes,3,rep,name=targets,proto3" json:"targets,omitempty"`
+// ExecutionTunnelOpen declares the owned run's tunnel binding. It replaces the
+// retired ExecutionTunnelGrant (field numbers 23/24 reserved above): there is
+// no short-lived grant token, no grant ID, and no TTL. The transport-verified
+// sender IS the authenticated execution owner (the Envelope sender is replaced
+// by the transport from the authenticated connection, never trusted from a
+// payload), and the allocator binds the declared edge node public key and
+// container-port list to the execution for the execution's lifetime. A tunnel
+// peer that later presents the bound edge key to a running execution is
+// authorized directly and spliced; there is no single-use consumption to
+// waste. After an allocator restart the in-memory binding is gone and a fresh
+// authenticated open is required before any stream may be established.
+type ExecutionTunnelOpen struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	// ygg_peer_pubkey is the client edge node public key (HKDF-derived from the
+	// run identity seed, opaque to the protocol) the allocator binds to the
+	// execution. A tunnel connection presenting this authenticated peer key is
+	// authorized; any other key fails closed. It is not a bearer secret: it only
+	// binds the mesh-authenticated peer, and the client holding the private key
+	// is what proves ownership of the key.
+	YggPeerPubkey []byte `protobuf:"bytes,2,opt,name=ygg_peer_pubkey,json=yggPeerPubkey,proto3" json:"ygg_peer_pubkey,omitempty"`
+	// targets is the client-supplied destination container port list bound to the
+	// execution; at least one target (a positive container port) is required.
+	Targets       []*TunnelTarget `protobuf:"bytes,3,rep,name=targets,proto3" json:"targets,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ExecutionTunnelGrant) Reset() {
-	*x = ExecutionTunnelGrant{}
+func (x *ExecutionTunnelOpen) Reset() {
+	*x = ExecutionTunnelOpen{}
 	mi := &file_r1s_v1_control_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ExecutionTunnelGrant) String() string {
+func (x *ExecutionTunnelOpen) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ExecutionTunnelGrant) ProtoMessage() {}
+func (*ExecutionTunnelOpen) ProtoMessage() {}
 
-func (x *ExecutionTunnelGrant) ProtoReflect() protoreflect.Message {
+func (x *ExecutionTunnelOpen) ProtoReflect() protoreflect.Message {
 	mi := &file_r1s_v1_control_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1813,63 +1824,63 @@ func (x *ExecutionTunnelGrant) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ExecutionTunnelGrant.ProtoReflect.Descriptor instead.
-func (*ExecutionTunnelGrant) Descriptor() ([]byte, []int) {
+// Deprecated: Use ExecutionTunnelOpen.ProtoReflect.Descriptor instead.
+func (*ExecutionTunnelOpen) Descriptor() ([]byte, []int) {
 	return file_r1s_v1_control_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *ExecutionTunnelGrant) GetExecutionId() string {
+func (x *ExecutionTunnelOpen) GetExecutionId() string {
 	if x != nil {
 		return x.ExecutionId
 	}
 	return ""
 }
 
-func (x *ExecutionTunnelGrant) GetYggPeerPubkey() []byte {
+func (x *ExecutionTunnelOpen) GetYggPeerPubkey() []byte {
 	if x != nil {
 		return x.YggPeerPubkey
 	}
 	return nil
 }
 
-func (x *ExecutionTunnelGrant) GetTargets() []*TunnelTarget {
+func (x *ExecutionTunnelOpen) GetTargets() []*TunnelTarget {
 	if x != nil {
 		return x.Targets
 	}
 	return nil
 }
 
-// ExecutionTunnelGrantAck is the allocator's mint reply: a grant ID, its
-// expiry, the transport-neutral allocator-local endpoint advertisement
-// (opaque address bytes and opaque public-key bytes), and the echoed
-// client-supplied container port list so the client and edge agree on the
-// resolved ports. Nothing secret is embedded in the advertisement or the ack.
-type ExecutionTunnelGrantAck struct {
+// ExecutionTunnelOpenAck is the allocator's reply to ExecutionTunnelOpen: the
+// transport-neutral allocator-local endpoint advertisement (opaque address
+// bytes and opaque public-key bytes) and the echoed client-supplied container
+// port list so the client and edge agree on the resolved ports. There is no
+// grant ID and no expiry: the binding lives for the execution's lifetime. On a
+// re-open for the same execution the allocator replaces the binding (repinning
+// the peer key and target list) so a reconnected run re-establishes cleanly.
+type ExecutionTunnelOpenAck struct {
 	state                   protoimpl.MessageState `protogen:"open.v1"`
 	ExecutionId             string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
-	GrantId                 string                 `protobuf:"bytes,2,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
-	ExpiresAt               *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	AllocatorEndpoint       []byte                 `protobuf:"bytes,4,opt,name=allocator_endpoint,json=allocatorEndpoint,proto3" json:"allocator_endpoint,omitempty"`
-	AllocatorEndpointPubkey []byte                 `protobuf:"bytes,5,opt,name=allocator_endpoint_pubkey,json=allocatorEndpointPubkey,proto3" json:"allocator_endpoint_pubkey,omitempty"`
-	Targets                 []*TunnelTarget        `protobuf:"bytes,6,rep,name=targets,proto3" json:"targets,omitempty"`
+	AllocatorEndpoint       []byte                 `protobuf:"bytes,2,opt,name=allocator_endpoint,json=allocatorEndpoint,proto3" json:"allocator_endpoint,omitempty"`
+	AllocatorEndpointPubkey []byte                 `protobuf:"bytes,3,opt,name=allocator_endpoint_pubkey,json=allocatorEndpointPubkey,proto3" json:"allocator_endpoint_pubkey,omitempty"`
+	Targets                 []*TunnelTarget        `protobuf:"bytes,4,rep,name=targets,proto3" json:"targets,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
 
-func (x *ExecutionTunnelGrantAck) Reset() {
-	*x = ExecutionTunnelGrantAck{}
+func (x *ExecutionTunnelOpenAck) Reset() {
+	*x = ExecutionTunnelOpenAck{}
 	mi := &file_r1s_v1_control_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ExecutionTunnelGrantAck) String() string {
+func (x *ExecutionTunnelOpenAck) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ExecutionTunnelGrantAck) ProtoMessage() {}
+func (*ExecutionTunnelOpenAck) ProtoMessage() {}
 
-func (x *ExecutionTunnelGrantAck) ProtoReflect() protoreflect.Message {
+func (x *ExecutionTunnelOpenAck) ProtoReflect() protoreflect.Message {
 	mi := &file_r1s_v1_control_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1881,47 +1892,33 @@ func (x *ExecutionTunnelGrantAck) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ExecutionTunnelGrantAck.ProtoReflect.Descriptor instead.
-func (*ExecutionTunnelGrantAck) Descriptor() ([]byte, []int) {
+// Deprecated: Use ExecutionTunnelOpenAck.ProtoReflect.Descriptor instead.
+func (*ExecutionTunnelOpenAck) Descriptor() ([]byte, []int) {
 	return file_r1s_v1_control_proto_rawDescGZIP(), []int{20}
 }
 
-func (x *ExecutionTunnelGrantAck) GetExecutionId() string {
+func (x *ExecutionTunnelOpenAck) GetExecutionId() string {
 	if x != nil {
 		return x.ExecutionId
 	}
 	return ""
 }
 
-func (x *ExecutionTunnelGrantAck) GetGrantId() string {
-	if x != nil {
-		return x.GrantId
-	}
-	return ""
-}
-
-func (x *ExecutionTunnelGrantAck) GetExpiresAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.ExpiresAt
-	}
-	return nil
-}
-
-func (x *ExecutionTunnelGrantAck) GetAllocatorEndpoint() []byte {
+func (x *ExecutionTunnelOpenAck) GetAllocatorEndpoint() []byte {
 	if x != nil {
 		return x.AllocatorEndpoint
 	}
 	return nil
 }
 
-func (x *ExecutionTunnelGrantAck) GetAllocatorEndpointPubkey() []byte {
+func (x *ExecutionTunnelOpenAck) GetAllocatorEndpointPubkey() []byte {
 	if x != nil {
 		return x.AllocatorEndpointPubkey
 	}
 	return nil
 }
 
-func (x *ExecutionTunnelGrantAck) GetTargets() []*TunnelTarget {
+func (x *ExecutionTunnelOpenAck) GetTargets() []*TunnelTarget {
 	if x != nil {
 		return x.Targets
 	}
@@ -2052,8 +2049,7 @@ var File_r1s_v1_control_proto protoreflect.FileDescriptor
 
 const file_r1s_v1_control_proto_rawDesc = "" +
 	"\n" +
-	"\x14r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe0\n" +
-	"\n" +
+	"\x14r1s/v1/control.proto\x12\x06r1s.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9a\v\n" +
 	"\bEnvelope\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x16\n" +
@@ -2073,11 +2069,11 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"\x16execution_logs_request\x18\x13 \x01(\v2\x1c.r1s.v1.ExecutionLogsRequestH\x00R\x14executionLogsRequest\x12W\n" +
 	"\x17execution_logs_response\x18\x14 \x01(\v2\x1d.r1s.v1.ExecutionLogsResponseH\x00R\x15executionLogsResponse\x12Q\n" +
 	"\x15execution_lease_renew\x18\x15 \x01(\v2\x1b.r1s.v1.ExecutionLeaseRenewH\x00R\x13executionLeaseRenew\x12[\n" +
-	"\x19execution_lease_renew_ack\x18\x16 \x01(\v2\x1e.r1s.v1.ExecutionLeaseRenewAckH\x00R\x16executionLeaseRenewAck\x12T\n" +
-	"\x16execution_tunnel_grant\x18\x17 \x01(\v2\x1c.r1s.v1.ExecutionTunnelGrantH\x00R\x14executionTunnelGrant\x12^\n" +
-	"\x1aexecution_tunnel_grant_ack\x18\x18 \x01(\v2\x1f.r1s.v1.ExecutionTunnelGrantAckH\x00R\x17executionTunnelGrantAckB\t\n" +
+	"\x19execution_lease_renew_ack\x18\x16 \x01(\v2\x1e.r1s.v1.ExecutionLeaseRenewAckH\x00R\x16executionLeaseRenewAck\x12Q\n" +
+	"\x15execution_tunnel_open\x18\x19 \x01(\v2\x1b.r1s.v1.ExecutionTunnelOpenH\x00R\x13executionTunnelOpen\x12[\n" +
+	"\x19execution_tunnel_open_ack\x18\x1a \x01(\v2\x1e.r1s.v1.ExecutionTunnelOpenAckH\x00R\x16executionTunnelOpenAckB\t\n" +
 	"\apayloadJ\x04\b\x05\x10\n" +
-	"\"\x80\x02\n" +
+	"J\x04\b\x17\x10\x18J\x04\b\x18\x10\x19R\x16execution_tunnel_grantR\x1aexecution_tunnel_grant_ack\"\x80\x02\n" +
 	"\bWorkload\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\x12\x18\n" +
 	"\acommand\x18\x02 \x03(\tR\acommand\x12\x12\n" +
@@ -2182,19 +2178,16 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\"\n" +
 	"\fTunnelTarget\x12\x12\n" +
-	"\x04port\x18\x03 \x01(\rR\x04port\"\x91\x01\n" +
-	"\x14ExecutionTunnelGrant\x12!\n" +
+	"\x04port\x18\x03 \x01(\rR\x04port\"\x90\x01\n" +
+	"\x13ExecutionTunnelOpen\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12&\n" +
 	"\x0fygg_peer_pubkey\x18\x02 \x01(\fR\ryggPeerPubkey\x12.\n" +
-	"\atargets\x18\x03 \x03(\v2\x14.r1s.v1.TunnelTargetR\atargets\"\xad\x02\n" +
-	"\x17ExecutionTunnelGrantAck\x12!\n" +
-	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x19\n" +
-	"\bgrant_id\x18\x02 \x01(\tR\agrantId\x129\n" +
-	"\n" +
-	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12-\n" +
-	"\x12allocator_endpoint\x18\x04 \x01(\fR\x11allocatorEndpoint\x12:\n" +
-	"\x19allocator_endpoint_pubkey\x18\x05 \x01(\fR\x17allocatorEndpointPubkey\x12.\n" +
-	"\atargets\x18\x06 \x03(\v2\x14.r1s.v1.TunnelTargetR\atargets\"P\n" +
+	"\atargets\x18\x03 \x03(\v2\x14.r1s.v1.TunnelTargetR\atargets\"\xd6\x01\n" +
+	"\x16ExecutionTunnelOpenAck\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12-\n" +
+	"\x12allocator_endpoint\x18\x02 \x01(\fR\x11allocatorEndpoint\x12:\n" +
+	"\x19allocator_endpoint_pubkey\x18\x03 \x01(\fR\x17allocatorEndpointPubkey\x12.\n" +
+	"\atargets\x18\x04 \x03(\v2\x14.r1s.v1.TunnelTargetR\atargets\"P\n" +
 	"\n" +
 	"TunnelOpen\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x1f\n" +
@@ -2262,8 +2255,8 @@ var file_r1s_v1_control_proto_goTypes = []any{
 	(*ExecutionLeaseRenew)(nil),      // 19: r1s.v1.ExecutionLeaseRenew
 	(*ExecutionLeaseRenewAck)(nil),   // 20: r1s.v1.ExecutionLeaseRenewAck
 	(*TunnelTarget)(nil),             // 21: r1s.v1.TunnelTarget
-	(*ExecutionTunnelGrant)(nil),     // 22: r1s.v1.ExecutionTunnelGrant
-	(*ExecutionTunnelGrantAck)(nil),  // 23: r1s.v1.ExecutionTunnelGrantAck
+	(*ExecutionTunnelOpen)(nil),      // 22: r1s.v1.ExecutionTunnelOpen
+	(*ExecutionTunnelOpenAck)(nil),   // 23: r1s.v1.ExecutionTunnelOpenAck
 	(*TunnelOpen)(nil),               // 24: r1s.v1.TunnelOpen
 	(*TunnelOpenResult)(nil),         // 25: r1s.v1.TunnelOpenResult
 	nil,                              // 26: r1s.v1.Workload.EnvironmentEntry
@@ -2287,8 +2280,8 @@ var file_r1s_v1_control_proto_depIdxs = []int32{
 	18, // 11: r1s.v1.Envelope.execution_logs_response:type_name -> r1s.v1.ExecutionLogsResponse
 	19, // 12: r1s.v1.Envelope.execution_lease_renew:type_name -> r1s.v1.ExecutionLeaseRenew
 	20, // 13: r1s.v1.Envelope.execution_lease_renew_ack:type_name -> r1s.v1.ExecutionLeaseRenewAck
-	22, // 14: r1s.v1.Envelope.execution_tunnel_grant:type_name -> r1s.v1.ExecutionTunnelGrant
-	23, // 15: r1s.v1.Envelope.execution_tunnel_grant_ack:type_name -> r1s.v1.ExecutionTunnelGrantAck
+	22, // 14: r1s.v1.Envelope.execution_tunnel_open:type_name -> r1s.v1.ExecutionTunnelOpen
+	23, // 15: r1s.v1.Envelope.execution_tunnel_open_ack:type_name -> r1s.v1.ExecutionTunnelOpenAck
 	26, // 16: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
 	30, // 17: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
 	27, // 18: r1s.v1.NodeCapabilities.labels:type_name -> r1s.v1.NodeCapabilities.LabelsEntry
@@ -2303,15 +2296,14 @@ var file_r1s_v1_control_proto_depIdxs = []int32{
 	29, // 27: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
 	30, // 28: r1s.v1.ExecutionLeaseRenew.lease_duration:type_name -> google.protobuf.Duration
 	29, // 29: r1s.v1.ExecutionLeaseRenewAck.expires_at:type_name -> google.protobuf.Timestamp
-	21, // 30: r1s.v1.ExecutionTunnelGrant.targets:type_name -> r1s.v1.TunnelTarget
-	29, // 31: r1s.v1.ExecutionTunnelGrantAck.expires_at:type_name -> google.protobuf.Timestamp
-	21, // 32: r1s.v1.ExecutionTunnelGrantAck.targets:type_name -> r1s.v1.TunnelTarget
-	2,  // 33: r1s.v1.TunnelOpenResult.error:type_name -> r1s.v1.TunnelOpenError
-	34, // [34:34] is the sub-list for method output_type
-	34, // [34:34] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	21, // 30: r1s.v1.ExecutionTunnelOpen.targets:type_name -> r1s.v1.TunnelTarget
+	21, // 31: r1s.v1.ExecutionTunnelOpenAck.targets:type_name -> r1s.v1.TunnelTarget
+	2,  // 32: r1s.v1.TunnelOpenResult.error:type_name -> r1s.v1.TunnelOpenError
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_r1s_v1_control_proto_init() }
@@ -2333,8 +2325,8 @@ func file_r1s_v1_control_proto_init() {
 		(*Envelope_ExecutionLogsResponse)(nil),
 		(*Envelope_ExecutionLeaseRenew)(nil),
 		(*Envelope_ExecutionLeaseRenewAck)(nil),
-		(*Envelope_ExecutionTunnelGrant)(nil),
-		(*Envelope_ExecutionTunnelGrantAck)(nil),
+		(*Envelope_ExecutionTunnelOpen)(nil),
+		(*Envelope_ExecutionTunnelOpenAck)(nil),
 	}
 	file_r1s_v1_control_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}

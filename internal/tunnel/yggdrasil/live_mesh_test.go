@@ -37,7 +37,7 @@ func TestLiveMeshRoundTrip(t *testing.T) {
 			acceptDone <- err
 			return
 		}
-		if incoming.Preamble() != (tunnel.Preamble{ExecutionID: "live-exec", GrantID: "live-grant"}) {
+		if incoming.Preamble() != (tunnel.Preamble{ExecutionID: "live-exec"}) {
 			acceptDone <- errors.New("preamble mismatch")
 			return
 		}
@@ -65,7 +65,7 @@ func TestLiveMeshRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("the yggdrasil conn must implement PreambleWriter")
 	}
-	if err := preambleWriter.WritePreamble(tunnel.Preamble{ExecutionID: "live-exec", GrantID: "live-grant"}); err != nil {
+	if err := preambleWriter.WritePreamble(tunnel.Preamble{ExecutionID: "live-exec"}); err != nil {
 		t.Fatalf("write preamble: %v", err)
 	}
 	if err := <-acceptDone; err != nil {
@@ -155,7 +155,7 @@ func TestLiveMeshTwoStreams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	if err := conn.(tunnel.PreambleWriter).WritePreamble(tunnel.Preamble{ExecutionID: "live-exec", GrantID: "live-grant"}); err != nil {
+	if err := conn.(tunnel.PreambleWriter).WritePreamble(tunnel.Preamble{ExecutionID: "live-exec"}); err != nil {
 		t.Fatalf("write preamble: %v", err)
 	}
 	if err := <-acceptDone; err != nil {

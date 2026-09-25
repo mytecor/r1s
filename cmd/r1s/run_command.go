@@ -31,11 +31,15 @@ func (a *application) runExecution(arguments []string, stderr io.Writer) error {
 	detach := flags.Bool("d", false, "detach: hand the run to a background process and return")
 	detachLong := flags.Bool("detach", false, "detach: hand the run to a background process and return")
 	logFile := flags.String("log-file", "", "detached output file (defaults to the run state directory)")
+	var publishes portListValue
+	flags.Var(&publishes, "p", "publish host:container to the run for its lifetime (repeatable)")
+	flags.Var(&publishes, "publish", "publish host:container to the run for its lifetime (repeatable)")
 	// Internal child flags are set only when the detached parent re-executes
 	// this binary as the lease-holding child. They are invisible to users.
 	childFlag := flags.Bool("r1s-child", false, "internal: run as the detached lease-holding child")
 	handshakeFD := flags.Int("r1s-fd", detachHandshakeFD, "internal: handshake pipe file descriptor")
 	childLogFile := flags.String("r1s-log-file", "", "internal: resolved detached output file")
+	childPublish := flags.String("r1s-publish", "", "internal: comma-separated host:container publish list")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -51,15 +55,19 @@ func (a *application) runExecution(arguments []string, stderr io.Writer) error {
 	detached := *detach || *detachLong
 	if *childFlag {
 		// The child is the detached lease-holder. It must not also detach.
-		return a.runDetachedChild(flags.Arg(0), *offerWait, *handshakeFD, *childLogFile)
+		childPublishes, err := parsePublishFlag(*childPublish)
+		if err != nil {
+			return err
+		}
+		return a.runDetachedChild(flags.Arg(0), *offerWait, *handshakeFD, *childLogFile, childPublishes)
 	}
 	if detached {
 		// The parent never owns the run: it spawns a child and waits for the
 		// ownership handshake so it reports a live run only after the child has
 		// safely taken over (and the state paths exist with owner-only perms).
-		return a.launchDetached(a.clusterSelector, flags.Arg(0), *offerWait, *logFile, stderr)
+		return a.launchDetached(a.clusterSelector, flags.Arg(0), *offerWait, *logFile, publishes.mappings, stderr)
 	}
-	return a.runForeground(flags.Arg(0), *offerWait, stderr)
+	return a.runForeground(flags.Arg(0), *offerWait, publishes.mappings, stderr)
 }
 
 // runRequestJSON decodes the single workload JSON argument, performs the
@@ -92,8 +100,9 @@ func (a *application) runRequestJSON(workloadJSON string, offerWait time.Duratio
 
 // foreground run: assign, announce to the terminal, then hold the run while a
 // concurrent tail copies allocator stdout/stderr to the matching terminal
-// streams.
-func (a *application) runForeground(workloadJSON string, offerWait time.Duration, stderr io.Writer) error {
+// streams and (when --publish is given) the publisher relays published ports to
+// the active execution attempt.
+func (a *application) runForeground(workloadJSON string, offerWait time.Duration, publishes []portMapping, stderr io.Writer) error {
 	created, executionID, allocator, err := a.runRequestJSON(workloadJSON, offerWait)
 	if err != nil {
 		return err
@@ -102,6 +111,23 @@ func (a *application) runForeground(workloadJSON string, offerWait time.Duration
 	// workload's stdout; workload stderr still maps to the terminal's stderr.
 	fmt.Fprintf(stderr, "run=%s attempt=%d execution=%s allocator=%x status=assignment-sent\n", created.GetRunId(), created.GetAttempt(), executionID, allocator)
 
+	var publisher *runPublisher
+	if len(publishes) > 0 {
+		if err := a.ensureRunTunnelEdge(); err != nil {
+			return err
+		}
+		publisher, err = newRunPublisher(a.ctx, a, publishes)
+		if err != nil {
+			return err
+		}
+		publisher.SetActive(executionID)
+		publisher.start()
+		defer publisher.close()
+		for _, m := range publishes {
+			fmt.Fprintf(stderr, "publish: 127.0.0.1:%d -> container port %d (execution %s)\n", m.host, m.container, executionID)
+		}
+	}
+
 	tail := newForegroundTail(a, a.stdout, stderr)
 	tail.SetActive(executionID, created.GetRunId(), created.GetAttempt())
 	stop := make(chan struct{})
@@ -109,6 +135,9 @@ func (a *application) runForeground(workloadJSON string, offerWait time.Duration
 
 	activeID, state, err := a.holdRun(a.ctx, executionID, offerWait, func(id string, request *r1sv1.ExecutionRequest) {
 		tail.SetActive(id, request.GetRunId(), request.GetAttempt())
+		if publisher != nil {
+			publisher.SetActive(id)
+		}
 	}, stderr)
 	close(stop)
 	if err != nil {

@@ -149,8 +149,10 @@ Successful completion exits zero; a workload status from 1 through 255 is preser
 failure without a usable workload status exits 1, SIGINT exits 130, and SIGTERM exits 143. The
 foreground run tails allocator-local stdout/stderr to the matching terminal streams, and
 `-d/--log-file` detaches to a background child that records all attempts under
-`~/.local/state/r1s/runs/<run-id>/`. `-p` port publication lands in a later F22 task; until then the
-legacy explicit commands remain available.
+`~/.local/state/r1s/runs/<run-id>/`. `-p/--publish host:container` (repeatable) binds a local
+loopback listener for the run's lifetime and relays each inbound connection to the container port of
+the currently active execution attempt over one authenticated tunnel; the listener stays bound
+across reschedules while new streams are authenticated and spliced to the replacement execution.
 
 The previous single file at `~/.config/r1s/cluster` is not imported or selected automatically.
 

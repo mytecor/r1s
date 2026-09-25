@@ -15,7 +15,6 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
-	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/grpc"
 )
 
@@ -53,23 +52,6 @@ type Backend interface {
 	WatchAfter(ctx context.Context, after uint64) ([]client.WatchEvent, bool)
 	// SubscribeWatch registers a live observer returning its cancel.
 	SubscribeWatch(ctx context.Context, observer func(client.WatchEvent)) (cancel func())
-
-	// Tunnel opens a live F14/F19 direct-access tunnel session to a running
-	// execution and returns the connected, authenticated byte pipe plus the
-	// minted grant ID. The implementation mints the access grant over the
-	// control plane and dials the allocator edge; the returned connection
-	// carries arbitrary raw bytes with per-direction half-close. The grant ID
-	// is surfaced so the caller (or a preamble-aware Conn) can write the
-	// one-time routing preamble before any payload is relayed.
-	//
-	// targets is the client-owned destination container port list sent in the
-	// tunnel grant; the allocator binds it into the minted grant and only
-	// proxies/splices to grant-carried destinations. At least one target is
-	// required. targetPort selects the container port the stream is spliced to
-	// from the client-supplied list; it is only a port reference — the
-	// allocator resolves it against the client-supplied list, never the serve
-	// process or the allocator's own configuration.
-	Tunnel(ctx context.Context, executionID string, targets []tunnel.Target, targetPort uint16) (tunnel.Conn, string, error)
 }
 
 // New returns a server for one local client backend.

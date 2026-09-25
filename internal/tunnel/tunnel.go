@@ -53,13 +53,11 @@ type Endpoint struct {
 }
 
 // Errors returned by the registry. They describe authorization and lifecycle
-// outcomes for a tunnel grant or session; the allocator core maps them to
+// outcomes for a tunnel binding or session; the allocator core maps them to
 // explicit CommandError codes.
 var (
-	ErrGrantNotFound   = errors.New("tunnel grant not found")
-	ErrGrantExpired    = errors.New("tunnel grant expired")
-	ErrGrantReused     = errors.New("tunnel grant already used")
-	ErrPeerKeyMismatch = errors.New("tunnel peer key does not match the pinned grant")
+	ErrTunnelNotBound  = errors.New("execution has no tunnel binding")
+	ErrPeerKeyMismatch = errors.New("tunnel peer key does not match the execution's bound key")
 	ErrSessionBusy     = errors.New("execution already has a live tunnel session")
 	// ErrUnknownTargetPort reports that a stream header referenced a container
 	// port the allocator did not pre-authorize. It is rejected before any
@@ -129,12 +127,13 @@ type Dialer interface {
 
 // Preamble is the one-time routing header the client sends as the first bytes
 // of a tunnel stream before any payload. It disambiguates the registry lookup
-// (one peer key may hold grants for several executions), and the allocator
-// core resolves the record under its lock and re-validates execution liveness
-// at splice time before a single payload byte is relayed.
+// (one mesh connection may serve several executions), and the allocator core
+// resolves the record under its lock and re-validates execution liveness at
+// splice time before a single payload byte is relayed. There is no grant token
+// (F22-06): authorization is the authenticated owner's execution-bound peer
+// key, not a short-lived grant ID, so the preamble carries only the execution.
 type Preamble struct {
 	ExecutionID string
-	GrantID     string
 }
 
 // PreambleWriter is implemented by Conn implementations whose transport does

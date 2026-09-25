@@ -28,7 +28,7 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		return a.handleLogs(ctx, envelope)
 	}
 	switch envelope.GetPayload().(type) {
-	case *r1sv1.Envelope_ExecutionRequest, *r1sv1.Envelope_ExecutionAssign, *r1sv1.Envelope_ExecutionCancel, *r1sv1.Envelope_ExecutionInspect, *r1sv1.Envelope_ExecutionOfferRelease, *r1sv1.Envelope_ExecutionLeaseRenew, *r1sv1.Envelope_ExecutionTunnelGrant:
+	case *r1sv1.Envelope_ExecutionRequest, *r1sv1.Envelope_ExecutionAssign, *r1sv1.Envelope_ExecutionCancel, *r1sv1.Envelope_ExecutionInspect, *r1sv1.Envelope_ExecutionOfferRelease, *r1sv1.Envelope_ExecutionLeaseRenew, *r1sv1.Envelope_ExecutionTunnelOpen:
 	default:
 		return nil, ErrUnsupportedMessage
 	}
@@ -62,8 +62,8 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		responses, err = a.handleOfferRelease(envelope, payload.ExecutionOfferRelease)
 	case *r1sv1.Envelope_ExecutionLeaseRenew:
 		responses, err = a.handleLeaseRenew(envelope, payload.ExecutionLeaseRenew)
-	case *r1sv1.Envelope_ExecutionTunnelGrant:
-		responses, err = a.handleTunnelGrant(envelope, payload.ExecutionTunnelGrant)
+	case *r1sv1.Envelope_ExecutionTunnelOpen:
+		responses, err = a.handleTunnelOpen(envelope, payload.ExecutionTunnelOpen)
 	default:
 		panic("payload type checked above")
 	}

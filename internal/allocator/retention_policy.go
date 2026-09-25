@@ -88,7 +88,7 @@ func (a *Allocator) checkFreshness(e *r1sv1.Envelope) error {
 	if q := e.GetExecutionLeaseRenew(); q != nil {
 		id = q.GetExecutionId()
 	}
-	if q := e.GetExecutionTunnelGrant(); q != nil {
+	if q := e.GetExecutionTunnelOpen(); q != nil {
 		id = q.GetExecutionId()
 	}
 	if record := a.executions[id]; record != nil && bytes.Equal(record.client, e.GetSender()) && protocol.Terminal(record.phase) && !record.retainUntil.After(now) {
