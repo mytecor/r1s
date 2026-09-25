@@ -87,7 +87,13 @@ func (a *application) handleEnvelope(ctx context.Context, envelope *r1sv1.Envelo
 
 // send relays one envelope to an allocator destination with a fixed timeout.
 func (a *application) send(destination string, envelope *r1sv1.Envelope) error {
-	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	return a.sendWithContext(a.ctx, destination, envelope)
+}
+
+// sendWithContext relays one envelope to an allocator destination, bounding
+// the send by the provided parent context plus a fixed timeout.
+func (a *application) sendWithContext(parent context.Context, destination string, envelope *r1sv1.Envelope) error {
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	return a.endpoint.Send(ctx, destination, envelope)
 }

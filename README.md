@@ -135,6 +135,21 @@ r1s --cluster <cluster-id-or-unique-prefix> \
   --identity "$HOME/.config/r1s/identity" list
 ```
 
+The F22 run-oriented path is available during the cutover. It creates a new client identity only in
+memory, keeps no client database, selects compatible offers deterministically, holds the execution
+lease, and reannounces a higher attempt of the same run only after authenticated evidence that the
+previous execution is gone:
+
+```sh
+r1s run <cluster-id-or-unique-prefix> \
+  '{"workload":{"image":"registry.example/image@sha256:..."},"resourceClass":"default"}'
+```
+
+Successful completion exits zero; a workload status from 1 through 255 is preserved. A terminal
+failure without a usable workload status exits 1, SIGINT exits 130, and SIGTERM exits 143. Log
+tailing, detached runs, and `-p` port publication land in the following F22 tasks; until then the
+legacy explicit commands remain available.
+
 The previous single file at `~/.config/r1s/cluster` is not imported or selected automatically.
 
 The shared token establishes cluster membership; the shared RNS daemon owns the interfaces and

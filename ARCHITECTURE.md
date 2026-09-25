@@ -70,7 +70,15 @@ transport, runtime, and client behavior remains in reusable packages.
 | `r1sd` | `cmd/r1sd/` | Allocator service and cluster bootstrap CLI | F2, F3, F12 |
 | `r1s` | `cmd/r1s/` | Client, cluster bootstrap, and local client API CLI | F4, F12, F13 |
 
-The `r1s` binary has two client-facing frontends sharing one durable client engine:
+During the F22 cutover, the `r1s` binary has one run-oriented frontend alongside two legacy
+frontends that still share the durable client engine:
+
+- **Run mode** (`r1s run <cluster> <workload>`) creates a fresh RNS identity and client engine only
+  in memory. The process owns discovery, deterministic offer selection, loser release, assignment,
+  authenticated inspection, lease renewal, conclusive-loss rescheduling, and signal cancellation.
+  A later attempt repeats ordinary placement without allocator pinning. Process restart creates new
+  authority and cannot reclaim the old execution; its allocator-enforced lease expires
+  independently.
 
 - **Direct mode** (default) builds an RNS endpoint, identity, and state store for the lifetime of a
   single command. The endpoint is a client of the required platform-default shared RNS instance;
@@ -81,6 +89,9 @@ The `r1s` binary has two client-facing frontends sharing one durable client engi
   is a local, identity-scoped frontend (see the local client API section below), never a cluster API
   server. An unreachable socket is an error, never a fallback that creates a second identity or
   assignment. `r1s serve` is also the only continuous lease-renewal holder.
+
+The direct and service-backed frontends remain only until F22-07 removes the legacy client control
+plane. Run mode does not use either frontend's identity, database, socket, or allocator pinning.
 
 Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system
 binaries.

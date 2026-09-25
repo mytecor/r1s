@@ -107,13 +107,6 @@ This file records unresolved choices so they do not remain implicit in implement
     `lastOutbound` advances; an upstream fix should refresh `lastInbound` (or treat a validated peer
     proof for outbound data as activity) — see decision 20 and
     [F21-05](./f21-tunnel-rns-dataplane/f21-05-benchmark-live-acceptance.md).
-12. **Deterministic offer scoring for `r1s run`** — [F22-04](./f22-rns-shared-instance/f22-04-run-engine.md)
-    requires a total order that is independent of map iteration, goroutine scheduling, and packet
-    arrival. Constraint compatibility remains mandatory and allocator identity is the final stable
-    tie-breaker. Decide which trustworthy inputs, if any, precede it: path hops/quality, allocator
-    load, cached-image evidence, or a bounded offer timestamp. The policy must not become allocator
-    pinning or a global scheduler, and rescheduled attempts use the same policy as the first.
-
 ## Resolved
 
 1. **Allocator persistence** — bbolt provides a local, transactional, pure-Go single-file store for
@@ -360,6 +353,13 @@ This file records unresolved choices so they do not remain implicit in implement
     Only authenticated expiry/not-found evidence advances an attempt today; a missing renewal
     acknowledgement alone does not. Ambiguous renewal can overlap attempts, so execution is
     explicitly at-least-once rather than exactly-once.
+24. **Deterministic run placement (2026-09-25)** — F22-04 first requires exact placement
+    compatibility, then ranks live offers by fewer authenticated-discovery path hops, an advisory
+    exact image-cache hit, and the transport-authenticated allocator identity as the stable final
+    allocator tie-breaker. An offer ID orders the invalid-but-defensive case where one allocator
+    returns multiple offers for one request. Allocator load and offer timestamps are excluded:
+    neither is a stable, independently trustworthy input. Every later attempt repeats the same
+    ordinary policy without pinning to a previous allocator.
 
 ## Deferred
 

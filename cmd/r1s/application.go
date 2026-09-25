@@ -96,6 +96,42 @@ func openApplication(ctx context.Context, options commandLine, stdout io.Writer)
 	return app, nil
 }
 
+// openRunApplication constructs the F22 run-oriented client. Its RNS identity
+// and client engine exist only in memory for this process; allocator state is
+// still durable and authoritative.
+func openRunApplication(ctx context.Context, options commandLine, stdout io.Writer) (*application, error) {
+	clusterDirectory, err := cluster.DefaultDirectory()
+	if err != nil {
+		return nil, err
+	}
+	clusterKey, _, err := cluster.Resolve(clusterDirectory, options.clusterSelector)
+	if err != nil {
+		return nil, fmt.Errorf("select cluster (run 'r1s cluster list'): %w", err)
+	}
+
+	app := &application{ctx: ctx, stdout: stdout}
+	app.endpoint, err = rns.New(rns.Config{
+		EphemeralIdentity: true,
+		ClusterKey:        clusterKey,
+		NetworkWait:       options.networkWait,
+	}, app.handleEnvelope)
+	if err != nil {
+		return nil, err
+	}
+	identityHash, err := hex.DecodeString(app.endpoint.Name())
+	if err != nil {
+		app.close()
+		return nil, fmt.Errorf("decode ephemeral identity: %w", err)
+	}
+	app.identity = identityHash
+	app.client, err = client.New(client.Config{Identity: identityHash})
+	if err != nil {
+		app.close()
+		return nil, err
+	}
+	return app, nil
+}
+
 func (a *application) start() error {
 	if err := a.endpoint.Start(a.ctx); err != nil {
 		return err

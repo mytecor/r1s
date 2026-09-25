@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -70,6 +71,46 @@ func TestSelectIsDeterministicAndDurable(t *testing.T) {
 	}
 	if len(restarted.Executions()) != 1 {
 		t.Fatalf("executions after restart = %d, want 1", len(restarted.Executions()))
+	}
+}
+
+func TestSelectIgnoresRandomizedAllocatorAndOfferOrder(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0).UTC()
+	identities := []string{"allocator-d", "allocator-b", "allocator-a", "allocator-c"}
+	for seed := int64(0); seed < 100; seed++ {
+		random := rand.New(rand.NewSource(seed))
+		order := random.Perm(len(identities))
+		core, err := New(Config{
+			Identity: []byte("client"),
+			Now:      func() time.Time { return now },
+			NewID:    sequenceIDs("request", "request-message", "execution", "assignment", "release-1", "release-2", "release-3"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, index := range order {
+			identity := identities[index]
+			registerAllocator(t, core, identity, "destination-"+identity, 1)
+		}
+		requestID, request, err := core.CreateRequest(testWorkload(), testPolicy(), "default")
+		if err != nil {
+			t.Fatal(err)
+		}
+		offerOrder := random.Perm(len(identities))
+		for _, index := range offerOrder {
+			identity := identities[index]
+			mustObserveOffer(t, core, now, request, identity, "offer-"+identity)
+		}
+		destination, assignment, err := core.Select(requestID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if destination != "destination-allocator-a" || assignment.GetExecutionAssign().GetOfferId() != "offer-allocator-a" {
+			t.Fatalf("seed %d selected destination=%q offer=%q", seed, destination, assignment.GetExecutionAssign().GetOfferId())
+		}
+		if pending := core.PendingReleases(); len(pending) != len(identities)-1 {
+			t.Fatalf("seed %d pending releases=%d, want %d", seed, len(pending), len(identities)-1)
+		}
 	}
 }
 

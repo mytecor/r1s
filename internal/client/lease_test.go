@@ -130,6 +130,24 @@ func TestRenewalNotFoundMarksIntentLost(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedInspectNotFoundMarksIntentLost(t *testing.T) {
+	core, executionID := leasedExecution(t, 5*time.Minute)
+	_, envelope, err := core.Inspect(executionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := &r1sv1.Envelope{
+		MessageId: "inspect-error", Sender: []byte("allocator"), CorrelationId: envelope.GetMessageId(), SentAt: timestamppb.Now(),
+		Payload: &r1sv1.Envelope_CommandError{CommandError: &r1sv1.CommandError{Code: "NOT_FOUND", Detail: "resource unavailable to this identity"}},
+	}
+	if err := core.Handle(context.Background(), failure); err != nil {
+		t.Fatal(err)
+	}
+	if !core.LeaseIntentLost(executionID) {
+		t.Fatal("authoritative inspection loss did not mark the intent lost")
+	}
+}
+
 func TestTerminalExecutionRefusesRenewal(t *testing.T) {
 	core, executionID := leasedExecution(t, 5*time.Minute)
 	now := time.Unix(1_800_000_000, 0).UTC()

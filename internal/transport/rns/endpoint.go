@@ -45,6 +45,10 @@ type Config struct {
 	// IdentitySource is an existing or new identity file path, or a private
 	// RNS identity encoded in hex, Base32, or URL-safe Base64.
 	IdentitySource string
+	// EphemeralIdentity creates a fresh identity in memory. It is intended for
+	// one run-oriented client process and is mutually exclusive with
+	// IdentitySource; the private identity is never written to disk.
+	EphemeralIdentity bool
 	// ClusterKey is the shared 256-bit membership secret. It is used only for
 	// local ID derivation and link challenge-response, and is never announced.
 	ClusterKey []byte
@@ -116,8 +120,8 @@ var _ coretransport.Endpoint = (*Endpoint)(nil)
 
 // New constructs an endpoint without starting network interfaces.
 func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
-	if strings.TrimSpace(config.IdentitySource) == "" || handler == nil {
-		return nil, fmt.Errorf("%w: identity source and handler are required", ErrInvalidConfig)
+	if handler == nil || (config.EphemeralIdentity == (strings.TrimSpace(config.IdentitySource) != "")) {
+		return nil, fmt.Errorf("%w: exactly one of identity source or ephemeral identity is required, along with a handler", ErrInvalidConfig)
 	}
 	clusterID, err := cluster.ID(config.ClusterKey)
 	if err != nil {
@@ -153,9 +157,17 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 		return nil, fmt.Errorf("%w: network wait must be positive", ErrInvalidConfig)
 	}
 
-	localIdentity, err := loadOrCreateIdentity(config.IdentitySource)
-	if err != nil {
-		return nil, fmt.Errorf("load identity: %w", err)
+	var localIdentity *identity.Identity
+	if config.EphemeralIdentity {
+		localIdentity, err = identity.New()
+		if err != nil {
+			return nil, fmt.Errorf("generate ephemeral identity: %w", err)
+		}
+	} else {
+		localIdentity, err = loadOrCreateIdentity(config.IdentitySource)
+		if err != nil {
+			return nil, fmt.Errorf("load identity: %w", err)
+		}
 	}
 	rnsStack, err := newStack(config.Reticulum, config.Interfaces...)
 	if err != nil {
@@ -187,7 +199,7 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	return endpoint, nil
 }
 
-// Name is the hex-encoded hash of the persistent RNS identity.
+// Name is the hex-encoded hash of the RNS identity.
 func (e *Endpoint) Name() string { return e.name }
 
 // Destination is the hex-encoded destination hash clients use for their first connection.

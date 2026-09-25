@@ -78,6 +78,29 @@ func TestParseDestination(t *testing.T) {
 	}
 }
 
+func TestEphemeralEndpointsReceiveFreshInMemoryIdentities(t *testing.T) {
+	config := Config{
+		EphemeralIdentity: true,
+		ClusterKey:        testClusterKey(),
+	}
+	first, err := New(config, func(context.Context, *r1sv1.Envelope) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := New(config, func(context.Context, *r1sv1.Envelope) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if first.Name() == second.Name() {
+		t.Fatalf("fresh ephemeral endpoints reused identity %s", first.Name())
+	}
+	if _, err := New(Config{IdentitySource: "identity", EphemeralIdentity: true, ClusterKey: testClusterKey()}, func(context.Context, *r1sv1.Envelope) error { return nil }); err == nil {
+		t.Fatal("identity source and ephemeral identity were accepted together")
+	}
+}
+
 func TestEndpointsExchangeAuthenticatedEnvelopeOverUDP(t *testing.T) {
 	portA := freeUDPPort(t)
 	portB := freeUDPPort(t)

@@ -41,6 +41,10 @@ type localCLI struct {
 	client     *localapi.Client
 }
 
+func (l *localCLI) runExecution(_ []string, _ io.Writer) error {
+	return errors.New("run: local service mode is not supported; run owns an ephemeral client identity")
+}
+
 func openLocalCLI(ctx context.Context, options commandLine, stdout io.Writer, stderr io.Writer) (*localCLI, error) {
 	client, err := localapi.Dial(strings.TrimSpace(options.socketPath))
 	if err != nil {

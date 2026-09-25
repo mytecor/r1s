@@ -23,6 +23,10 @@ import (
 // starts on a valid initial lease, so the loop iterates at most once in
 // practice instead of recursing.
 func (a *application) renewOrReRequest(ctx context.Context, executionID string, leaseDuration, wait time.Duration) (activeID string, expiresAt time.Time, rerequested bool, err error) {
+	return a.renewOrReRequestWithOfferWait(ctx, executionID, leaseDuration, wait, defaultOfferWait)
+}
+
+func (a *application) renewOrReRequestWithOfferWait(ctx context.Context, executionID string, leaseDuration, wait, offerWait time.Duration) (activeID string, expiresAt time.Time, rerequested bool, err error) {
 	activeID = executionID
 	for {
 		destination, envelope, lost, err := a.client.Maintain(activeID, leaseDuration)
@@ -53,7 +57,7 @@ func (a *application) renewOrReRequest(ctx context.Context, executionID string, 
 		}
 		// The lease was lost: re-request the recorded workload and continue
 		// with the replacement, which carries the rebound intent.
-		if activeID, err = a.reRequestLostLease(ctx, activeID); err != nil {
+		if activeID, err = a.reRequestLostLeaseWithWait(ctx, activeID, offerWait); err != nil {
 			return "", time.Time{}, rerequested, err
 		}
 		rerequested = true
@@ -87,12 +91,16 @@ func (a *application) awaitLeaseAck(ctx context.Context, executionID string, ch 
 // attempt, and uses every currently known compatible allocator instead of
 // pinning placement to the allocator set from the failed attempt.
 func (a *application) reRequestLostLease(ctx context.Context, executionID string) (string, error) {
+	return a.reRequestLostLeaseWithWait(ctx, executionID, defaultOfferWait)
+}
+
+func (a *application) reRequestLostLeaseWithWait(ctx context.Context, executionID string, offerWait time.Duration) (string, error) {
 	request, ok := a.client.RequestForExecution(executionID)
 	if !ok {
 		return "", fmt.Errorf("%w: execution %q has no recorded request to re-request", client.ErrExecutionNotFound, executionID)
 	}
 	allocators := a.client.AllocatorDestinations(request.GetResourceClass(), request.GetConstraints())
-	_, replacement, _, err := a.runNextAttempt(ctx, request, defaultOfferWait, allocators)
+	_, replacement, _, err := a.runNextAttempt(ctx, request, offerWait, allocators)
 	if err != nil {
 		return "", fmt.Errorf("re-request after lease expiry: %w", err)
 	}

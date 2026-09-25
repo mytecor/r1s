@@ -30,7 +30,7 @@ func (o *Client) handleErrorLocked(e *r1sv1.Envelope) error {
 	for _, execution := range o.executions {
 		if bytes.Equal(execution.allocatorID, e.GetSender()) && (id == execution.assignmentMessageID || id == execution.inspectMessageID || id == execution.cancelMessageID || id == execution.leaseRenewMessageID) {
 			authorized = true
-			if id == execution.leaseRenewMessageID {
+			if id == execution.leaseRenewMessageID || id == execution.inspectMessageID {
 				o.markRenewalFailureLocked(execution.id, e.GetCommandError().GetCode())
 			}
 		}

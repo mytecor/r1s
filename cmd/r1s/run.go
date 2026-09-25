@@ -42,6 +42,18 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	if containsHelp(options.arguments) {
 		return dispatch(&application{}, options.command, options.arguments, stderr)
 	}
+	if options.command == "run" {
+		app, err := openRunApplication(ctx, options, stdout)
+		if err != nil {
+			return err
+		}
+		defer app.close()
+		if err := app.start(); err != nil {
+			return err
+		}
+		defer app.stop(stderr)
+		return dispatch(app, options.command, options.arguments, stderr)
+	}
 
 	// Service-backed mode: every workflow command runs through the local API.
 	// An explicit --socket is authoritative and required to be live (an
@@ -115,24 +127,40 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		return commandLine{showVersion: true}, nil
 	}
 	if len(commandArguments) == 0 {
-		return commandLine{}, errors.New("command is required: cluster, serve, request, list, inspect, cancel, result, tunnel, or logs")
+		return commandLine{}, errors.New("command is required: cluster, run, serve, request, list, inspect, cancel, result, tunnel, or logs")
 	}
 	command := commandArguments[0]
 	if command != "cluster" && !knownCommand(command) {
-		return commandLine{}, fmt.Errorf("unknown command %q: expected cluster, serve, request, list, inspect, cancel, result, tunnel, or logs", command)
+		return commandLine{}, fmt.Errorf("unknown command %q: expected cluster, run, serve, request, list, inspect, cancel, result, tunnel, or logs", command)
 	}
-	if command != "cluster" && !containsHelp(commandArguments[1:]) && strings.TrimSpace(*socketPath) == "" && socketCandidate == "" && strings.TrimSpace(*identitySource) == "" {
+	argumentsAfterCommand := commandArguments[1:]
+	selectedCluster := *clusterSelector
+	runHelpWithoutCluster := command == "run" && len(argumentsAfterCommand) > 0 && (argumentsAfterCommand[0] == "-h" || argumentsAfterCommand[0] == "--help")
+	if command == "run" && !runHelpWithoutCluster {
+		if strings.TrimSpace(*clusterSelector) != "" {
+			return commandLine{}, errors.New("run: cluster is positional; do not use --cluster")
+		}
+		if strings.TrimSpace(*identitySource) != "" || strings.TrimSpace(*statePath) != "" || strings.TrimSpace(*socketPath) != "" {
+			return commandLine{}, errors.New("run: --identity, --state, and --socket are legacy options; run uses an ephemeral in-memory client")
+		}
+		if len(argumentsAfterCommand) == 0 || strings.TrimSpace(argumentsAfterCommand[0]) == "" {
+			return commandLine{}, errors.New("run: cluster ID or unique prefix is required")
+		}
+		selectedCluster = argumentsAfterCommand[0]
+		argumentsAfterCommand = argumentsAfterCommand[1:]
+	}
+	if command != "cluster" && command != "run" && !containsHelp(argumentsAfterCommand) && strings.TrimSpace(*socketPath) == "" && socketCandidate == "" && strings.TrimSpace(*identitySource) == "" {
 		return commandLine{}, errors.New("--identity is required (or pass --socket, or start 'r1s serve' so its socket is discovered)")
 	}
 	return commandLine{
 		identitySource:  *identitySource,
 		statePath:       *statePath,
-		clusterSelector: *clusterSelector,
+		clusterSelector: selectedCluster,
 		socketPath:      *socketPath,
 		socketCandidate: socketCandidate,
 		networkWait:     *networkWait,
 		command:         command,
-		arguments:       commandArguments[1:],
+		arguments:       argumentsAfterCommand,
 	}, nil
 }
 
@@ -146,6 +174,7 @@ type commandHandler interface {
 	cancel(args []string, stderr io.Writer) error
 	serve(args []string, stderr io.Writer) error
 	tunnel(args []string, stderr io.Writer) error
+	runExecution(args []string, stderr io.Writer) error
 }
 
 func dispatch(handler commandHandler, command string, args []string, stderr io.Writer) error {
@@ -166,13 +195,15 @@ func dispatch(handler commandHandler, command string, args []string, stderr io.W
 		return handler.inspect(args, stderr, true)
 	case "tunnel":
 		return handler.tunnel(args, stderr)
+	case "run":
+		return handler.runExecution(args, stderr)
 	default:
-		return fmt.Errorf("unknown command %q: expected serve, request, list, inspect, cancel, result, tunnel, or logs", command)
+		return fmt.Errorf("unknown command %q: expected run, serve, request, list, inspect, cancel, result, tunnel, or logs", command)
 	}
 }
 
 func knownCommand(command string) bool {
-	return command == "serve" || command == "logs" || command == "request" || command == "list" || command == "inspect" || command == "cancel" || command == "result" || command == "tunnel"
+	return command == "run" || command == "serve" || command == "logs" || command == "request" || command == "list" || command == "inspect" || command == "cancel" || command == "result" || command == "tunnel"
 }
 
 func containsHelp(arguments []string) bool {
