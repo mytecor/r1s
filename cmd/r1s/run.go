@@ -48,10 +48,16 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 			return err
 		}
 		defer app.close()
-		if err := app.start(); err != nil {
-			return err
+		// The `-d` parent never owns the run: it only spawns the lease-holding
+		// child and observes its ownership handshake. It therefore never builds
+		// an RNS overlay node (and never starts the offer-release worker); the
+		// child, a fresh process, starts its own ephemeral transport.
+		if !containsDetachFlag(options.arguments) {
+			if err := app.start(); err != nil {
+				return err
+			}
+			defer app.stop(stderr)
 		}
-		defer app.stop(stderr)
 		return dispatch(app, options.command, options.arguments, stderr)
 	}
 
@@ -209,6 +215,18 @@ func knownCommand(command string) bool {
 func containsHelp(arguments []string) bool {
 	for _, argument := range arguments {
 		if argument == "-h" || argument == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
+// containsDetachFlag reports whether a `r1s run` argument list requests
+// detached mode, so the detached parent can skip building an RNS node it will
+// never use.
+func containsDetachFlag(arguments []string) bool {
+	for _, argument := range arguments {
+		if argument == "-d" || argument == "--detach" {
 			return true
 		}
 	}

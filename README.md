@@ -146,8 +146,10 @@ r1s run <cluster-id-or-unique-prefix> \
 ```
 
 Successful completion exits zero; a workload status from 1 through 255 is preserved. A terminal
-failure without a usable workload status exits 1, SIGINT exits 130, and SIGTERM exits 143. Log
-tailing, detached runs, and `-p` port publication land in the following F22 tasks; until then the
+failure without a usable workload status exits 1, SIGINT exits 130, and SIGTERM exits 143. The
+foreground run tails allocator-local stdout/stderr to the matching terminal streams, and
+`-d/--log-file` detaches to a background child that records all attempts under
+`~/.local/state/r1s/runs/<run-id>/`. `-p` port publication lands in a later F22 task; until then the
 legacy explicit commands remain available.
 
 The previous single file at `~/.config/r1s/cluster` is not imported or selected automatically.

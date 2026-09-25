@@ -27,6 +27,11 @@ type application struct {
 	identity     []byte
 	tunnelDialer tunnel.Dialer
 
+	// clusterSelector is the resolved cluster ID/prefix from the command line,
+	// retained so the detached parent can re-execute the run child against the
+	// same cluster (the child has its own ephemeral identity).
+	clusterSelector string
+
 	// tunnelSessions caches the single authenticated mesh pair per execution
 	// (F19 Model A: one live session per execution, many streams). A port-forward
 	// opens one tunnel stream per inbound TCP connection; all of them share the
@@ -109,7 +114,7 @@ func openRunApplication(ctx context.Context, options commandLine, stdout io.Writ
 		return nil, fmt.Errorf("select cluster (run 'r1s cluster list'): %w", err)
 	}
 
-	app := &application{ctx: ctx, stdout: stdout}
+	app := &application{ctx: ctx, stdout: stdout, clusterSelector: options.clusterSelector}
 	app.endpoint, err = rns.New(rns.Config{
 		EphemeralIdentity: true,
 		ClusterKey:        clusterKey,

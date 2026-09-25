@@ -100,3 +100,44 @@ func TestWorkloadStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestRunAcceptsDetachFlagsAndKeepsJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	directory, err := cluster.DefaultDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := cluster.SaveCredential(directory, bytes.Repeat([]byte{0x42}, cluster.KeySize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	json := `{"workload":{"image":"example.test/i@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`
+	for _, flag := range []string{"-d", "--detach"} {
+		options, err := parseCommandLine([]string{"run", id[:12], flag, "--offer-wait", "1s", json}, &bytes.Buffer{})
+		if err != nil {
+			t.Fatalf("parseCommandLine(%s) error: %v", flag, err)
+		}
+		if options.clusterSelector != id[:12] {
+			t.Fatalf("cluster selector = %q", options.clusterSelector)
+		}
+		found := false
+		for _, argument := range options.arguments {
+			if argument == flag {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("argument %s not preserved in %v", flag, options.arguments)
+		}
+	}
+}
+
+func TestContainsDetachFlag(t *testing.T) {
+	if !containsDetachFlag([]string{"-d"}) || !containsDetachFlag([]string{"--detach"}) {
+		t.Fatal("detach flags not recognized")
+	}
+	if containsDetachFlag([]string{"request"}) || containsDetachFlag([]string{"--log-file", "x"}) {
+		t.Fatal("non-detach args misdetected")
+	}
+}

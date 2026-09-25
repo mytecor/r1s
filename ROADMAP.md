@@ -260,7 +260,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > persistence remains. The switch is intentionally incompatible: old client state and CLI surfaces
 > are not migrated or supported.
 
-- **Status:** 🚧 in progress — F22-01 through F22-04 complete
+- **Status:** 🚧 in progress — F22-01 through F22-05 complete
 - **Done when:** `r1s run` owns discovery, deterministic placement, leases, rescheduling, log
   tailing, and tunnels across stable `run_id`/monotonic attempts; detached runs retain output;
   cluster choice is explicit; production transport requires a shared RNS instance; legacy client
@@ -316,8 +316,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   directory, non-secret listing, unique-prefix selection, and the allocator's required cluster
   operand. F22-04 adds the ephemeral `run` process, deterministic unpinned placement, lease
   ownership, authenticated inspection recovery, conclusive-loss rescheduling, best-effort signal
-  cancellation, and workload-derived exit status. The remaining tasks add detached log continuity
-  and run-owned tunnels, then remove the legacy client DB and local API.
+  cancellation, workload-derived exit status, foreground byte-offset log tailing, and detached runs
+  that record PID and output under `~/.local/state/r1s/runs/<run-id>/` with a `-d` ownership
+  handshake. The remaining tasks add run-owned tunnels, then remove the legacy client DB and local API.
 
 The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
 (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live

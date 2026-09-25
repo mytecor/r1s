@@ -1,6 +1,6 @@
 # F22-05 — Foreground and detached log continuity
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete
 
 ## Outcome
 
@@ -39,3 +39,31 @@ one local output file without introducing a client log database.
 ## Notes
 
 - A later `r1s stop <run-id>` may use the PID marker, but it is not part of F22.
+
+## Implemented
+
+- The protocol log chunk cap rose from 128 to 64 KiB (`protocol.MaxLogBytes`), an implementation
+  choice inside the 16–64 KiB range that stays far below the bounded-memory envelope invariant.
+  Validation messages and CLI help now read `1..65536 bytes`.
+- `r1s run` spawns a foreground tail loop (`run_tail.go`) that pulls bounded chunks by byte offset
+  for both `stdout` and `stderr` and writes them to the matching terminal streams, so workload
+  stdout/stderr separation survives while the run loop owns the terminal. Run-control lines move
+  to stderr. A partition, timeout, or expired retention is never rescheduling evidence from the
+  tail; offsets stay put, so reconnect drains exactly the gap with no duplicate or missing bytes.
+- `r1s run -d [--log-file path]` detaches: the parent re-executes this binary as the lease-holding
+  child (never building its own RNS node), waits for a short ownership handshake over an inherited
+  pipe, and only then prints `run=... pid=... log=...`. A child that exits before the handshake is
+  reported as a failed detach, never a live run.
+- The child writes its PID marker and opens the output file under `~/.local/state/r1s/runs/<run-id>/`
+  (or the `--log-file` override), signals ownership only after those paths exist with owner-only
+  permissions, and removes the PID marker on clean exit while retaining the output log.
+- Rescheduling appends a bounded `[r1s] rescheduled attempt=N` service marker to the same detached
+  file; the start marker is `[r1s] run=<run-id> attempt=1`. No cluster secret or secret workload
+  field is copied into runtime state.
+- No completion, inspection, result, or reconnect path attaches or auto-sends log bytes; retrieval
+  stays an explicit authenticated pull, and the allocator's owner check and logstore bounds are
+  unchanged.
+- Tests cover stream separation, offset recovery across a simulated partition, bounded chunk
+  requests, reschedule markers with offset reset, stale-chunk dropping after reschedule, the
+  detached PID marker lifecycle, owner-only path verification, and parent handshake failure/
+  success orchestration.

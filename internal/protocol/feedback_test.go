@@ -48,7 +48,7 @@ func TestCommandErrorValidation(t *testing.T) {
 	}
 }
 
-// Logs request/response are explicit and bounded: 1..128 bytes, one stream, a
+// Logs request/response are explicit and bounded: 1..64KiB bytes, one stream, a
 // contiguous range whose checksum must match. Responses that violate any of
 // these cannot be accepted by the client.
 func TestLogsRequestAndResponseValidation(t *testing.T) {

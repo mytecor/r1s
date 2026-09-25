@@ -28,6 +28,14 @@ func (e *workloadExitError) ExitStatus() int { return e.status }
 func (a *application) runExecution(arguments []string, stderr io.Writer) error {
 	flags := newFlagSet("r1s run <cluster> [options] '<ExecutionRequest JSON>'", stderr)
 	offerWait := flags.Duration("offer-wait", defaultOfferWait, "time to discover allocators and collect offers")
+	detach := flags.Bool("d", false, "detach: hand the run to a background process and return")
+	detachLong := flags.Bool("detach", false, "detach: hand the run to a background process and return")
+	logFile := flags.String("log-file", "", "detached output file (defaults to the run state directory)")
+	// Internal child flags are set only when the detached parent re-executes
+	// this binary as the lease-holding child. They are invisible to users.
+	childFlag := flags.Bool("r1s-child", false, "internal: run as the detached lease-holding child")
+	handshakeFD := flags.Int("r1s-fd", detachHandshakeFD, "internal: handshake pipe file descriptor")
+	childLogFile := flags.String("r1s-log-file", "", "internal: resolved detached output file")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -37,30 +45,72 @@ func (a *application) runExecution(arguments []string, stderr io.Writer) error {
 	if *offerWait <= 0 {
 		return errors.New("run: --offer-wait must be positive")
 	}
-	request, err := decodeRequestJSON(flags.Arg(0))
+	if *detach && *childFlag {
+		return errors.New("run: -d and --r1s-child are mutually exclusive")
+	}
+	detached := *detach || *detachLong
+	if *childFlag {
+		// The child is the detached lease-holder. It must not also detach.
+		return a.runDetachedChild(flags.Arg(0), *offerWait, *handshakeFD, *childLogFile)
+	}
+	if detached {
+		// The parent never owns the run: it spawns a child and waits for the
+		// ownership handshake so it reports a live run only after the child has
+		// safely taken over (and the state paths exist with owner-only perms).
+		return a.launchDetached(a.clusterSelector, flags.Arg(0), *offerWait, *logFile, stderr)
+	}
+	return a.runForeground(flags.Arg(0), *offerWait, stderr)
+}
+
+// runRequestJSON decodes the single workload JSON argument, performs the
+// initial request/assignment, and returns the created request, the assigned
+// execution ID, and the chosen allocator identity.
+func (a *application) runRequestJSON(workloadJSON string, offerWait time.Duration) (*r1sv1.ExecutionRequest, string, []byte, error) {
+	request, err := decodeRequestJSON(workloadJSON)
 	if err != nil {
-		return err
+		return nil, "", nil, err
 	}
 	_, executionID, allocator, err := a.runRequest(
 		a.ctx,
 		request.GetWorkload(),
 		request.GetPolicy(),
 		request.GetResourceClass(),
-		*offerWait,
+		offerWait,
 		nil,
 		defaultLeaseDuration,
 		request.GetConstraints(),
 	)
 	if err != nil {
-		return err
+		return nil, "", nil, err
 	}
 	created, ok := a.client.RequestForExecution(executionID)
 	if !ok {
-		return fmt.Errorf("run: execution %s has no in-memory request", executionID)
+		return nil, "", nil, fmt.Errorf("run: execution %s has no in-memory request", executionID)
 	}
-	fmt.Fprintf(a.stdout, "run=%s attempt=%d execution=%s allocator=%x status=assignment-sent\n", created.GetRunId(), created.GetAttempt(), executionID, allocator)
+	return created, executionID, allocator, nil
+}
 
-	activeID, state, err := a.holdRun(a.ctx, executionID, *offerWait)
+// foreground run: assign, announce to the terminal, then hold the run while a
+// concurrent tail copies allocator stdout/stderr to the matching terminal
+// streams.
+func (a *application) runForeground(workloadJSON string, offerWait time.Duration, stderr io.Writer) error {
+	created, executionID, allocator, err := a.runRequestJSON(workloadJSON, offerWait)
+	if err != nil {
+		return err
+	}
+	// Run-control lines go to stderr so foreground stdout carries only the
+	// workload's stdout; workload stderr still maps to the terminal's stderr.
+	fmt.Fprintf(stderr, "run=%s attempt=%d execution=%s allocator=%x status=assignment-sent\n", created.GetRunId(), created.GetAttempt(), executionID, allocator)
+
+	tail := newForegroundTail(a, a.stdout, stderr)
+	tail.SetActive(executionID, created.GetRunId(), created.GetAttempt())
+	stop := make(chan struct{})
+	go tail.run(a.ctx, stop)
+
+	activeID, state, err := a.holdRun(a.ctx, executionID, offerWait, func(id string, request *r1sv1.ExecutionRequest) {
+		tail.SetActive(id, request.GetRunId(), request.GetAttempt())
+	}, stderr)
+	close(stop)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			a.bestEffortRunCancel(activeID)
@@ -71,17 +121,36 @@ func (a *application) runExecution(arguments []string, stderr io.Writer) error {
 		return err
 	}
 	snapshot, _ := a.client.Execution(activeID)
-	printState(a.stdout, snapshot)
+	printState(stderr, snapshot)
 	return workloadStatus(state)
 }
 
 // holdRun owns one logical run in memory. Missing responses are retried and
 // never imply loss; only authenticated NOT_FOUND/EXPIRED feedback or the
-// allocator's lease-expiry terminal state advances to a fresh attempt.
-func (a *application) holdRun(ctx context.Context, executionID string, offerWait time.Duration) (string, *r1sv1.ExecutionState, error) {
+// allocator's lease-expiry terminal state advances to a fresh attempt. When onActive
+// is non-nil it is called with each newly active execution so a concurrent log
+// tail can track rescheduling; statusLines writes residency status.
+func (a *application) holdRun(ctx context.Context, executionID string, offerWait time.Duration, onActive func(id string, request *r1sv1.ExecutionRequest), statusLines io.Writer) (string, *r1sv1.ExecutionState, error) {
+	if statusLines == nil {
+		statusLines = a.stdout
+	}
 	activeID := executionID
+	if onActive != nil {
+		if request, ok := a.client.RequestForExecution(activeID); ok {
+			onActive(activeID, request)
+		}
+	}
 	ticker := time.NewTicker(runInspectInterval)
 	defer ticker.Stop()
+
+	replace := func(previous, replacement string) {
+		request, _ := a.client.RequestForExecution(replacement)
+		fmt.Fprintf(statusLines, "execution=%s status=lease-lost\n", previous)
+		fmt.Fprintf(statusLines, "run=%s attempt=%d execution=%s status=rerequested\n", request.GetRunId(), request.GetAttempt(), replacement)
+		if onActive != nil {
+			onActive(replacement, request)
+		}
+	}
 
 	for {
 		if snapshot, ok := a.client.Execution(activeID); ok && snapshot.State != nil && protocol.Terminal(snapshot.State.GetPhase()) && !a.client.LeaseIntentLost(activeID) {
@@ -94,21 +163,17 @@ func (a *application) holdRun(ctx context.Context, executionID string, offerWait
 				return activeID, nil, err
 			}
 			activeID = replacement
-			request, _ := a.client.RequestForExecution(activeID)
-			fmt.Fprintf(a.stdout, "execution=%s status=lease-lost\n", previous)
-			fmt.Fprintf(a.stdout, "run=%s attempt=%d execution=%s status=rerequested\n", request.GetRunId(), request.GetAttempt(), activeID)
+			replace(previous, activeID)
 			continue
 		}
 		if a.client.LeaseDue(activeID) {
 			previous := activeID
 			newID, _, rerequested, err := a.renewOrReRequestWithOfferWait(ctx, activeID, 0, defaultRenewWait, offerWait)
 			if err != nil && !errors.Is(err, context.Canceled) {
-				fmt.Fprintf(a.stdout, "execution=%s lease-renewal-error=%v\n", activeID, err)
+				fmt.Fprintf(statusLines, "execution=%s lease-renewal-error=%v\n", activeID, err)
 			} else if err == nil && rerequested {
 				activeID = newID
-				request, _ := a.client.RequestForExecution(activeID)
-				fmt.Fprintf(a.stdout, "execution=%s status=lease-lost\n", previous)
-				fmt.Fprintf(a.stdout, "run=%s attempt=%d execution=%s status=rerequested\n", request.GetRunId(), request.GetAttempt(), activeID)
+				replace(previous, activeID)
 			}
 		}
 
