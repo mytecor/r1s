@@ -188,3 +188,36 @@ func TestPinnedDigestAndContainerID(t *testing.T) {
 		t.Fatalf("unexpected container IDs: %q and %q", first, containerID("other"))
 	}
 }
+
+func TestRunMetadataIsFencedIntoFingerprintAndEnvironment(t *testing.T) {
+	request := testRequest("execution")
+	request.Workload.Environment[runEnv] = "forged"
+	request.Workload.Environment[attemptEnv] = "999"
+	values := environment(request.Workload, request.RunID, request.Attempt)
+	wantRun := runEnv + "=" + request.RunID
+	wantAttempt := attemptEnv + "=1"
+	if !containsString(values, wantRun) || !containsString(values, wantAttempt) || containsString(values, runEnv+"=forged") || containsString(values, attemptEnv+"=999") {
+		t.Fatalf("environment() = %v, want authoritative %q and %q", values, wantRun, wantAttempt)
+	}
+	first, err := fingerprint(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Attempt++
+	second, err := fingerprint(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("attempt mutation did not change runtime fingerprint")
+	}
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}

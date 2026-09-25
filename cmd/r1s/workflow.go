@@ -23,7 +23,24 @@ import (
 // can present the same outcome. constraints narrows which allocators may offer;
 // nil requests any node.
 func (a *application) runRequest(ctx context.Context, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration, constraints *r1sv1.PlacementConstraints) (requestID, executionID string, allocator []byte, err error) {
-	requestID, envelope, err := a.client.CreateRequestWithConstraints(workload, policy, resourceClass, constraints)
+	return a.runRequestAttempt(ctx, nil, workload, policy, resourceClass, offerWait, allocators, keepAlive, constraints)
+}
+
+func (a *application) runNextAttempt(ctx context.Context, previous *r1sv1.ExecutionRequest, offerWait time.Duration, allocators []string) (requestID, executionID string, allocator []byte, err error) {
+	return a.runRequestAttempt(ctx, previous, nil, nil, "", offerWait, allocators, 0, nil)
+}
+
+func (a *application) runRequestAttempt(ctx context.Context, previous *r1sv1.ExecutionRequest, workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, offerWait time.Duration, allocators []string, keepAlive time.Duration, constraints *r1sv1.PlacementConstraints) (requestID, executionID string, allocator []byte, err error) {
+	var envelope *r1sv1.Envelope
+	if previous == nil {
+		requestID, envelope, err = a.client.CreateRequestWithConstraints(workload, policy, resourceClass, constraints)
+	} else {
+		requestID, envelope, err = a.client.CreateNextAttempt(previous)
+		workload = previous.GetWorkload()
+		policy = previous.GetPolicy()
+		resourceClass = previous.GetResourceClass()
+		constraints = previous.GetConstraints()
+	}
 	if err != nil {
 		return "", "", nil, err
 	}

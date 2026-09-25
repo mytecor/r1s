@@ -19,6 +19,8 @@ var (
 // StartRequest is an immutable execution specification passed to a runtime.
 type StartRequest struct {
 	ExecutionID string
+	RunID       string
+	Attempt     uint64
 	Client      []byte
 	Workload    *r1sv1.Workload
 	Policy      *r1sv1.ExecutionPolicy

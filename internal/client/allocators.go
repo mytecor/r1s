@@ -52,6 +52,24 @@ func (o *Client) RegisterAllocator(candidate Allocator) error {
 	return nil
 }
 
+// AllocatorDestinations returns every currently known allocator that may
+// satisfy the resource class and placement constraints. The sorted result is
+// discovery state, not pinning: a fresh attempt remains free to select any
+// allocator that offers, including later discoveries.
+func (o *Client) AllocatorDestinations(resourceClass string, constraints *r1sv1.PlacementConstraints) []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var destinations []string
+	for _, allocator := range o.allocators.all() {
+		if allocator.Capacity[resourceClass] == 0 || !protocol.PlacementCompatible(constraints, allocator.Node) {
+			continue
+		}
+		destinations = append(destinations, allocator.Destination)
+	}
+	sort.Strings(destinations)
+	return destinations
+}
+
 // allocatorCatalog owns authenticated allocator routes and the deterministic
 // offer-ranking policy. The Client remains responsible for durable workflow
 // transitions; callers must hold Client.mu while using the catalog.

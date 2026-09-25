@@ -1,6 +1,6 @@
 # F22-02 — Stable run identity and at-least-once attempts
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete (2026-09-25)
 
 ## Outcome
 
@@ -42,5 +42,7 @@ at-least-once, not exactly-once.
 
 ## Notes
 
-- The workload-facing label/environment names must be stable and documented before implementation.
+- The stable workload-facing labels are `io.r1s.run-id` and `io.r1s.attempt`; the environment
+  variables are `R1S_RUN_ID` and `R1S_ATTEMPT`. Runtime-supplied values override colliding workload
+  environment keys.
 - `run_id` is correlation and fencing context, not a durable server-side run object.

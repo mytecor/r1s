@@ -352,6 +352,15 @@ This file records unresolved choices so they do not remain implicit in implement
     `sharedinstance.ModeClient`; they do not call the join-or-own `sharedinstance.Attach` path.
     Failure to connect returns `RNS shared instance is not running` and cannot create a listener.
 
+23. **Stable run identity and at-least-once attempts (2026-09-25)** — F22-02 uses a random
+    128-bit lowercase-hex `run_id` across monotonic positive attempts. Each attempt has fresh
+    request and execution IDs; the authenticated sender, never the payload run ID, remains the
+    authority. Allocators persist the correlation and containerd exposes authoritative
+    `io.r1s.run-id` / `io.r1s.attempt` labels and `R1S_RUN_ID` / `R1S_ATTEMPT` environment values.
+    Only authenticated expiry/not-found evidence advances an attempt today; a missing renewal
+    acknowledgement alone does not. Ambiguous renewal can overlap attempts, so execution is
+    explicitly at-least-once rather than exactly-once.
+
 ## Deferred
 
 - VM and microVM runtime adapters.

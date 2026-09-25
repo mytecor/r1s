@@ -164,6 +164,16 @@ func TestReusedRequestAndMessageIDsRejectConflictingContent(t *testing.T) {
 	if _, err := allocator.Handle(context.Background(), reusedRequest); !errors.Is(err, ErrExecutionConflict) {
 		t.Fatalf("reused request ID error = %v, want ErrExecutionConflict", err)
 	}
+	reusedRun := requestEnvelope(clock.Now(), "run-message", "client", "request")
+	reusedRun.GetExecutionRequest().RunId = "fedcba9876543210fedcba9876543210"
+	if _, err := allocator.Handle(context.Background(), reusedRun); !errors.Is(err, ErrExecutionConflict) {
+		t.Fatalf("mutated run ID error = %v, want ErrExecutionConflict", err)
+	}
+	reusedAttempt := requestEnvelope(clock.Now(), "attempt-message", "client", "request")
+	reusedAttempt.GetExecutionRequest().Attempt = 2
+	if _, err := allocator.Handle(context.Background(), reusedAttempt); !errors.Is(err, ErrExecutionConflict) {
+		t.Fatalf("mutated attempt error = %v, want ErrExecutionConflict", err)
+	}
 	reusedMessage := requestEnvelope(clock.Now(), "message", "client", "different-request")
 	if _, err := allocator.Handle(context.Background(), reusedMessage); !errors.Is(err, ErrReplayConflict) {
 		t.Fatalf("reused message ID error = %v, want ErrReplayConflict", err)
@@ -380,6 +390,12 @@ func TestDurableStateRecoversRunningExecutionAndReplay(t *testing.T) {
 	if secondRuntime.recoverCount() != 1 || secondRuntime.startCount() != 0 {
 		t.Fatalf("recovery calls=%d starts=%d, want 1 and 0", secondRuntime.recoverCount(), secondRuntime.startCount())
 	}
+	secondRuntime.mu.Lock()
+	recoveredRequest := secondRuntime.recoveries[0]
+	secondRuntime.mu.Unlock()
+	if recoveredRequest.RunID != request.GetExecutionRequest().GetRunId() || recoveredRequest.Attempt != request.GetExecutionRequest().GetAttempt() {
+		t.Fatalf("recovered run metadata = %q/%d, want %q/%d", recoveredRequest.RunID, recoveredRequest.Attempt, request.GetExecutionRequest().GetRunId(), request.GetExecutionRequest().GetAttempt())
+	}
 	exitCode := int32(23)
 	if err := secondRuntime.complete("execution", r1sruntime.Completion{ExitCode: &exitCode}); err != nil {
 		t.Fatal(err)
@@ -490,6 +506,8 @@ func requestEnvelope(now time.Time, messageID, client, requestID string) *r1sv1.
 		SentAt:    timestamppb.New(now),
 		Payload: &r1sv1.Envelope_ExecutionRequest{ExecutionRequest: &r1sv1.ExecutionRequest{
 			RequestId:     requestID,
+			RunId:         "0123456789abcdef0123456789abcdef",
+			Attempt:       1,
 			ResourceClass: "default",
 			Workload:      &r1sv1.Workload{Image: "example.test/image:latest"},
 			Policy: &r1sv1.ExecutionPolicy{
@@ -567,7 +585,7 @@ type fakeRuntime struct {
 	stopErr           error
 	recoverErr        error
 	recoverCompletion *r1sruntime.Completion
-	recovers          int
+	recoveries        []r1sruntime.StartRequest
 	blockStart        chan struct{}
 	started           chan struct{}
 }
@@ -606,7 +624,7 @@ func (r *fakeRuntime) Stop(_ context.Context, executionID string) error {
 
 func (r *fakeRuntime) Recover(_ context.Context, request r1sruntime.StartRequest, reporter r1sruntime.Reporter) error {
 	r.mu.Lock()
-	r.recovers++
+	r.recoveries = append(r.recoveries, request)
 	r.reporters[request.ExecutionID] = reporter
 	recoverErr := r.recoverErr
 	completion := r.recoverCompletion
@@ -648,7 +666,7 @@ func (r *fakeRuntime) stopCount() int {
 func (r *fakeRuntime) recoverCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.recovers
+	return len(r.recoveries)
 }
 
 func (r *fakeRuntime) setStopError(err error) {

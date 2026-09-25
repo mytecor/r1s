@@ -51,6 +51,8 @@ func (a *Allocator) RuntimeCompleted(completion r1sruntime.Completion) error {
 func (a *Allocator) startRequestLocked(record *executionRecord) r1sruntime.StartRequest {
 	return r1sruntime.StartRequest{
 		ExecutionID: record.id,
+		RunID:       record.request.GetRunId(),
+		Attempt:     record.request.GetAttempt(),
 		Client:      bytes.Clone(record.client),
 		Workload:    proto.Clone(record.request.GetWorkload()).(*r1sv1.Workload),
 		Policy:      proto.Clone(record.request.GetPolicy()).(*r1sv1.ExecutionPolicy),

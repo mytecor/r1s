@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +29,9 @@ type executionSpec struct {
 func prepareExecution(request r1sruntime.StartRequest, reporter r1sruntime.Reporter, now time.Time, allowExpired bool) (executionSpec, error) {
 	if strings.TrimSpace(request.ExecutionID) == "" {
 		return executionSpec{}, fmt.Errorf("%w: execution ID is required", ErrInvalidRequest)
+	}
+	if strings.TrimSpace(request.RunID) == "" || request.Attempt == 0 {
+		return executionSpec{}, fmt.Errorf("%w: run ID and positive attempt are required", ErrInvalidRequest)
 	}
 	if reporter == nil {
 		return executionSpec{}, fmt.Errorf("%w: completion reporter is required", ErrInvalidRequest)
@@ -74,6 +78,10 @@ func fingerprint(request r1sruntime.StartRequest) (string, error) {
 	}
 	hash := sha256.New()
 	writeHashPart(hash, request.Client)
+	writeHashPart(hash, []byte(request.RunID))
+	var attempt [8]byte
+	binary.BigEndian.PutUint64(attempt[:], request.Attempt)
+	writeHashPart(hash, attempt[:])
 	writeHashPart(hash, workload)
 	writeHashPart(hash, policy)
 	if request.Resources != (r1sruntime.Resources{}) {
@@ -100,15 +108,19 @@ func writeHashPart(writer hashWriter, value []byte) {
 	_, _ = writer.Write(value)
 }
 
-func environment(workload *r1sv1.Workload) []string {
+func environment(workload *r1sv1.Workload, runID string, attempt uint64) []string {
 	keys := make([]string, 0, len(workload.GetEnvironment()))
 	for key := range workload.GetEnvironment() {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	values := make([]string, 0, len(keys))
+	values := make([]string, 0, len(keys)+2)
 	for _, key := range keys {
+		if key == runEnv || key == attemptEnv {
+			continue
+		}
 		values = append(values, key+"="+workload.GetEnvironment()[key])
 	}
+	values = append(values, runEnv+"="+runID, attemptEnv+"="+strconv.FormatUint(attempt, 10))
 	return values
 }

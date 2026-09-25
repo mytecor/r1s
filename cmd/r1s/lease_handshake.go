@@ -82,16 +82,17 @@ func (a *application) awaitLeaseAck(ctx context.Context, executionID string, ch 
 	}
 }
 
-// reRequestLostLease creates a fresh request from the recorded workload of a
-// lease-expired execution, preserving the allocator destinations recorded with
-// the lease-holding intent, and rebinds the intent to the replacement
-// execution. Renewing the replacement is the caller's next step.
+// reRequestLostLease creates the next attempt from the recorded workload of a
+// lease-expired execution. It preserves the logical run ID, advances the
+// attempt, and uses every currently known compatible allocator instead of
+// pinning placement to the allocator set from the failed attempt.
 func (a *application) reRequestLostLease(ctx context.Context, executionID string) (string, error) {
 	request, ok := a.client.RequestForExecution(executionID)
 	if !ok {
 		return "", fmt.Errorf("%w: execution %q has no recorded request to re-request", client.ErrExecutionNotFound, executionID)
 	}
-	_, replacement, _, err := a.runRequest(ctx, request.GetWorkload(), request.GetPolicy(), request.GetResourceClass(), defaultOfferWait, a.client.LeaseIntentAllocators(executionID), 0, request.GetConstraints())
+	allocators := a.client.AllocatorDestinations(request.GetResourceClass(), request.GetConstraints())
+	_, replacement, _, err := a.runNextAttempt(ctx, request, defaultOfferWait, allocators)
 	if err != nil {
 		return "", fmt.Errorf("re-request after lease expiry: %w", err)
 	}

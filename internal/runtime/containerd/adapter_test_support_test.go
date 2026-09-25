@@ -13,6 +13,8 @@ import (
 func testRequest(executionID string, _ ...time.Duration) r1sruntime.StartRequest {
 	return r1sruntime.StartRequest{
 		ExecutionID: executionID,
+		RunID:       "0123456789abcdef0123456789abcdef",
+		Attempt:     1,
 		Client:      []byte("client"),
 		Workload: &r1sv1.Workload{
 			Image:       "registry.example/r1s/fixture@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

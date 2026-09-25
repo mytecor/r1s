@@ -849,7 +849,13 @@ type ExecutionRequest struct {
 	Policy        *ExecutionPolicy       `protobuf:"bytes,3,opt,name=policy,proto3" json:"policy,omitempty"`
 	ResourceClass string                 `protobuf:"bytes,4,opt,name=resource_class,json=resourceClass,proto3" json:"resource_class,omitempty"`
 	// constraints narrows which allocators may offer. Omit for any-node requests.
-	Constraints   *PlacementConstraints `protobuf:"bytes,5,opt,name=constraints,proto3" json:"constraints,omitempty"`
+	Constraints *PlacementConstraints `protobuf:"bytes,5,opt,name=constraints,proto3" json:"constraints,omitempty"`
+	// run_id correlates every at-least-once attempt owned by one run process.
+	// It is 16 random bytes encoded as 32 lowercase hexadecimal characters and
+	// grants no authority; transports authenticate the owner independently.
+	RunId string `protobuf:"bytes,6,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	// attempt starts at one and increases for each newly announced execution.
+	Attempt       uint64 `protobuf:"varint,7,opt,name=attempt,proto3" json:"attempt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -917,6 +923,20 @@ func (x *ExecutionRequest) GetConstraints() *PlacementConstraints {
 		return x.Constraints
 	}
 	return nil
+}
+
+func (x *ExecutionRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *ExecutionRequest) GetAttempt() uint64 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
 }
 
 type ExecutionOffer struct {
@@ -2088,14 +2108,16 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"\adevices\x18\x05 \x03(\tR\adevices\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf7\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa8\x02\n" +
 	"\x10ExecutionRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12,\n" +
 	"\bworkload\x18\x02 \x01(\v2\x10.r1s.v1.WorkloadR\bworkload\x12/\n" +
 	"\x06policy\x18\x03 \x01(\v2\x17.r1s.v1.ExecutionPolicyR\x06policy\x12%\n" +
 	"\x0eresource_class\x18\x04 \x01(\tR\rresourceClass\x12>\n" +
-	"\vconstraints\x18\x05 \x01(\v2\x1c.r1s.v1.PlacementConstraintsR\vconstraints\"\xda\x01\n" +
+	"\vconstraints\x18\x05 \x01(\v2\x1c.r1s.v1.PlacementConstraintsR\vconstraints\x12\x15\n" +
+	"\x06run_id\x18\x06 \x01(\tR\x05runId\x12\x18\n" +
+	"\aattempt\x18\a \x01(\x04R\aattempt\"\xda\x01\n" +
 	"\x0eExecutionOffer\x12\x19\n" +
 	"\boffer_id\x18\x01 \x01(\tR\aofferId\x12\x1d\n" +
 	"\n" +

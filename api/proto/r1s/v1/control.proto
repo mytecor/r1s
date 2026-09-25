@@ -109,6 +109,12 @@ message ExecutionRequest {
   string resource_class = 4;
   // constraints narrows which allocators may offer. Omit for any-node requests.
   PlacementConstraints constraints = 5;
+  // run_id correlates every at-least-once attempt owned by one run process.
+  // It is 16 random bytes encoded as 32 lowercase hexadecimal characters and
+  // grants no authority; transports authenticate the owner independently.
+  string run_id = 6;
+  // attempt starts at one and increases for each newly announced execution.
+  uint64 attempt = 7;
 }
 
 message ExecutionOffer {

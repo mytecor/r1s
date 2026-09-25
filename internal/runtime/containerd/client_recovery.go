@@ -24,6 +24,9 @@ func (b *clientBackend) Recover(ctx context.Context, request r1sruntime.StartReq
 	if err := verifyLabels(ctx, container, request.ExecutionID, fingerprint); err != nil {
 		return nil, err
 	}
+	if err := verifyRunLabels(ctx, container, request); err != nil {
+		return nil, err
+	}
 	task, err := container.Task(ctx, nil)
 	if err != nil {
 		if errdefs.IsNotFound(err) {

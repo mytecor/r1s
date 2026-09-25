@@ -235,6 +235,20 @@ authenticated `ExecutionLeaseRenew` from the execution owner, bounded locally. R
 idempotent and replay-safe and returns only the new expiry. A lease outlives any partition shorter
 than its duration: connection state still never determines lifetime.
 
+One logical run has a random 128-bit `run_id` encoded as 32 lowercase hexadecimal characters.
+Each fresh announcement increments its positive `attempt` and receives a new `request_id` and
+`execution_id`; an execution never migrates between allocators. Allocators persist this correlation
+with the execution and expose it to the workload as container labels `io.r1s.run-id` and
+`io.r1s.attempt` and environment variables `R1S_RUN_ID` and `R1S_ATTEMPT`. These values support
+application-level fencing and idempotency but grant no authority: the transport-authenticated
+sender remains the owner.
+
+Rescheduling is at-least-once. An authenticated `EXPIRED`/`NOT_FOUND` or observed lease-expiry
+terminal state may advance the attempt; a timeout or one missing renewal acknowledgement does not.
+Because a renewal can succeed while its acknowledgement is lost, a conservative future
+lease-loss threshold may allow two attempts to overlap. r1s introduces no coordinator and makes no
+exactly-once claim.
+
 `r1s request --keep-alive` records a durable lease-holding intent and renews the lease for the
 lifetime of the command: in direct mode the request process itself is the renewal loop and
 re-requests the recorded workload whenever the lease is lost; in service-backed mode the flag is
@@ -304,7 +318,8 @@ retrieval, and reconnection never do so implicitly.
 
 ## Runtime boundary
 
-The runtime interface accepts a stable execution ID and requires idempotent start and stop. The
+The runtime interface accepts a stable execution ID plus its run ID and attempt, and requires
+idempotent start and stop. The
 containerd adapter isolates metadata in an r1s namespace, requires digest-pinned images, derives
 container IDs from execution IDs, and verifies stored identity/specification labels before reuse.
 VM or microVM backends may be added without changing the control protocol, but they are not part of

@@ -3,6 +3,7 @@ package containerd
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	containerdclient "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/oci"
@@ -17,7 +18,7 @@ func (b *clientBackend) Start(ctx context.Context, request r1sruntime.StartReque
 	containerID := containerID(request.ExecutionID)
 	container, err := b.client.LoadContainer(ctx, containerID)
 	if err == nil {
-		return b.resume(ctx, container, request.ExecutionID, fingerprint)
+		return b.resume(ctx, container, request, fingerprint)
 	}
 	if !errdefs.IsNotFound(err) {
 		return nil, fmt.Errorf("load container %q: %w", containerID, err)
@@ -50,7 +51,7 @@ func (b *clientBackend) Start(ctx context.Context, request r1sruntime.StartReque
 	} else if len(request.Workload.GetArgs()) > 0 {
 		specOptions[0] = oci.WithImageConfigArgs(image, request.Workload.GetArgs())
 	}
-	if values := environment(request.Workload); len(values) > 0 {
+	if values := environment(request.Workload, request.RunID, request.Attempt); len(values) > 0 {
 		specOptions = append(specOptions, oci.WithEnv(values))
 	}
 	if directory := request.Workload.GetWorkingDirectory(); directory != "" {
@@ -68,6 +69,8 @@ func (b *clientBackend) Start(ctx context.Context, request r1sruntime.StartReque
 		containerdclient.WithContainerLabels(map[string]string{
 			executionLabel: request.ExecutionID,
 			specLabel:      fingerprint,
+			runLabel:       request.RunID,
+			attemptLabel:   strconv.FormatUint(request.Attempt, 10),
 		}),
 	)
 	container, err = b.client.NewContainer(ctx, containerID, containerOptions...)
@@ -75,7 +78,7 @@ func (b *clientBackend) Start(ctx context.Context, request r1sruntime.StartReque
 		if errdefs.IsAlreadyExists(err) {
 			container, err = b.client.LoadContainer(ctx, containerID)
 			if err == nil {
-				return b.resume(ctx, container, request.ExecutionID, fingerprint)
+				return b.resume(ctx, container, request, fingerprint)
 			}
 		}
 		return nil, fmt.Errorf("create container %q: %w", containerID, err)
@@ -108,8 +111,11 @@ func (b *clientBackend) Start(ctx context.Context, request r1sruntime.StartReque
 	return started, nil
 }
 
-func (b *clientBackend) resume(ctx context.Context, container containerdclient.Container, executionID, fingerprint string) (process, error) {
-	if err := verifyLabels(ctx, container, executionID, fingerprint); err != nil {
+func (b *clientBackend) resume(ctx context.Context, container containerdclient.Container, request r1sruntime.StartRequest, fingerprint string) (process, error) {
+	if err := verifyLabels(ctx, container, request.ExecutionID, fingerprint); err != nil {
+		return nil, err
+	}
+	if err := verifyRunLabels(ctx, container, request); err != nil {
 		return nil, err
 	}
 	task, err := container.Task(ctx, nil)
@@ -117,7 +123,7 @@ func (b *clientBackend) resume(ctx context.Context, container containerdclient.C
 		if !errdefs.IsNotFound(err) {
 			return nil, fmt.Errorf("load task %q: %w", container.ID(), err)
 		}
-		taskIO, ioErr := b.taskIO(executionID)
+		taskIO, ioErr := b.taskIO(request.ExecutionID)
 		if ioErr != nil {
 			return nil, ioErr
 		}

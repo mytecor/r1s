@@ -1,10 +1,13 @@
 package protocol
 
 import (
+	"encoding/hex"
 	"strings"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 )
+
+const runIDBytes = 16
 
 func validateRequest(envelope *r1sv1.Envelope, request *r1sv1.ExecutionRequest) error {
 	if request == nil {
@@ -12,6 +15,12 @@ func validateRequest(envelope *r1sv1.Envelope, request *r1sv1.ExecutionRequest) 
 	}
 	if strings.TrimSpace(request.GetRequestId()) == "" {
 		return invalid("execution_request.request_id", "is required")
+	}
+	if !validRunID(request.GetRunId()) {
+		return invalid("execution_request.run_id", "must be 32 lowercase hexadecimal characters")
+	}
+	if request.GetAttempt() == 0 {
+		return invalid("execution_request.attempt", "must be positive")
 	}
 	if strings.TrimSpace(request.GetResourceClass()) == "" {
 		return invalid("execution_request.resource_class", "is required")
@@ -45,6 +54,14 @@ func validateRequest(envelope *r1sv1.Envelope, request *r1sv1.ExecutionRequest) 
 		}
 	}
 	return nil
+}
+
+func validRunID(value string) bool {
+	if len(value) != runIDBytes*2 || strings.ToLower(value) != value {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == runIDBytes
 }
 
 func validateOffer(envelope *r1sv1.Envelope, offer *r1sv1.ExecutionOffer) error {

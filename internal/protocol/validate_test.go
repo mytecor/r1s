@@ -26,6 +26,15 @@ func TestValidateEnvelope(t *testing.T) {
 		"missing request ID": func(envelope *r1sv1.Envelope) {
 			envelope.GetExecutionRequest().RequestId = ""
 		},
+		"missing run ID": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionRequest().RunId = ""
+		},
+		"malformed run ID": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionRequest().RunId = "ABCDEF"
+		},
+		"zero attempt": func(envelope *r1sv1.Envelope) {
+			envelope.GetExecutionRequest().Attempt = 0
+		},
 		"missing resource class": func(envelope *r1sv1.Envelope) {
 			envelope.GetExecutionRequest().ResourceClass = ""
 		},
@@ -197,6 +206,8 @@ func TestValidateTunnelGrantAck(t *testing.T) {
 func validRequestEnvelope(now time.Time) *r1sv1.Envelope {
 	return envelope(now, &r1sv1.Envelope_ExecutionRequest{ExecutionRequest: &r1sv1.ExecutionRequest{
 		RequestId:     "request",
+		RunId:         "0123456789abcdef0123456789abcdef",
+		Attempt:       1,
 		ResourceClass: "default",
 		Workload: &r1sv1.Workload{
 			Image:       "example.test/image:latest",

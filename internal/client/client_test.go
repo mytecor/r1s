@@ -73,6 +73,47 @@ func TestSelectIsDeterministicAndDurable(t *testing.T) {
 	}
 }
 
+func TestCreateNextAttemptPreservesRunIdentity(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0).UTC()
+	core, err := New(Config{Identity: []byte("client"), Now: func() time.Time { return now }, NewID: sequenceIDs("request-1", "message-1", "execution-1", "assign-1", "request-2", "message-2", "execution-2", "assign-2")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerAllocator(t, core, "allocator", "destination", 1)
+	firstID, first, err := core.CreateRequestWithConstraints(testWorkload(), testPolicy(), "default", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustObserveOffer(t, core, now, first, "allocator", "offer-1")
+	_, firstAssignment, err := core.Select(firstID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, second, err := core.CreateNextAttempt(first.GetExecutionRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustObserveOffer(t, core, now, second, "allocator", "offer-2")
+	_, secondAssignment, err := core.Select(secondID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRequest := first.GetExecutionRequest()
+	secondRequest := second.GetExecutionRequest()
+	if secondRequest.GetRunId() != firstRequest.GetRunId() || secondRequest.GetAttempt() != 2 {
+		t.Fatalf("next attempt run=%q attempt=%d, want run=%q attempt=2", secondRequest.GetRunId(), secondRequest.GetAttempt(), firstRequest.GetRunId())
+	}
+	if secondRequest.GetRequestId() == firstRequest.GetRequestId() || second.GetMessageId() == first.GetMessageId() {
+		t.Fatal("next attempt reused a request or message ID")
+	}
+	if secondAssignment.GetExecutionAssign().GetExecutionId() == firstAssignment.GetExecutionAssign().GetExecutionId() {
+		t.Fatal("next attempt reused an execution ID")
+	}
+	if !proto.Equal(secondRequest.GetWorkload(), firstRequest.GetWorkload()) || !proto.Equal(secondRequest.GetConstraints(), firstRequest.GetConstraints()) {
+		t.Fatal("next attempt changed the workload or placement constraints")
+	}
+}
+
 func TestHandleRejectsUnknownAllocatorAndStaleState(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0).UTC()
 	core, err := New(Config{Identity: []byte("client"), Now: func() time.Time { return now }, NewID: sequenceIDs("request", "request-message", "execution", "assign-message")})

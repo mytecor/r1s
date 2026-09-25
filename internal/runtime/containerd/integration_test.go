@@ -33,6 +33,8 @@ func TestContainerdFixtureLifecycle(t *testing.T) {
 	reported := make(chan r1sruntime.Completion, 1)
 	request := r1sruntime.StartRequest{
 		ExecutionID: executionID,
+		RunID:       "0123456789abcdef0123456789abcdef",
+		Attempt:     1,
 		Client:      []byte("integration-client"),
 		Workload: &r1sv1.Workload{
 			Image:   image,
@@ -110,6 +112,8 @@ func TestContainerdFixtureRecovery(t *testing.T) {
 
 	completed := r1sruntime.StartRequest{
 		ExecutionID: fmt.Sprintf("fixture-recover-complete-%d", time.Now().UnixNano()),
+		RunID:       "0123456789abcdef0123456789abcdef",
+		Attempt:     1,
 		Client:      []byte("integration-client"),
 		Workload: &r1sv1.Workload{
 			Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{"sleep 1; exit 19"},

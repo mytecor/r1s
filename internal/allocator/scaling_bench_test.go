@@ -327,6 +327,8 @@ func benchRequest(now time.Time, messageID, client, requestID string) *r1sv1.Env
 		Payload: &r1sv1.Envelope_ExecutionRequest{
 			ExecutionRequest: &r1sv1.ExecutionRequest{
 				RequestId:     requestID,
+				RunId:         "0123456789abcdef0123456789abcdef",
+				Attempt:       1,
 				ResourceClass: "default",
 				Workload:      &r1sv1.Workload{Image: "example.test/image:latest"},
 				Policy: &r1sv1.ExecutionPolicy{

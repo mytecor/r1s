@@ -28,7 +28,8 @@ references fetched by containerd.
 
 Each `request` creates one immutable execution. Durable, client-owned desired state for one
 execution is `request --keep-alive`: the recorded intent is renewed for the service lifetime, and
-a lost lease re-requests the recorded workload with its allocator pinning. A manifest-level
+a conclusively lost lease re-requests the recorded workload as the next attempt of the same run,
+without pinning it to the previous allocator. A manifest-level
 `r1s deploy` layer is deferred (see [BACKLOG.md](./roadmap/BACKLOG.md)); if built, it would
 compose `request`, `inspect`, `cancel`, and the local `Watch` API without adding deployment state
 to allocators or the wire protocol.

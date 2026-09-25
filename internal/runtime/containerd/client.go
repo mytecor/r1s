@@ -5,17 +5,23 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 
 	containerdclient "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/containerd/v2/pkg/reference"
 	"github.com/containerd/errdefs"
 	"github.com/mytecor/r1s/internal/logstore"
+	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 )
 
 const (
 	executionLabel = "io.r1s.execution-id"
 	specLabel      = "io.r1s.spec-digest"
+	runLabel       = "io.r1s.run-id"
+	attemptLabel   = "io.r1s.attempt"
+	runEnv         = "R1S_RUN_ID"
+	attemptEnv     = "R1S_ATTEMPT"
 )
 
 type clientBackend struct {
@@ -53,6 +59,17 @@ func verifyLabels(ctx context.Context, container containerdclient.Container, exe
 	}
 	if labels[executionLabel] != executionID || (fingerprint != "" && labels[specLabel] != fingerprint) {
 		return fmt.Errorf("%w: %q", ErrExecutionConflict, executionID)
+	}
+	return nil
+}
+
+func verifyRunLabels(ctx context.Context, container containerdclient.Container, request r1sruntime.StartRequest) error {
+	labels, err := container.Labels(ctx)
+	if err != nil {
+		return fmt.Errorf("read container %q labels: %w", container.ID(), err)
+	}
+	if labels[runLabel] != request.RunID || labels[attemptLabel] != strconv.FormatUint(request.Attempt, 10) {
+		return fmt.Errorf("%w: %q", ErrExecutionConflict, request.ExecutionID)
 	}
 	return nil
 }

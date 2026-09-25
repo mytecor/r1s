@@ -3,6 +3,8 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -15,7 +17,7 @@ import (
 // CreateRequest durably creates a request before it is sent to any allocator.
 // It creates an any-node request with no placement constraints.
 func (o *Client) CreateRequest(workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string) (string, *r1sv1.Envelope, error) {
-	return o.createRequest(workload, policy, resourceClass, nil)
+	return o.createRequest(workload, policy, resourceClass, nil, "", 1)
 }
 
 // CreateRequestWithConstraints durably creates a request with placement
@@ -23,10 +25,20 @@ func (o *Client) CreateRequest(workload *r1sv1.Workload, policy *r1sv1.Execution
 // request, so every allocator receives the same narrowing even after restart
 // and re-request.
 func (o *Client) CreateRequestWithConstraints(workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, constraints *r1sv1.PlacementConstraints) (string, *r1sv1.Envelope, error) {
-	return o.createRequest(workload, policy, resourceClass, constraints)
+	return o.createRequest(workload, policy, resourceClass, constraints, "", 1)
 }
 
-func (o *Client) createRequest(workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, constraints *r1sv1.PlacementConstraints) (string, *r1sv1.Envelope, error) {
+// CreateNextAttempt creates a fresh request for the next at-least-once attempt
+// of the same logical run. The request and eventual execution IDs are new;
+// only the correlation ID is retained and the attempt number is advanced.
+func (o *Client) CreateNextAttempt(previous *r1sv1.ExecutionRequest) (string, *r1sv1.Envelope, error) {
+	if previous == nil || previous.GetAttempt() == ^uint64(0) {
+		return "", nil, fmt.Errorf("%w: previous run attempt is invalid", ErrInvalidConfig)
+	}
+	return o.createRequest(previous.GetWorkload(), previous.GetPolicy(), previous.GetResourceClass(), previous.GetConstraints(), previous.GetRunId(), previous.GetAttempt()+1)
+}
+
+func (o *Client) createRequest(workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, constraints *r1sv1.PlacementConstraints, runID string, attempt uint64) (string, *r1sv1.Envelope, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	requestID := o.uniqueIDLocked(o.requests)
@@ -35,9 +47,12 @@ func (o *Client) createRequest(workload *r1sv1.Workload, policy *r1sv1.Execution
 		return "", nil, fmt.Errorf("%w: ID generator returned an empty or duplicate ID", ErrInvalidConfig)
 	}
 	now := o.now().UTC()
+	if runID == "" {
+		runID = initialRunID(requestID)
+	}
 	request := &r1sv1.ExecutionRequest{
 		RequestId: requestID, Workload: cloneWorkload(workload), Policy: clonePolicy(policy), ResourceClass: resourceClass,
-		Constraints: constraints,
+		Constraints: constraints, RunId: runID, Attempt: attempt,
 	}
 	envelope := o.requestEnvelopeLocked(request, messageID, now)
 	if err := protocol.ValidateEnvelope(envelope); err != nil {
@@ -49,6 +64,11 @@ func (o *Client) createRequest(workload *r1sv1.Workload, policy *r1sv1.Execution
 		return "", nil, err
 	}
 	return requestID, proto.Clone(envelope).(*r1sv1.Envelope), nil
+}
+
+func initialRunID(requestID string) string {
+	digest := sha256.Sum256([]byte(requestID))
+	return hex.EncodeToString(digest[:16])
 }
 
 // RequestEnvelope returns the stable request envelope used for all allocators.
