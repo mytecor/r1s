@@ -56,12 +56,19 @@ func TestDecodeRequestJSONIsBounded(t *testing.T) {
 func TestHelpUsesCanonicalDoubleDashFlags(t *testing.T) {
 	var output bytes.Buffer
 	flags := newFlagSet("test", &output)
-	flags.String("rns-config", "", "configuration")
+	flags.String("identity", "", "identity")
 	if err := flags.Parse([]string{"--help"}); !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	if !strings.Contains(output.String(), "--rns-config value") {
+	if !strings.Contains(output.String(), "--identity value") {
 		t.Fatalf("help = %q", output.String())
+	}
+}
+
+func TestRNSConfigFlagIsRemoved(t *testing.T) {
+	_, err := parseCommandLine([]string{"--rns-config", "unused", "list"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("parseCommandLine() error = %v, want removed flag diagnostic", err)
 	}
 }
 
@@ -93,7 +100,6 @@ func TestInlineClusterTokenErrorIsRedacted(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := run(context.Background(), []string{
 		"--cluster", "r1s1:not-base64",
-		"--rns-config", "unused",
 		"--identity", "unused",
 		"list",
 	}, &stdout, &stderr)

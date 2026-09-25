@@ -13,7 +13,6 @@ import (
 
 type commandLine struct {
 	showVersion     bool
-	configPath      string
 	identitySource  string
 	statePath       string
 	clusterSource   string
@@ -69,8 +68,8 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 			}
 		}
 		// No live default service: direct mode needs an identity and cluster.
-		if strings.TrimSpace(options.configPath) == "" || strings.TrimSpace(options.identitySource) == "" {
-			return fmt.Errorf("no local r1s service is running at %s, and --rns-config and --identity are required for direct mode; start 'r1s serve' or pass them explicitly", options.socketCandidate)
+		if strings.TrimSpace(options.identitySource) == "" {
+			return fmt.Errorf("no local r1s service is running at %s, and --identity is required for direct mode; start 'r1s serve' or pass it explicitly", options.socketCandidate)
 		}
 	}
 
@@ -91,7 +90,6 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error) {
 	flags := newFlagSet("r1s", stderr)
 	showVersion := flags.Bool("version", false, "print the version and exit")
-	configPath := flags.String("rns-config", "", "path to a Reticulum-Go configuration file")
 	identitySource := flags.String("identity", "", "private RNS identity (hex, Base32, Base64) or file path")
 	statePath := flags.String("state", "", "client state database (defaults beside the identity file or under ~/.config/r1s)")
 	clusterSource := flags.String("cluster", "", "cluster join token or state file (defaults to ~/.config/r1s/cluster)")
@@ -123,11 +121,10 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	if command != "cluster" && !knownCommand(command) {
 		return commandLine{}, fmt.Errorf("unknown command %q: expected cluster, serve, request, list, inspect, cancel, result, tunnel, or logs", command)
 	}
-	if command != "cluster" && !containsHelp(commandArguments[1:]) && strings.TrimSpace(*socketPath) == "" && socketCandidate == "" && (strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identitySource) == "") {
-		return commandLine{}, errors.New("--rns-config and --identity are required (or pass --socket, or start 'r1s serve' so its socket is discovered)")
+	if command != "cluster" && !containsHelp(commandArguments[1:]) && strings.TrimSpace(*socketPath) == "" && socketCandidate == "" && strings.TrimSpace(*identitySource) == "" {
+		return commandLine{}, errors.New("--identity is required (or pass --socket, or start 'r1s serve' so its socket is discovered)")
 	}
 	return commandLine{
-		configPath:      *configPath,
 		identitySource:  *identitySource,
 		statePath:       *statePath,
 		clusterSource:   *clusterSource,

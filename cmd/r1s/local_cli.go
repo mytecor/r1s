@@ -65,7 +65,7 @@ func (l *localCLI) Close() error {
 
 // serve is only meaningful in direct mode.
 func (l *localCLI) serve(args []string, stderr io.Writer) error {
-	return errors.New("serve: start the local service in direct mode, then use --socket for workflows; 'r1s serve --socket <path>' requires --rns-config and --identity")
+	return errors.New("serve: start the local service in direct mode, then use --socket for workflows; 'r1s serve --socket <path>' requires --identity")
 }
 
 func (l *localCLI) request(args []string, stderr io.Writer) error {

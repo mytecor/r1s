@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Quad4-Software/Reticulum-Go/pkg/reticulumconfig"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/allocator"
 	"github.com/mytecor/r1s/internal/cluster"
@@ -53,16 +52,10 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 	if err != nil {
 		return nil, fmt.Errorf("load cluster membership from %s (run 'r1sd cluster init', 'r1sd cluster join <token>', or pass '--cluster r1s1:<secret>'): %w", cluster.SourceLabel(clusterSource), err)
 	}
-	reticulumConfig, err := reticulumconfig.LoadConfig(options.configPath)
-	if err != nil {
-		return nil, fmt.Errorf("load Reticulum config: %w", err)
-	}
-	reticulumConfig.EnableTransport = false
 	identityDirectory, err := identityDataDirectory(options.identitySource)
 	if err != nil {
 		return nil, err
 	}
-	reticulumConfig.ConfigPath = filepath.Join(identityDirectory, "reticulum")
 
 	node := options.node
 	if node != nil {
@@ -78,7 +71,7 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 
 	result := &daemon{stdout: stdout, logger: log.New(stderr, "r1sd: ", log.LstdFlags|log.Lmsgprefix), sweepInterval: options.sweepInterval}
 	result.endpoint, err = rns.New(rns.Config{
-		Reticulum: reticulumConfig, IdentitySource: options.identitySource, ClusterKey: clusterKey,
+		IdentitySource: options.identitySource, ClusterKey: clusterKey,
 		Capacity: options.capacity, AnnounceInterval: options.announceInterval, Node: node,
 	}, result.handleEnvelope)
 	if err != nil {

@@ -62,8 +62,11 @@ GOBIN="$HOME/.local/bin" go install ./cmd/r1s ./cmd/r1sd
 ```
 
 `r1sd` requires a reachable containerd daemon, but does not require root itself. Run it as any user
-that can access the containerd socket and write its configured identity, state, and log paths. Both
-binaries require a Reticulum-Go configuration.
+that can access the containerd socket and write its configured identity, state, and log paths.
+Both binaries require an already-running Reticulum shared instance (`reticulum-go` or Python
+`rnsd`) and attach to its platform-default local endpoint. They fail closed when the shared
+instance is unavailable; r1s never starts a private RNS stack or takes ownership of the shared
+listener.
 
 Execution tunnels require Linux and a local containerd daemon in the same PID namespace as
 `r1sd`. The tunnel connects to loopback inside the selected container's network namespace;
@@ -108,7 +111,6 @@ Join every allocator that did not create the cluster to persist membership, then
 ```sh
 r1sd cluster join 'r1s1:<secret>'
 r1sd \
-  --rns-config /etc/r1s/reticulum.conf \
   --identity /var/lib/r1s/identity \
   --capacity default=2
 ```
@@ -120,11 +122,9 @@ not exist, the same value is parsed as a join token:
 
 ```sh
 r1sd --cluster 'r1s1:<secret>' \
-  --rns-config /etc/r1s/reticulum.conf \
   --identity '<private RNS identity hex, Base32, Base64, or path>'
 
 r1s --cluster /custom/path/to/cluster \
-  --rns-config "$HOME/.config/r1s/reticulum.conf" \
   --identity "$HOME/.config/r1s/identity" \
   list
 ```
@@ -133,15 +133,14 @@ An inline token is not written to disk and must be supplied on every invocation.
 `cluster init`, `cluster join`, and `cluster show`, `--cluster` remains the destination state file
 path.
 
-The shared token establishes cluster membership; every participant still needs an RNS
-configuration that can reach the others. An allocator using an admission allowlist must also
+The shared token establishes cluster membership; the shared RNS daemon owns the interfaces and
+routing that reach the other participants. An allocator using an admission allowlist must also
 include each permitted client's RNS identity.
 
 Submit a digest-pinned OCI image. Allocators are discovered through RNS announces:
 
 ```sh
 r1s \
-  --rns-config "$HOME/.config/r1s/reticulum.conf" \
   --identity "$HOME/.config/r1s/identity" \
   request \
   '{"workload":{"image":"registry.example/image@sha256:..."},"policy":{"resultRetention":"86400s"},"resourceClass":"default"}'
@@ -166,7 +165,6 @@ state per command, run the local service once and point workflows at it:
 
 ```sh
 r1s serve \
-  --rns-config "$HOME/.config/r1s/reticulum.conf" \
   --identity "$HOME/.config/r1s/identity" &
 
 r1s --socket "$HOME/.config/r1s/client.sock" \

@@ -34,9 +34,14 @@ var (
 	ErrInvalidDestination = errors.New("invalid RNS destination")
 )
 
-// Config defines one embedded Reticulum endpoint.
+// Config defines one Reticulum endpoint. Production endpoints leave Reticulum
+// nil and require the platform-default shared instance. A non-nil Reticulum
+// config is reserved for deterministic and live standalone test harnesses.
 type Config struct {
 	Reticulum *common.ReticulumConfig
+	// connectShared is a test-only override for attaching production-mode
+	// endpoints to an isolated shared-instance listener.
+	connectShared sharedConnector
 	// IdentitySource is an existing or new identity file path, or a private
 	// RNS identity encoded in hex, Base32, or URL-safe Base64.
 	IdentitySource string
@@ -111,8 +116,8 @@ var _ coretransport.Endpoint = (*Endpoint)(nil)
 
 // New constructs an endpoint without starting network interfaces.
 func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
-	if config.Reticulum == nil || strings.TrimSpace(config.IdentitySource) == "" || handler == nil {
-		return nil, fmt.Errorf("%w: Reticulum config, identity source, and handler are required", ErrInvalidConfig)
+	if strings.TrimSpace(config.IdentitySource) == "" || handler == nil {
+		return nil, fmt.Errorf("%w: identity source and handler are required", ErrInvalidConfig)
 	}
 	clusterID, err := cluster.ID(config.ClusterKey)
 	if err != nil {
@@ -155,6 +160,12 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	rnsStack, err := newStack(config.Reticulum, config.Interfaces...)
 	if err != nil {
 		return nil, fmt.Errorf("construct Reticulum stack: %w", err)
+	}
+	if config.connectShared != nil {
+		if !rnsStack.required {
+			return nil, fmt.Errorf("%w: shared-instance connector cannot be combined with a standalone Reticulum config", ErrInvalidConfig)
+		}
+		rnsStack.connect = config.connectShared
 	}
 	localDestination, err := destination.New(localIdentity, destination.In, destination.Single, config.AppName, rnsStack.transport, config.Aspect)
 	if err != nil {

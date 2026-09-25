@@ -45,7 +45,7 @@ func (e *Endpoint) Start(ctx context.Context) error {
 	return nil
 }
 
-// Close shuts down links and the embedded Reticulum node. It is idempotent.
+// Close shuts down links and the Reticulum endpoint. It is idempotent.
 func (e *Endpoint) Close() error {
 	e.mu.Lock()
 	if e.closed {

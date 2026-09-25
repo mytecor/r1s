@@ -24,7 +24,7 @@ func TestParseHexBytes(t *testing.T) {
 // over a configured static value would hide a misconfiguration.
 func TestTunnelStaticEndpointConflictsWithEdge(t *testing.T) {
 	_, err := parseCommandLine([]string{
-		"--rns-config", "unused", "--identity", "unused",
+		"--identity", "unused",
 		"--tunnel-enabled",
 		"--tunnel-endpoint", "deadbeef", "--tunnel-endpoint-pubkey", "cafe",
 	}, io.Discard)

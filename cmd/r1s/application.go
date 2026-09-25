@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Quad4-Software/Reticulum-Go/pkg/reticulumconfig"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
 	"github.com/mytecor/r1s/internal/cluster"
@@ -56,20 +55,13 @@ func openApplication(ctx context.Context, options commandLine, stdout io.Writer)
 	if err != nil {
 		return nil, fmt.Errorf("load cluster membership from %s (run 'r1s cluster init', 'r1s cluster join <token>', or pass '--cluster r1s1:<secret>'): %w", cluster.SourceLabel(clusterSource), err)
 	}
-	reticulumConfig, err := reticulumconfig.LoadConfig(options.configPath)
-	if err != nil {
-		return nil, fmt.Errorf("load Reticulum config: %w", err)
-	}
-	reticulumConfig.EnableTransport = false
 	identityDirectory, err := identityDataDirectory(options.identitySource)
 	if err != nil {
 		return nil, err
 	}
-	reticulumConfig.ConfigPath = filepath.Join(identityDirectory, "reticulum-client")
 
 	app := &application{ctx: ctx, stdout: stdout}
 	app.endpoint, err = rns.New(rns.Config{
-		Reticulum:      reticulumConfig,
 		IdentitySource: options.identitySource,
 		ClusterKey:     clusterKey,
 		NetworkWait:    options.networkWait,

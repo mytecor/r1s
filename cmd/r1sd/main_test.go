@@ -26,7 +26,7 @@ func TestParseCapacity(t *testing.T) {
 func TestSweepIntervalMustBePositive(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := run(context.Background(), []string{
-		"--rns-config", "unused", "--identity", "unused", "--sweep-interval", "0s",
+		"--identity", "unused", "--sweep-interval", "0s",
 	}, &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "--sweep-interval must be positive") {
 		t.Fatalf("error = %v, want sweep-interval diagnostic", err)
@@ -61,7 +61,6 @@ func TestInlineClusterTokenErrorIsRedacted(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := run(context.Background(), []string{
 		"--cluster", "r1s1:not-base64",
-		"--rns-config", "unused",
 		"--identity", "unused",
 	}, &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "inline join token") {
@@ -69,5 +68,12 @@ func TestInlineClusterTokenErrorIsRedacted(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "not-base64") {
 		t.Fatalf("error exposed inline token: %v", err)
+	}
+}
+
+func TestRNSConfigFlagIsRemoved(t *testing.T) {
+	_, err := parseCommandLine([]string{"--rns-config", "unused"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("parseCommandLine() error = %v, want removed flag diagnostic", err)
 	}
 }

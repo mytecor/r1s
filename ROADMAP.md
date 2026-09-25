@@ -199,7 +199,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > Local structured logs, metrics, and client inspection commands expose allocator and execution
 > health without introducing global desired state or bundling an observability backend.
 
-- **Status:** ⏳ planned
+- **Status:** 🚧 in progress — F22-01 complete
 - **Done when:** operators can inspect discovered allocators and executions and scrape documented
   allocator-local metrics without receiving workload stdout/stderr implicitly.
 - **Depends on:** [F13](#f13-local-client-api).
@@ -309,11 +309,11 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   rather than an invalid start.
 - [F18](#f18-observability) adds standard local export points and inspection surfaces after the
   client and API surfaces exist.
-- [F22](#f22-shared-instance-rns-and-run-oriented-client) is planned: make the shared RNS daemon
-  mandatory and collapse client workflow into an ephemeral, lease-owning `run` process with stable
-  run identity, at-least-once rescheduling, detached log continuity, and run-owned tunnels; remove
-  the client DB and local API only after their replacements land, replacing the current private
-  per-process stack.
+- [F22](#f22-shared-instance-rns-and-run-oriented-client) is in progress: F22-01 makes the shared
+  RNS daemon mandatory, removes `--rns-config`, and fails closed without taking ownership of the
+  shared listener. The remaining tasks collapse the client workflow into an ephemeral,
+  lease-owning `run` process with stable run identity, at-least-once rescheduling, detached log
+  continuity, and run-owned tunnels, then remove the client DB and local API.
 
 The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
 (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live

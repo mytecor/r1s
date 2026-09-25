@@ -16,7 +16,6 @@ import (
 
 type commandLine struct {
 	showVersion           bool
-	configPath            string
 	identitySource        string
 	capacity              map[string]uint32
 	announceInterval      time.Duration
@@ -68,7 +67,6 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error) {
 	flags := newFlagSet("r1sd", stderr)
 	showVersion := flags.Bool("version", false, "print the version and exit")
-	configPath := flags.String("rns-config", "", "path to a Reticulum-Go configuration file")
 	identitySource := flags.String("identity", "", "private RNS identity (hex, Base32, Base64) or file path")
 	capacityValue := flags.String("capacity", "default=1", "comma-separated resource capacities, for example default=2,gpu=1")
 	announceInterval := flags.Duration("announce-interval", 5*time.Minute, "service announce refresh interval")
@@ -101,8 +99,8 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		}
 		return commandLine{clusterSource: *clusterSource, clusterArguments: flags.Args()[1:]}, nil
 	}
-	if strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*identitySource) == "" {
-		return commandLine{}, errors.New("--rns-config and --identity are required")
+	if strings.TrimSpace(*identitySource) == "" {
+		return commandLine{}, errors.New("--identity is required")
 	}
 	if *sweepInterval <= 0 {
 		return commandLine{}, errors.New("--sweep-interval must be positive")
@@ -135,7 +133,7 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		return commandLine{}, err
 	}
 	return commandLine{
-		configPath: *configPath, identitySource: *identitySource, capacity: capacity,
+		identitySource: *identitySource, capacity: capacity,
 		announceInterval: *announceInterval, containerdAddress: *containerdAddress,
 		containerdNamespace: *containerdNamespace, containerdSnapshotter: *containerdSnapshotter,
 		logPath: *logPath, logBytes: *logBytes, logBudget: *logBudget, maxRecords: *maxRecords,

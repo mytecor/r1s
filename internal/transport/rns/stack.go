@@ -1,23 +1,69 @@
 package rns
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/sharedinstance"
 	rnstransport "github.com/Quad4-Software/Reticulum-Go/pkg/transport"
 )
+
+var ErrSharedInstanceUnavailable = errors.New("RNS shared instance is not running")
+
+type sharedConnector func(*rnstransport.Transport) (*sharedinstance.Instance, error)
+
+// serializedLocalClient compensates for Reticulum-Go v1.2.0's reusable local
+// interface transmit buffer, which is not safe when transport packet workers
+// send concurrently. It stays at the adapter boundary and can be removed when
+// the upstream interface serializes its own writes.
+type serializedLocalClient struct {
+	*interfaces.LocalClientInterface
+	sendMu sync.Mutex
+}
+
+func (c *serializedLocalClient) Send(data []byte, address string) error {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	return c.LocalClientInterface.Send(data, address)
+}
+
+func (c *serializedLocalClient) ProcessOutgoing(data []byte) error {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	return c.LocalClientInterface.ProcessOutgoing(data)
+}
 
 type stack struct {
 	transport  *rnstransport.Transport
 	interfaces []interfaces.Interface
 	started    []interfaces.Interface
+	shared     *sharedinstance.Instance
+	required   bool
+	connect    sharedConnector
 }
 
 func newStack(config *common.ReticulumConfig, provided ...interfaces.Interface) (*stack, error) {
+	if config == nil {
+		if len(provided) != 0 {
+			return nil, fmt.Errorf("%w: injected interfaces require a standalone test configuration", ErrInvalidConfig)
+		}
+		sharedConfig := common.NewReticulumConfig()
+		sharedConfig.EnableTransport = false
+		sharedConfig.ShareInstance = true
+		sharedConfig.InMemoryStorage = true
+		return &stack{
+			transport: rnstransport.NewTransport(sharedConfig),
+			required:  true,
+			connect:   connectRequiredSharedInstance,
+		}, nil
+	}
+
 	result := &stack{transport: rnstransport.NewTransport(config)}
 	// Caller-supplied interfaces bypass config-driven construction. Tests use
 	// this to wrap an interface (packet loss injection, capture) while keeping
@@ -76,6 +122,15 @@ func (s *stack) Start() error {
 		_ = s.transport.Close()
 		return err
 	}
+	if s.required {
+		instance, err := s.connect(s.transport)
+		if err != nil {
+			_ = s.transport.Close()
+			return err
+		}
+		s.shared = instance
+		return nil
+	}
 	for _, value := range s.interfaces {
 		if err := value.Start(); err != nil {
 			_ = s.Close()
@@ -99,6 +154,10 @@ func (s *stack) Start() error {
 
 func (s *stack) Close() error {
 	var first error
+	if s.shared != nil {
+		s.shared.Close()
+		s.shared = nil
+	}
 	for index := len(s.started) - 1; index >= 0; index-- {
 		if err := s.started[index].Stop(); err != nil && first == nil {
 			first = err
@@ -109,4 +168,38 @@ func (s *stack) Close() error {
 		first = err
 	}
 	return first
+}
+
+// connectRequiredSharedInstance attaches only as a client. Unlike
+// sharedinstance.Attach, it can never fall back to owning the shared-instance
+// listener when no daemon is available.
+func connectRequiredSharedInstance(transport *rnstransport.Transport) (*sharedinstance.Instance, error) {
+	config := common.NewReticulumConfig()
+	useUnix := common.SharedInstanceUsesUnix(config.SharedInstanceType)
+	socketPath := config.InstanceName
+	if useUnix && socketPath == "" {
+		socketPath = "default"
+	}
+	return connectSharedInstanceAt(transport, config.SharedInstancePort, socketPath, useUnix)
+}
+
+func connectSharedInstanceAt(transport *rnstransport.Transport, port int, socketPath string, useUnix bool) (*sharedinstance.Instance, error) {
+	client, err := interfaces.NewLocalClientInterface(port, socketPath, useUnix, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrSharedInstanceUnavailable, err)
+	}
+	client.SetDisconnectHooks(
+		func() { transport.SetConnectedToSharedInstance(false) },
+		func() { transport.SetConnectedToSharedInstance(true) },
+	)
+	if err := client.Start(); err != nil {
+		_ = client.Stop()
+		return nil, fmt.Errorf("%w: %v", ErrSharedInstanceUnavailable, err)
+	}
+	if err := transport.RegisterInterface(client.GetName(), &serializedLocalClient{LocalClientInterface: client}); err != nil {
+		_ = client.Stop()
+		return nil, fmt.Errorf("register RNS shared-instance client: %w", err)
+	}
+	transport.SetConnectedToSharedInstance(true)
+	return &sharedinstance.Instance{Mode: sharedinstance.ModeClient, Client: client}, nil
 }

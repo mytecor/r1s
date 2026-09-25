@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/sharedinstance"
+	rnstransport "github.com/Quad4-Software/Reticulum-Go/pkg/transport"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -195,6 +198,108 @@ func TestEndpointsExchangeAuthenticatedEnvelopeOverUDP(t *testing.T) {
 	}
 }
 
+func TestEndpointsExchangeAuthenticatedEnvelopeThroughSharedInstance(t *testing.T) {
+	port := freeTCPPort(t)
+	serverConfig := common.NewReticulumConfig()
+	serverConfig.EnableTransport = true
+	serverConfig.InMemoryStorage = true
+	serverTransport := rnstransport.NewTransport(serverConfig)
+	if err := serverTransport.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := serverTransport.InitializePathRequestHandler(); err != nil {
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	server, err := interfaces.NewLocalServerInterface(port, "", false, func(client *interfaces.LocalClientInterface) {
+		if registerErr := serverTransport.RegisterInterface(client.GetName(), &serializedLocalClient{LocalClientInterface: client}); registerErr != nil {
+			_ = client.Stop()
+		}
+	}, nil)
+	if err != nil {
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	if err := server.Start(); err != nil {
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	if err := serverTransport.RegisterInterface(server.GetName(), server); err != nil {
+		_ = server.Stop()
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = server.Stop()
+		_ = serverTransport.Close()
+	})
+
+	connector := func(transport *rnstransport.Transport) (*sharedinstance.Instance, error) {
+		return connectSharedInstanceAt(transport, port, "", false)
+	}
+	received := make(chan *r1sv1.Envelope, 1)
+	client, err := New(Config{
+		connectShared:  connector,
+		IdentitySource: filepath.Join(t.TempDir(), "client.identity"),
+		ClusterKey:     testClusterKey(),
+		NetworkWait:    8 * time.Second,
+	}, func(context.Context, *r1sv1.Envelope) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocator, err := New(Config{
+		connectShared:  connector,
+		IdentitySource: filepath.Join(t.TempDir(), "allocator.identity"),
+		ClusterKey:     testClusterKey(),
+		Capacity:       map[string]uint32{"default": 1},
+		NetworkWait:    8 * time.Second,
+	}, func(_ context.Context, envelope *r1sv1.Envelope) error {
+		received <- envelope
+		return nil
+	})
+	if err != nil {
+		_ = client.Close()
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	if err := allocator.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = allocator.Close() })
+	if client.stack.shared.Mode != sharedinstance.ModeClient || allocator.stack.shared.Mode != sharedinstance.ModeClient {
+		t.Fatalf("endpoint shared modes = %v, %v; want ModeClient", client.stack.shared.Mode, allocator.stack.shared.Mode)
+	}
+
+	select {
+	case service := <-client.Discoveries():
+		if service.Destination != allocator.Destination() {
+			t.Fatalf("discovered destination = %s, want %s", service.Destination, allocator.Destination())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("allocator announce was not discovered through shared instance")
+	}
+
+	sendContext, stop := context.WithTimeout(context.Background(), 8*time.Second)
+	defer stop()
+	if err := client.Send(sendContext, allocator.Destination(), validEnvelope()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case envelope := <-received:
+		want, _ := hex.DecodeString(client.Name())
+		if !bytes.Equal(envelope.GetSender(), want) {
+			t.Fatalf("sender = %x, want authenticated identity %x", envelope.GetSender(), want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("control envelope was not delivered through shared instance")
+	}
+}
+
 func TestMismatchedClusterIsNotDiscoveredOrAuthorized(t *testing.T) {
 	portA := freeUDPPort(t)
 	portB := freeUDPPort(t)
@@ -275,6 +380,19 @@ func freeUDPPort(t *testing.T) int {
 		t.Fatal(err)
 	}
 	port := listener.LocalAddr().(*net.UDPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}

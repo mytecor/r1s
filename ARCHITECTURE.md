@@ -73,7 +73,9 @@ transport, runtime, and client behavior remains in reusable packages.
 The `r1s` binary has two client-facing frontends sharing one durable client engine:
 
 - **Direct mode** (default) builds an RNS endpoint, identity, and state store for the lifetime of a
-  single command. `cluster` and `serve` run only in direct mode.
+  single command. The endpoint is a client of the required platform-default shared RNS instance;
+  it never loads interfaces, creates a private stack, or becomes the shared listener. `cluster`
+  and `serve` run only in direct mode.
 - **Service-backed mode** (`r1s --socket <path> …`) forwards `request`, `list`, `inspect`, `result`,
   `cancel`, and `logs` over a Unix socket to a persistent `r1s serve` process. `r1s serve`
   is a local, identity-scoped frontend (see the local client API section below), never a cluster API
@@ -259,6 +261,11 @@ The RNS implementation uses announces only for small discovery descriptors. Prot
 messages travel over authenticated Links with Channel semantics for ordered, reliable delivery.
 RNS is not the bulk-transfer path: it carries control envelopes and discovery descriptors, never
 application bytes.
+
+Production `r1s` and `r1sd` endpoints attach only as clients to an already-running Reticulum shared
+instance at the Reticulum-Go platform default (the Linux abstract Unix socket, or the supported TCP
+default on other platforms). Failure to connect is fatal and never elects r1s as the shared-instance
+server. Explicit standalone transports remain confined to deterministic and live test harnesses.
 
 Execution-tunnel application bytes use the dedicated embedded Yggdrasil adapter from F19/F20. RNS
 authorizes and transports the bounded tunnel-grant exchange; the resulting peer-key-pinned Ygg mesh

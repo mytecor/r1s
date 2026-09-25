@@ -1,6 +1,6 @@
 # F22-01 — Required shared-instance RNS client
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete (2026-09-25)
 
 ## Outcome
 

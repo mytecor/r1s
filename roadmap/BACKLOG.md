@@ -107,12 +107,6 @@ This file records unresolved choices so they do not remain implicit in implement
     `lastOutbound` advances; an upstream fix should refresh `lastInbound` (or treat a validated peer
     proof for outbound data as activity) — see decision 20 and
     [F21-05](./f21-tunnel-rns-dataplane/f21-05-benchmark-live-acceptance.md).
-11. **Reticulum-Go client-only shared-instance attachment** — [F22](./f22-rns-shared-instance/README.md)
-    settles the product direction: `r1s` and `r1sd` require an already-running shared instance and
-    must fail closed instead of embedding a private stack or electing themselves server. Confirm
-    whether the consumed Reticulum-Go API can guarantee `ModeClient` without `Attach` falling back
-    to join-or-own behavior. If not, add or upstream a narrow `Connect`/`RequireSharedInstance` API;
-    do not emulate a shared-instance server in r1s and do not retain the private production path.
 12. **Deterministic offer scoring for `r1s run`** — [F22-04](./f22-rns-shared-instance/f22-04-run-engine.md)
     requires a total order that is independent of map iteration, goroutine scheduling, and packet
     arrival. Constraint compatibility remains mandatory and allocator identity is the final stable
@@ -351,6 +345,12 @@ This file records unresolved choices so they do not remain implicit in implement
     data plane and unused Open/advertisement slice. RNS remains discovery, identity, and control;
     it does not carry execution-tunnel application bytes. A future system-Ygg/raw-TCP design, if
     pursued, requires a separate authenticated capability protocol and benchmark.
+
+22. **Required shared-instance client (2026-09-25)** — F22-01 keeps standalone RNS transports only
+    in deterministic and live test harnesses. Production `r1s` and `r1sd` connect directly through
+    Reticulum-Go's local client interface using platform defaults and record
+    `sharedinstance.ModeClient`; they do not call the join-or-own `sharedinstance.Attach` path.
+    Failure to connect returns `RNS shared instance is not running` and cannot create a listener.
 
 ## Deferred
 
