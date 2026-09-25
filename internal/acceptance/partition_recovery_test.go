@@ -340,14 +340,14 @@ type allocatorProcess struct {
 
 func startAllocator(t *testing.T, ctx context.Context, binary, config, identity, state, address, namespace string, extra ...string) *allocatorProcess {
 	t.Helper()
-	clusterPath := identity + ".cluster"
-	if err := cluster.SaveNew(clusterPath, acceptanceClusterKey); err != nil {
+	clusterHome := identity + ".home"
+	clusterID, err := cluster.SaveCredential(filepath.Join(clusterHome, cluster.DefaultRelPath), acceptanceClusterKey)
+	if err != nil {
 		t.Fatal(err)
 	}
 	arguments := []string{
 		"--rns-config", config,
 		"--identity", identity,
-		"--cluster", clusterPath,
 		"--state", state,
 		"--capacity", "default=1",
 		"--announce-interval", "500ms",
@@ -358,7 +358,14 @@ func startAllocator(t *testing.T, ctx context.Context, binary, config, identity,
 		arguments = append(arguments, "--containerd-snapshotter", snapshotter)
 	}
 	arguments = append(arguments, extra...)
+	arguments = append(arguments, clusterID)
 	command := exec.CommandContext(ctx, binary, arguments...)
+	for _, variable := range os.Environ() {
+		if !strings.HasPrefix(variable, "HOME=") {
+			command.Env = append(command.Env, variable)
+		}
+	}
+	command.Env = append(command.Env, "HOME="+clusterHome)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)

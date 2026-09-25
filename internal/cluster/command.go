@@ -1,17 +1,17 @@
 package cluster
 
 import (
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"path/filepath"
 )
 
-// RunCommand implements the shared `cluster init|join|show` command surface.
-func RunCommand(arguments []string, path string, stdout, stderr io.Writer) error {
+// RunCommand implements the shared `cluster init|join|list` command surface.
+func RunCommand(arguments []string, directory string, stdout, stderr io.Writer) error {
 	if len(arguments) == 0 {
-		return errors.New("cluster command is required: init, join, or show")
+		return errors.New("cluster command is required: init, join, or list")
 	}
 	switch arguments[0] {
 	case "init":
@@ -26,10 +26,11 @@ func RunCommand(arguments []string, path string, stdout, stderr io.Writer) error
 		if err != nil {
 			return err
 		}
-		if err := SaveNew(path, key); err != nil {
+		id, err := SaveCredential(directory, key)
+		if err != nil {
 			return fmt.Errorf("cluster init: %w", err)
 		}
-		return printMembership(stdout, path, key, true)
+		return printMembership(stdout, directory, id, key, true)
 	case "join":
 		flags := clusterFlagSet("cluster join <join-token>", stderr)
 		if err := flags.Parse(arguments[1:]); err != nil {
@@ -42,34 +43,34 @@ func RunCommand(arguments []string, path string, stdout, stderr io.Writer) error
 		if err != nil {
 			return err
 		}
-		if err := SaveNew(path, key); err != nil {
+		id, err := SaveCredential(directory, key)
+		if err != nil {
 			return fmt.Errorf("cluster join: %w", err)
 		}
-		return printMembership(stdout, path, key, false)
-	case "show":
-		flags := clusterFlagSet("cluster show", stderr)
+		return printMembership(stdout, directory, id, key, false)
+	case "list":
+		flags := clusterFlagSet("cluster list", stderr)
 		if err := flags.Parse(arguments[1:]); err != nil {
 			return err
 		}
 		if flags.NArg() != 0 {
-			return errors.New("cluster show: unexpected arguments")
+			return errors.New("cluster list: unexpected arguments")
 		}
-		key, err := Load(path)
+		ids, err := List(directory)
 		if err != nil {
 			return err
 		}
-		return printMembership(stdout, path, key, false)
+		for _, id := range ids {
+			fmt.Fprintln(stdout, id)
+		}
+		return nil
 	default:
-		return fmt.Errorf("unknown cluster command %q: expected init, join, or show", arguments[0])
+		return fmt.Errorf("unknown cluster command %q: expected init, join, or list", arguments[0])
 	}
 }
 
-func printMembership(output io.Writer, path string, key []byte, includeToken bool) error {
-	id, err := ID(key)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(output, "Cluster ID: %s\n", hex.EncodeToString(id))
+func printMembership(output io.Writer, directory, id string, key []byte, includeToken bool) error {
+	fmt.Fprintf(output, "Cluster ID: %s\n", id)
 	if includeToken {
 		token, err := Token(key)
 		if err != nil {
@@ -77,7 +78,7 @@ func printMembership(output io.Writer, path string, key []byte, includeToken boo
 		}
 		fmt.Fprintf(output, "Join token: %s\n", token)
 	}
-	fmt.Fprintf(output, "Cluster state: %s\n", path)
+	fmt.Fprintf(output, "Cluster credential: %s\n", filepath.Join(directory, id))
 	return nil
 }
 

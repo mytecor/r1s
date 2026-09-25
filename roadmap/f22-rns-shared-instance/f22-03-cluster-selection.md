@@ -1,6 +1,6 @@
 # F22-03 — Multi-cluster credential store and explicit selection
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete (2026-09-25)
 
 ## Outcome
 
@@ -37,3 +37,6 @@ credentials for several clusters, while every `run` and allocator startup names 
 ## Notes
 
 - Cluster is where a workload is sent, not part of what the workload is.
+- The credential resolver and allocator grammar land before `r1s run`; F22-04 uses the same
+  resolver when it replaces the transitional legacy workflow `--cluster` selector with the
+  positional run operand.

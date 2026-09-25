@@ -16,13 +16,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-func allocatorClusterSource(value string) (string, error) {
-	if strings.TrimSpace(value) != "" {
-		return value, nil
-	}
-	return cluster.DefaultPath()
-}
-
 // parseNodeCapabilities decodes and validates an optional --node JSON
 // advertisement. An empty value means no placement advertisement. The decoded
 // message is validated against the same bounded-capability contract the
@@ -46,11 +39,11 @@ func identityDataDirectory(source string) (string, error) {
 	if !rns.IsInlineIdentitySource(source) {
 		return filepath.Dir(source), nil
 	}
-	defaultClusterPath, err := cluster.DefaultPath()
+	defaultClusterDirectory, err := cluster.DefaultDirectory()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Dir(defaultClusterPath), nil
+	return filepath.Dir(defaultClusterDirectory), nil
 }
 
 func parseCapacity(value string) (map[string]uint32, error) {

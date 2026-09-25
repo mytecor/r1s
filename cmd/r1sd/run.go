@@ -29,7 +29,7 @@ type commandLine struct {
 	sweepInterval         time.Duration
 	admissionPath         string
 	statePath             string
-	clusterSource         string
+	clusterSelector       string
 	clusterArguments      []string
 	tunnelEnabled         bool
 	tunnelGrantTTL        time.Duration
@@ -49,11 +49,11 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return nil
 	}
 	if options.clusterArguments != nil {
-		path, err := allocatorClusterSource(options.clusterSource)
+		directory, err := cluster.DefaultDirectory()
 		if err != nil {
 			return err
 		}
-		return cluster.RunCommand(options.clusterArguments, path, stdout, stderr)
+		return cluster.RunCommand(options.clusterArguments, directory, stdout, stderr)
 	}
 
 	daemon, err := openDaemon(ctx, options, stdout, stderr)
@@ -80,7 +80,6 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	sweepInterval := flags.Duration("sweep-interval", time.Minute, "bounded-history and offer-expiry cleanup interval")
 	admissionPath := flags.String("admission-policy", "", "local resource profiles, allowed identities, and quotas JSON")
 	statePath := flags.String("state", "", "allocator state database (defaults beside the identity file or under ~/.config/r1s)")
-	clusterSource := flags.String("cluster", "", "cluster join token or state file (defaults to ~/.config/r1s/cluster)")
 	tunnelEnabled := flags.Bool("tunnel-enabled", false, "enable the direct-access tunnel edge (F14); requires --tunnel-endpoint/--tunnel-endpoint-pubkey or the embedded edge")
 	tunnelGrantTTL := flags.Duration("tunnel-grant-ttl", allocator.DefaultTunnelGrantTTL, "minted tunnel grant lifetime")
 	tunnelEndpoint := flags.String("tunnel-endpoint", "", "opaque transport-neutral allocator endpoint advertisement (hex); set automatically by the F14-02 edge")
@@ -94,10 +93,14 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		return commandLine{showVersion: true}, nil
 	}
 	if flags.NArg() > 0 {
-		if flags.Arg(0) != "cluster" {
-			return commandLine{}, fmt.Errorf("unknown command %q: expected cluster", flags.Arg(0))
+		if flags.Arg(0) == "cluster" {
+			return commandLine{clusterArguments: flags.Args()[1:]}, nil
 		}
-		return commandLine{clusterSource: *clusterSource, clusterArguments: flags.Args()[1:]}, nil
+		if flags.NArg() != 1 {
+			return commandLine{}, errors.New("r1sd requires exactly one cluster ID or unique prefix")
+		}
+	} else {
+		return commandLine{}, errors.New("r1sd requires exactly one cluster ID or unique prefix")
 	}
 	if strings.TrimSpace(*identitySource) == "" {
 		return commandLine{}, errors.New("--identity is required")
@@ -138,8 +141,8 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		containerdNamespace: *containerdNamespace, containerdSnapshotter: *containerdSnapshotter,
 		logPath: *logPath, logBytes: *logBytes, logBudget: *logBudget, maxRecords: *maxRecords,
 		sweepInterval: *sweepInterval, admissionPath: *admissionPath, statePath: *statePath,
-		clusterSource: *clusterSource,
-		tunnelEnabled: *tunnelEnabled, tunnelGrantTTL: *tunnelGrantTTL,
+		clusterSelector: flags.Arg(0),
+		tunnelEnabled:   *tunnelEnabled, tunnelGrantTTL: *tunnelGrantTTL,
 		tunnelEndpoint: tunnelEndpointBytes, tunnelEndpointPubKey: tunnelEndpointPubKeyBytes,
 		tunnelPeers: tunnelPeerList(*tunnelPeers), node: node,
 	}, nil

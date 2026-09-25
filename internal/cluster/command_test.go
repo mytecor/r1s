@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-func TestInitJoinAndShowCommands(t *testing.T) {
+func TestInitJoinAndListCommands(t *testing.T) {
 	var initialized bytes.Buffer
-	firstPath := filepath.Join(t.TempDir(), "first", "cluster")
-	if err := RunCommand([]string{"init"}, firstPath, &initialized, &initialized); err != nil {
+	firstDirectory := filepath.Join(t.TempDir(), "first", "clusters")
+	if err := RunCommand([]string{"init"}, firstDirectory, &initialized, &initialized); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(initialized.String()), "\n")
@@ -18,19 +18,23 @@ func TestInitJoinAndShowCommands(t *testing.T) {
 		t.Fatalf("init output = %q", initialized.String())
 	}
 	token := strings.TrimPrefix(lines[1], "Join token: ")
-	secondPath := filepath.Join(t.TempDir(), "second", "cluster")
+	secondDirectory := filepath.Join(t.TempDir(), "second", "clusters")
 	var joined bytes.Buffer
-	if err := RunCommand([]string{"join", token}, secondPath, &joined, &joined); err != nil {
+	if err := RunCommand([]string{"join", token}, secondDirectory, &joined, &joined); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(joined.String(), token) || !strings.Contains(joined.String(), lines[0]) {
 		t.Fatalf("join output = %q", joined.String())
 	}
-	var shown bytes.Buffer
-	if err := RunCommand([]string{"show"}, secondPath, &shown, &shown); err != nil {
+	if err := RunCommand([]string{"join", token}, secondDirectory, &joined, &joined); err != nil {
+		t.Fatalf("duplicate join: %v", err)
+	}
+	var listed bytes.Buffer
+	if err := RunCommand([]string{"list"}, secondDirectory, &listed, &listed); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(shown.String(), lines[0]) || strings.Contains(shown.String(), token) {
-		t.Fatalf("show output = %q", shown.String())
+	id := strings.TrimPrefix(lines[0], "Cluster ID: ")
+	if strings.TrimSpace(listed.String()) != id || strings.Contains(listed.String(), token) {
+		t.Fatalf("list output = %q", listed.String())
 	}
 }

@@ -110,7 +110,7 @@ func tunnelPeerList(value string) []string {
 // defaultSocketPath places the socket beside the client state database default
 // directory, which is already identity-scoped and reliably writable.
 func defaultSocketPath() (string, error) {
-	path, err := cluster.DefaultPath()
+	path, err := cluster.DefaultDirectory()
 	if err != nil {
 		return "", err
 	}

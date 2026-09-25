@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -26,7 +25,7 @@ func TestParseCapacity(t *testing.T) {
 func TestSweepIntervalMustBePositive(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := run(context.Background(), []string{
-		"--identity", "unused", "--sweep-interval", "0s",
+		"--identity", "unused", "--sweep-interval", "0s", "deadbeef",
 	}, &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "--sweep-interval must be positive") {
 		t.Fatalf("error = %v, want sweep-interval diagnostic", err)
@@ -48,8 +47,9 @@ func TestVersionFlagPrintsVersion(t *testing.T) {
 
 func TestClusterInitDoesNotRequireDaemonFlags(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	path := filepath.Join(t.TempDir(), "cluster")
-	if err := run(context.Background(), []string{"--cluster", path, "cluster", "init"}, &stdout, &stderr); err != nil {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := run(context.Background(), []string{"cluster", "init"}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stdout.String(), "Join token: r1s1:") {
@@ -57,14 +57,28 @@ func TestClusterInitDoesNotRequireDaemonFlags(t *testing.T) {
 	}
 }
 
+func TestAllocatorRequiresExactlyOneClusterOperand(t *testing.T) {
+	for name, arguments := range map[string][]string{
+		"missing":  {"--identity", "unused"},
+		"multiple": {"--identity", "unused", "aaaa", "bbbb"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseCommandLine(arguments, &bytes.Buffer{})
+			if err == nil || !strings.Contains(err.Error(), "exactly one cluster") {
+				t.Fatalf("parseCommandLine() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestInlineClusterTokenErrorIsRedacted(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := run(context.Background(), []string{
-		"--cluster", "r1s1:not-base64",
 		"--identity", "unused",
+		"r1s1:not-base64",
 	}, &stdout, &stderr)
-	if err == nil || !strings.Contains(err.Error(), "inline join token") {
-		t.Fatalf("error = %v, want inline token diagnostic", err)
+	if err == nil || !strings.Contains(err.Error(), "cluster identifier must be a hexadecimal prefix") {
+		t.Fatalf("error = %v, want invalid selector diagnostic", err)
 	}
 	if strings.Contains(err.Error(), "not-base64") {
 		t.Fatalf("error exposed inline token: %v", err)
@@ -72,7 +86,7 @@ func TestInlineClusterTokenErrorIsRedacted(t *testing.T) {
 }
 
 func TestRNSConfigFlagIsRemoved(t *testing.T) {
-	_, err := parseCommandLine([]string{"--rns-config", "unused"}, &bytes.Buffer{})
+	_, err := parseCommandLine([]string{"--rns-config", "unused", "deadbeef"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
 		t.Fatalf("parseCommandLine() error = %v, want removed flag diagnostic", err)
 	}

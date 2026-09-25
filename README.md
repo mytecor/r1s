@@ -113,26 +113,29 @@ Join every allocator that did not create the cluster to persist membership, then
 r1sd cluster join 'r1s1:<secret>'
 r1sd \
   --identity /var/lib/r1s/identity \
-  --capacity default=2
+  --capacity default=2 \
+  <cluster-id-or-unique-prefix>
 ```
 
-Both binaries store membership in `~/.config/r1s/cluster` by default, resolved for the OS account
-running the process. For workload commands and `r1sd`, the global `--cluster` flag accepts either
-an inline join token or a state file path. The value is first loaded as a file; if that file does
-not exist, the same value is parsed as a join token:
+Both binaries store credentials in `~/.config/r1s/clusters/<cluster-id>`, with each secret indexed
+by its full derived public ID. List the available non-secret IDs with either binary:
 
 ```sh
-r1sd --cluster 'r1s1:<secret>' \
-  --identity '<private RNS identity hex, Base32, Base64, or path>'
-
-r1s --cluster /custom/path/to/cluster \
-  --identity "$HOME/.config/r1s/identity" \
-  list
+r1s cluster list
 ```
 
-An inline token is not written to disk and must be supplied on every invocation. With
-`cluster init`, `cluster join`, and `cluster show`, `--cluster` remains the destination state file
-path.
+Runtime selection accepts a full ID or a unique hexadecimal prefix. `r1sd` requires exactly one
+positional cluster operand. During the F22 client cutover, the legacy workflow commands use the
+same selector through `--cluster`; the final `r1s run` grammar makes it positional. Join tokens are
+accepted only by `cluster join`, never as runtime selectors:
+
+```sh
+r1sd --identity /var/lib/r1s/identity <cluster-id-or-unique-prefix>
+r1s --cluster <cluster-id-or-unique-prefix> \
+  --identity "$HOME/.config/r1s/identity" list
+```
+
+The previous single file at `~/.config/r1s/cluster` is not imported or selected automatically.
 
 The shared token establishes cluster membership; the shared RNS daemon owns the interfaces and
 routing that reach the other participants. An allocator using an admission allowlist must also
@@ -142,6 +145,7 @@ Submit a digest-pinned OCI image. Allocators are discovered through RNS announce
 
 ```sh
 r1s \
+  --cluster <cluster-id-or-unique-prefix> \
   --identity "$HOME/.config/r1s/identity" \
   request \
   '{"workload":{"image":"registry.example/image@sha256:..."},"policy":{"resultRetention":"86400s"},"resourceClass":"default"}'
@@ -166,6 +170,7 @@ state per command, run the local service once and point workflows at it:
 
 ```sh
 r1s serve \
+  --cluster <cluster-id-or-unique-prefix> \
   --identity "$HOME/.config/r1s/identity" &
 
 r1s --socket "$HOME/.config/r1s/client.sock" \

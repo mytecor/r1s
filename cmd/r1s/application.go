@@ -47,13 +47,13 @@ type application struct {
 }
 
 func openApplication(ctx context.Context, options commandLine, stdout io.Writer) (*application, error) {
-	clusterSource, err := clientClusterSource(options.clusterSource)
+	clusterDirectory, err := cluster.DefaultDirectory()
 	if err != nil {
 		return nil, err
 	}
-	clusterKey, err := cluster.LoadSource(clusterSource)
+	clusterKey, _, err := cluster.Resolve(clusterDirectory, options.clusterSelector)
 	if err != nil {
-		return nil, fmt.Errorf("load cluster membership from %s (run 'r1s cluster init', 'r1s cluster join <token>', or pass '--cluster r1s1:<secret>'): %w", cluster.SourceLabel(clusterSource), err)
+		return nil, fmt.Errorf("select cluster (run 'r1s cluster list'): %w", err)
 	}
 	identityDirectory, err := identityDataDirectory(options.identitySource)
 	if err != nil {

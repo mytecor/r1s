@@ -15,7 +15,7 @@ type commandLine struct {
 	showVersion     bool
 	identitySource  string
 	statePath       string
-	clusterSource   string
+	clusterSelector string
 	socketPath      string
 	socketCandidate string
 	networkWait     time.Duration
@@ -33,11 +33,11 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return nil
 	}
 	if options.command == "cluster" {
-		path, err := clientClusterSource(options.clusterSource)
+		directory, err := cluster.DefaultDirectory()
 		if err != nil {
 			return err
 		}
-		return cluster.RunCommand(options.arguments, path, stdout, stderr)
+		return cluster.RunCommand(options.arguments, directory, stdout, stderr)
 	}
 	if containsHelp(options.arguments) {
 		return dispatch(&application{}, options.command, options.arguments, stderr)
@@ -92,7 +92,7 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	showVersion := flags.Bool("version", false, "print the version and exit")
 	identitySource := flags.String("identity", "", "private RNS identity (hex, Base32, Base64) or file path")
 	statePath := flags.String("state", "", "client state database (defaults beside the identity file or under ~/.config/r1s)")
-	clusterSource := flags.String("cluster", "", "cluster join token or state file (defaults to ~/.config/r1s/cluster)")
+	clusterSelector := flags.String("cluster", "", "cluster ID or unique prefix (required for workflow commands)")
 	socketPath := flags.String("socket", "", "local API socket; when set, workflows run through a persistent r1s serve service instead of direct mode")
 	socketCandidate := ""
 	networkWait := flags.Duration("network-timeout", 30*time.Second, "RNS path, link, and response timeout")
@@ -127,7 +127,7 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	return commandLine{
 		identitySource:  *identitySource,
 		statePath:       *statePath,
-		clusterSource:   *clusterSource,
+		clusterSelector: *clusterSelector,
 		socketPath:      *socketPath,
 		socketCandidate: socketCandidate,
 		networkWait:     *networkWait,

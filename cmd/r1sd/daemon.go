@@ -44,13 +44,13 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 	if err != nil {
 		return nil, err
 	}
-	clusterSource, err := allocatorClusterSource(options.clusterSource)
+	clusterDirectory, err := cluster.DefaultDirectory()
 	if err != nil {
 		return nil, err
 	}
-	clusterKey, err := cluster.LoadSource(clusterSource)
+	clusterKey, _, err := cluster.Resolve(clusterDirectory, options.clusterSelector)
 	if err != nil {
-		return nil, fmt.Errorf("load cluster membership from %s (run 'r1sd cluster init', 'r1sd cluster join <token>', or pass '--cluster r1s1:<secret>'): %w", cluster.SourceLabel(clusterSource), err)
+		return nil, fmt.Errorf("select cluster (run 'r1sd cluster list'): %w", err)
 	}
 	identityDirectory, err := identityDataDirectory(options.identitySource)
 	if err != nil {

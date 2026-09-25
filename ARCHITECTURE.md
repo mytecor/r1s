@@ -147,14 +147,16 @@ The RNS adapter must populate `Envelope.sender` from the authenticated link iden
 must not be allowed to assert an arbitrary sender by serializing different bytes in the envelope.
 
 Cluster membership is a separate transport-boundary authorization step. A participant loads a
-random 256-bit `ClusterKey` from a local state file or an inline join token and derives the public
-identifier as `SHA-256("r1s-cluster-id-v1" || ClusterKey)`. Allocators publish only that `ClusterID`
-in announce app data, and clients ignore descriptors for other cluster IDs. The key and join token
-are never announced or placed in protobuf envelopes.
+random 256-bit `ClusterKey` from `~/.config/r1s/clusters/<cluster-id>` and derives the public
+identifier as `SHA-256("r1s-cluster-id-v1" || ClusterKey)`. `cluster init` and `cluster join` write
+credentials atomically with owner-only permissions; `cluster list` exposes only their public IDs.
+Runtime selection requires a full ID or unique hexadecimal prefix and never accepts a join token.
+The legacy single credential file is not an implicit default or migration source.
 
-For an explicit `--cluster` source, the value is first loaded as a file. Only a missing file falls
-back to parsing the same value as an inline join token. Cluster management commands always treat
-`--cluster` as their state file path.
+Allocators publish only the selected `ClusterID` in announce app data, and clients ignore
+descriptors for other cluster IDs. The key and join token are never announced or placed in
+protobuf envelopes. One allocator process selects exactly one cluster; cluster ID and key remain
+outside workload data and `ExecutionRequest`.
 
 After an RNS Link authenticates the peer identities, both sides exchange fresh nonces and prove
 knowledge of the cluster key with

@@ -260,7 +260,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > persistence remains. The switch is intentionally incompatible: old client state and CLI surfaces
 > are not migrated or supported.
 
-- **Status:** 🚧 in progress — F22-01 and F22-02 complete
+- **Status:** 🚧 in progress — F22-01 through F22-03 complete
 - **Done when:** `r1s run` owns discovery, deterministic placement, leases, rescheduling, log
   tailing, and tunnels across stable `run_id`/monotonic attempts; detached runs retain output;
   cluster choice is explicit; production transport requires a shared RNS instance; legacy client
@@ -312,7 +312,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - [F22](#f22-shared-instance-rns-and-run-oriented-client) is in progress: F22-01 makes the shared
   RNS daemon mandatory, removes `--rns-config`, and fails closed without taking ownership of the
   shared listener. F22-02 adds stable run identity, monotonic attempts, runtime fencing metadata,
-  and explicit at-least-once rescheduling semantics. The remaining tasks collapse the client workflow into an ephemeral,
+  and explicit at-least-once rescheduling semantics. F22-03 adds the multi-cluster credential
+  directory, non-secret listing, unique-prefix selection, and the allocator's required cluster
+  operand. The remaining tasks collapse the client workflow into an ephemeral,
   lease-owning `run` process with stable run identity, at-least-once rescheduling, detached log
   continuity, and run-owned tunnels, then remove the client DB and local API.
 

@@ -5,9 +5,10 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mytecor/r1s/internal/cluster"
 )
 
 func TestDecodeRequestJSON(t *testing.T) {
@@ -87,8 +88,9 @@ func TestVersionFlagPrintsVersion(t *testing.T) {
 
 func TestClusterInitDoesNotRequireNetworkFlags(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	path := filepath.Join(t.TempDir(), "cluster")
-	if err := run(context.Background(), []string{"--cluster", path, "cluster", "init"}, &stdout, &stderr); err != nil {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := run(context.Background(), []string{"cluster", "init"}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stdout.String(), "Join token: r1s1:") {
@@ -103,10 +105,42 @@ func TestInlineClusterTokenErrorIsRedacted(t *testing.T) {
 		"--identity", "unused",
 		"list",
 	}, &stdout, &stderr)
-	if err == nil || !strings.Contains(err.Error(), "inline join token") {
-		t.Fatalf("error = %v, want inline token diagnostic", err)
+	if err == nil || !strings.Contains(err.Error(), "cluster identifier must be a hexadecimal prefix") {
+		t.Fatalf("error = %v, want invalid selector diagnostic", err)
 	}
 	if strings.Contains(err.Error(), "not-base64") {
 		t.Fatalf("error exposed inline token: %v", err)
+	}
+}
+
+func TestAmbiguousClusterFailsBeforeTransportStartup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	directory, err := cluster.DefaultDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := make(map[byte]string)
+	selector := ""
+	for value := byte(1); value != 0; value++ {
+		id, err := cluster.SaveCredential(directory, bytes.Repeat([]byte{value}, cluster.KeySize))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := seen[id[0]]; exists {
+			selector = id[:1]
+			break
+		}
+		seen[id[0]] = id
+	}
+	if selector == "" {
+		t.Fatal("failed to construct ambiguous cluster prefix")
+	}
+	_, err = openApplication(context.Background(), commandLine{
+		identitySource:  "unused",
+		clusterSelector: selector,
+	}, &bytes.Buffer{})
+	if !errors.Is(err, cluster.ErrAmbiguous) {
+		t.Fatalf("openApplication() error = %v, want ErrAmbiguous", err)
 	}
 }

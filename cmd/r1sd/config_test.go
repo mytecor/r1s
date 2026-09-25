@@ -27,6 +27,7 @@ func TestTunnelStaticEndpointConflictsWithEdge(t *testing.T) {
 		"--identity", "unused",
 		"--tunnel-enabled",
 		"--tunnel-endpoint", "deadbeef", "--tunnel-endpoint-pubkey", "cafe",
+		"deadbeef",
 	}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "cannot be set together with --tunnel-enabled") {
 		t.Fatalf("error = %v, want conflict with --tunnel-enabled diagnostic", err)
