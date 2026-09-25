@@ -251,22 +251,25 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   [F20](#f20-client-managed-tunnel-targets), [F17](#f17-execution-lease),
   [F13](#f13-local-client-api), [F12](#f12-shared-secret-cluster-membership).
 
-## [F22. Shared-instance RNS transport](./roadmap/f22-rns-shared-instance/README.md)
+## [F22. Shared-instance RNS and run-oriented client](./roadmap/f22-rns-shared-instance/README.md)
 
-> F22 makes `r1s` and `r1sd` run against a shared RNS instance instead of each process embedding
-> a private, isolated Reticulum stack. Reticulum-Go supports the shared-instance model
-> (`pkg/sharedinstance`, Unix-abstract-socket or TCP, msgpack RPC, Python-RNS interop); r1s simply
-> never wires it. The shared-instance path becomes the standard bootstrap; backward compatibility
-> with the old private per-process stack is deliberately not retained.
+> F22 replaces the accumulated client-side control plane with one lease-owning
+> `r1s run <cluster> <workload>` process. It connects to a required shared RNS daemon, uses an
+> ephemeral identity, correlates rescheduled execution attempts with a stable run ID, tails logs,
+> and owns published ports. Client persistence and the local command service disappear; allocator
+> persistence remains. The switch is intentionally incompatible: old client state and CLI surfaces
+> are not migrated or supported.
 
 - **Status:** ⏳ planned
-- **Done when:** `share_instance` (+ `shared_instance_type` / `instance_name`) is configurable for
-  `r1d` and `r1s serve` and wired through `pkg/sharedinstance`, multiple r1s processes or r1s plus
-  a Python RNS shared instance reach the same peer set and exchange r1s control envelopes, the
-  private per-process stack is not used, and `go build ./...`, `go vet ./...`,
-  `go test -race ./...`, and `make check` pass.
-- **Depends on:** [F2](#f2-rns-transport), Reticulum-Go `v1.2.0` (`pkg/sharedinstance`) as already
-  consumed.
+- **Done when:** `r1s run` owns discovery, deterministic placement, leases, rescheduling, log
+  tailing, and tunnels across stable `run_id`/monotonic attempts; detached runs retain output;
+  cluster choice is explicit; production transport requires a shared RNS instance; legacy client
+  commands, state, service, and socket are gone; allocator recovery remains intact; and all standard
+  verification passes.
+- **Depends on:** [F2](#f2-rns-transport), [F9](#f9-local-logs-and-explicit-retrieval),
+  [F12](#f12-shared-secret-cluster-membership), [F16](#f16-node-capabilities-and-placement),
+  [F17](#f17-execution-lease), [F19](#f19-universal-tunnel-rework),
+  [F20](#f20-client-managed-tunnel-targets), and F21-06.
 
 ## Current implementation order
 
@@ -306,9 +309,11 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   rather than an invalid start.
 - [F18](#f18-observability) adds standard local export points and inspection surfaces after the
   client and API surfaces exist.
-- [F22](#f22-shared-instance-rns-transport) is planned: a shared-instance RNS transport path so
-  multiple r1s processes (or r1s next to the stock Python RNS tools) reuse one RNS daemon,
-  replacing the current private per-process stack.
+- [F22](#f22-shared-instance-rns-and-run-oriented-client) is planned: make the shared RNS daemon
+  mandatory and collapse client workflow into an ephemeral, lease-owning `run` process with stable
+  run identity, at-least-once rescheduling, detached log continuity, and run-owned tunnels; remove
+  the client DB and local API only after their replacements land, replacing the current private
+  per-process stack.
 
 The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
 (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live

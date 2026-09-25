@@ -107,18 +107,18 @@ This file records unresolved choices so they do not remain implicit in implement
     `lastOutbound` advances; an upstream fix should refresh `lastInbound` (or treat a validated peer
     proof for outbound data as activity) — see decision 20 and
     [F21-05](./f21-tunnel-rns-dataplane/f21-05-benchmark-live-acceptance.md).
-11. **Shared-instance RNS transport** — whether r1s should run against an already-running RNS
-    shared instance instead of each process embedding a private, isolated Reticulum stack is
-    undecided and unimplemented. Reticulum-Go fully supports the model (`pkg/sharedinstance` with
-    `ModeDisabled`/`ModeServer`/`ModeClient`, Unix-abstract-socket or TCP, a msgpack RPC server,
-    and Python-RNS interop), but r1s never wires it: `internal/transport/rns/stack.go` always calls
-    `rnstransport.NewTransport(config)` directly and no `ShareInstance`/`SharedInstanceType`/
-    `InstanceName` config reaches `pkg/common/shared_instance.go`. A shared instance would let
-    several r1s processes — and r1s alongside the stock Python RNS tools — reuse one RNS daemon.
-    Backward compatibility with the current private per-process stack is deliberately **not**
-    retained; the shared-instance path becomes the standard bootstrap. The change is addititve to
-    the transport configuration and must not change the wire protocol, authority model, lease
-    semantics, or Protobuf schema. Planned as [F22](./f22-rns-shared-instance/README.md).
+11. **Reticulum-Go client-only shared-instance attachment** — [F22](./f22-rns-shared-instance/README.md)
+    settles the product direction: `r1s` and `r1sd` require an already-running shared instance and
+    must fail closed instead of embedding a private stack or electing themselves server. Confirm
+    whether the consumed Reticulum-Go API can guarantee `ModeClient` without `Attach` falling back
+    to join-or-own behavior. If not, add or upstream a narrow `Connect`/`RequireSharedInstance` API;
+    do not emulate a shared-instance server in r1s and do not retain the private production path.
+12. **Deterministic offer scoring for `r1s run`** — [F22-04](./f22-rns-shared-instance/f22-04-run-engine.md)
+    requires a total order that is independent of map iteration, goroutine scheduling, and packet
+    arrival. Constraint compatibility remains mandatory and allocator identity is the final stable
+    tie-breaker. Decide which trustworthy inputs, if any, precede it: path hops/quality, allocator
+    load, cached-image evidence, or a bounded offer timestamp. The policy must not become allocator
+    pinning or a global scheduler, and rescheduled attempts use the same policy as the first.
 
 ## Resolved
 
