@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
@@ -102,11 +101,11 @@ func launchDetachedRun(ctx context.Context, executable string, childArgs []strin
 	}
 	defer readEnd.Close()
 
-	// The child becomes a session leader so a terminal interrupt aimed at the
-	// foreground parent never reaches the detached run.
+	// The child becomes a session leader (on Unix) so a terminal interrupt
+	// aimed at the foreground parent never reaches the detached run.
 	cmd := exec.Command(executable, childArgs...)
 	cmd.ExtraFiles = []*os.File{writeEnd}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = detachedSysProcAttr()
 	if err := cmd.Start(); err != nil {
 		writeEnd.Close()
 		return fmt.Errorf("detach: start run child: %w", err)
