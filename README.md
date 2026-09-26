@@ -84,6 +84,38 @@ The F22 `run` path creates a client identity only in memory, keeps no client dat
 compatible offers deterministically, holds the execution lease, and reannounces a higher attempt of
 the same run only after authenticated evidence that the previous execution is gone.
 
+## Go client API
+
+Applications can participate in r1s directly through the public
+[`client`](./client) package. The library is the run controller; the `r1s run` command is a frontend
+over the same API. No localhost daemon, socket RPC, or intermediary client identity is involved:
+the application process creates one ephemeral RNS identity and that transport-verified identity
+owns every attempt of its logical run.
+
+```go
+controller, err := client.Open(clusterID, client.Config{})
+if err != nil {
+    return err
+}
+defer controller.Close()
+if err := controller.Start(ctx); err != nil {
+    return err
+}
+
+result, err := controller.Run(ctx, &r1sv1.ExecutionRequest{
+    Workload:      &r1sv1.Workload{Image: image},
+    Policy:        &r1sv1.ExecutionPolicy{},
+    ResourceClass: "default",
+}, client.RunOptions{})
+```
+
+`Run` owns discovery, offer selection and release, assignment, lease renewal, authenticated
+inspection, and conclusive-loss rescheduling. It never transfers container output implicitly;
+applications call `Logs` for an explicit authenticated bounded read. `OpenTunnel` performs the
+authenticated tunnel control request while leaving application-data transport ownership with the
+caller. One `Client` owns exactly one logical run; create another client to obtain fresh authority
+for another run.
+
 ## Quick start
 
 Create the cluster once on the first participant. Either binary can create it; this example uses a
@@ -150,10 +182,10 @@ Submit a digest-pinned OCI image. Allocators are discovered through RNS announce
 
 ```sh
 r1s run <cluster-id-or-unique-prefix> \
-  '{"workload":{"image":"registry.example/image@sha256:..."},"resourceClass":"default"}'
+  '{"workload":{"image":"registry.example/image@sha256:..."},"policy":{},"resourceClass":"default"}'
 ```
 
-The run engine creates the request and assignment in memory (no client database or local socket),
+The public run controller creates the request and assignment in memory (no client database or local socket),
 holds the execution lease for the run's lifetime, tails allocator-local stdout/stderr to the
 terminal, and re-requests the recorded workload as the next attempt only after authenticated
 evidence that the previous execution is gone. An execution whose lease expires without renewal is

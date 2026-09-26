@@ -8,8 +8,8 @@ import (
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 )
 
-// StartOfferReleases retries durable offer cleanup without blocking assignment or state handling. Each CLI invocation retries
-// the durable outbox, including late offers. Shutdown gives ACKs a bounded window;
+// StartOfferReleases retries in-memory offer cleanup without blocking assignment or state handling. The run controller retries
+// the stable pending set, including late offers. Shutdown gives ACKs a bounded window;
 // an unreachable allocator still has its original lease expiry.
 func (o *Client) StartOfferReleases(parent context.Context, send func(context.Context, string, *r1sv1.Envelope) error) func() []PendingRelease {
 	ctx, cancel := context.WithCancel(parent)

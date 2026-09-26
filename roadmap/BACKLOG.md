@@ -368,6 +368,12 @@ This file records unresolved choices so they do not remain implicit in implement
     returns multiple offers for one request. Allocator load and offer timestamps are excluded:
     neither is a stable, independently trustworthy input. Every later attempt repeats the same
     ordinary policy without pinning to a previous allocator.
+25. **Application integration uses a public Run Controller, not a local client server
+    (2026-09-26)** — [F23](./f23-run-controller-library/README.md) exposes
+    `github.com/mytecor/r1s/client`; an application becomes the authenticated RNS participant and
+    owns one logical run directly. The CLI is an adapter over the same library. Cross-identity
+    handoff, if needed later, must be an explicit signed capability/delegation primitive and must
+    not reintroduce a forwarding daemon.
 
 ## Deferred
 
@@ -380,6 +386,9 @@ This file records unresolved choices so they do not remain implicit in implement
   multi-deployment or spec-replacement workflows appear; such a layer must stay client-side over
   the existing execution operations.
 - Application-level event buses, agent hierarchy, and task decomposition.
+- Signed per-execution capability delegation between authenticated identities (scoped permissions
+  such as inspect, logs, cancel, and renew). If introduced, delegates must talk directly to the
+  allocator; do not recreate a client forwarding daemon.
 - External data plane for bulk application data — requires a fresh decision on whether it belongs
   in the system at all (see open decision 1 above).
 - Direct-mode client bridge for `r1s tunnel` (no live `r1s serve`): out of v1 scope; the

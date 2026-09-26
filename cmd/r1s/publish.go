@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	r1sclient "github.com/mytecor/r1s/client"
 	"github.com/mytecor/r1s/internal/tunnel"
 	"github.com/mytecor/r1s/internal/tunnel/yggdrasil"
 )
@@ -31,6 +32,22 @@ import (
 type portMapping struct {
 	host      uint16
 	container uint16
+}
+
+// tunnelPair is the publisher's cached authenticated mesh pair for one
+// execution attempt.
+type tunnelPair struct {
+	executionID string
+	ports       map[uint16]bool
+	conn        tunnel.Conn
+}
+
+func targetPortSet(targets []tunnel.Target) map[uint16]bool {
+	set := make(map[uint16]bool, len(targets))
+	for _, target := range targets {
+		set[target.Port] = true
+	}
+	return set
 }
 
 // parsePort parses a positive uint16 port.
@@ -249,20 +266,15 @@ func (p *runPublisher) establish(ctx context.Context, executionID string) (tunne
 	if err != nil {
 		return nil, fmt.Errorf("publish: derive client edge key: %w", err)
 	}
-	destination, envelope, err := p.a.client.TunnelOpen(executionID, peerKey, p.targets)
+	targets := make([]r1sclient.TunnelTarget, 0, len(p.targets))
+	for _, target := range p.targets {
+		targets = append(targets, r1sclient.TunnelTarget{Port: target.Port})
+	}
+	ack, err := p.a.controller.OpenTunnel(ctx, executionID, peerKey, targets)
 	if err != nil {
 		return nil, err
 	}
-	ch, cancel := p.a.registerWaiter(envelope.GetMessageId())
-	defer cancel()
-	if err := p.a.send(destination, envelope); err != nil {
-		return nil, fmt.Errorf("publish: request open: %w", err)
-	}
-	ack, err := p.a.awaitTunnelOpenAck(ctx, executionID, ch)
-	if err != nil {
-		return nil, err
-	}
-	ep := tunnel.Endpoint{Address: ack.GetAllocatorEndpoint(), PubKey: ack.GetAllocatorEndpointPubkey()}
+	ep := tunnel.Endpoint{Address: ack.Address, PubKey: ack.PubKey}
 	if len(ep.Address) == 0 || len(ep.PubKey) == 0 {
 		return nil, errors.New("publish: allocator advertised no tunnel endpoint")
 	}

@@ -32,7 +32,7 @@ type tailChunkSource interface {
 // application tailChunk adapts the existing explicit bounded log read to the
 // tail loop's narrow surface.
 func (a *application) tailChunk(ctx context.Context, executionID, stream string, offset uint64, wait time.Duration) (*r1sv1.ExecutionLogsResponse, error) {
-	return a.retrieveLogs(ctx, executionID, stream, offset, MaxLogChunkBytes, wait)
+	return a.controller.Logs(ctx, executionID, stream, offset, MaxLogChunkBytes, wait)
 }
 
 // tailInterval paces one log poll. Each poll is at most one bounded chunk per
@@ -44,6 +44,10 @@ const tailInterval = 200 * time.Millisecond
 // inconclusive (partition), never evidence of loss, and simply schedules the
 // next poll.
 const tailLogWait = 2 * time.Second
+
+func errLogTimeout(offset uint64) error {
+	return fmt.Errorf("log request timed out; retry explicitly with --offset %d", offset)
+}
 
 // MaxLogChunkBytes is the bounded chunk the run tail requests. It sits inside
 // F22's 16–64 KiB implementation range and stays well under the protocol cap.

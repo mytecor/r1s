@@ -11,10 +11,10 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// This file is the durable lease-holding intent policy of the client: how a
+// This file is the in-memory lease-holding intent policy of the client: how a
 // lease is recorded, probed, rebound, and reported as lost. The protocol side
 // — how the client reacts to a renewal ack or an explicit lease loss — lives
-// in lease_ack.go. The intent record is the client's own durable memory; the
+// in lease_ack.go. The intent record exists only for the run lifetime; the
 // ack handlers are the reaction to allocator replies.
 
 // clientDefaultLease is the lease duration recorded by a bare Maintain call
@@ -22,10 +22,9 @@ import (
 // initial lease so one-shot callers renew at a sane cadence.
 const clientDefaultLease = protocol.DefaultLease
 
-// Maintain durably records the lease-holding intent for one execution and
-// returns a one-shot authenticated renewal command. The continuous renewal
-// loop lives only in the `r1s serve` engine: it replays this durable intent on
-// every tick. Maintain never spawns a background process.
+// Maintain records the in-memory lease-holding intent for one execution and
+// returns a one-shot authenticated renewal command. The public run controller
+// replays this intent on every tick. Maintain never spawns a background process.
 //
 // lost=true reports that the execution's lease already expired without
 // renewal (the execution was evicted or its metadata is gone): the recorded
@@ -96,9 +95,9 @@ func (o *Client) DueLeaseRenewals() []string {
 	return due
 }
 
-// RecordLeaseIntent durably records the lease-holding intent for one execution
-// without sending anything. The shared renewal loop (serve, or a foreground
-// keep-alive request) replays it on every tick and renews when due. Explicit
+// RecordLeaseIntent records the in-memory lease-holding intent for one execution
+// without sending anything. The public run controller replays it on every tick
+// and renews when due. Explicit
 // allocator destinations ride with the intent so a re-request after lease
 // loss preserves the original pinning.
 func (o *Client) RecordLeaseIntent(executionID string, leaseDuration time.Duration, allocators []string) error {

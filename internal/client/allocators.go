@@ -62,7 +62,7 @@ func (o *Client) AllocatorDestinations(resourceClass string, constraints *r1sv1.
 }
 
 // allocatorCatalog owns authenticated allocator routes and the deterministic
-// offer-ranking policy. The Client remains responsible for durable workflow
+// offer-ranking policy. The Client remains responsible for in-memory workflow
 // transitions; callers must hold Client.mu while using the catalog.
 type allocatorCatalog struct {
 	byIdentity map[string]Allocator

@@ -26,7 +26,7 @@ hierarchies. Those are workloads or protocols layered on top.
 ```mermaid
 flowchart LR
     Protocol[Versioned Protobuf protocol]
-    Client[Client logic]
+    Client[Public Run Controller API]
     Fabric[RNS control plane<br/>announce + Link/Channel]
     Allocator[Allocator core]
     Runtime[OCI runtime]
@@ -44,6 +44,7 @@ The source boundaries are:
 
 ```text
 api/proto/r1s/v1/       versioned wire schema
+client/                  public ephemeral Run Controller API
 internal/protocol/      message validation and compatibility
 internal/client/         in-memory request state, offer selection, and observed execution state
 internal/cluster/        cluster key, public ID, join token, and local state
@@ -52,7 +53,8 @@ internal/transport/     transport boundary and RNS adapter
 internal/runtime/       runtime boundary and containerd adapter
 ```
 
-The protocol, allocator, transport contract and in-memory adapter, runtime contract, RNS adapter,
+The public client composes the protocol-neutral in-memory client core with the RNS adapter. The
+protocol, allocator, transport contract and in-memory adapter, runtime contract, RNS adapter,
 and containerd adapter are present. Python-reference RNS discovery interoperability and reliable
 Channel envelope delivery (including recovery from injected packet loss) are proven via a gated live
 harness. Durable allocator state, restart reconciliation, and the complete partition
@@ -71,11 +73,13 @@ transport, runtime, and client behavior remains in reusable packages.
 | `r1s` | `cmd/r1s/` | Client `run` and cluster bootstrap CLI | F4, F12, F22 |
 
 Since F22-07 removed the legacy client control plane, the `r1s` binary has a single run-oriented
-frontend plus the cluster bootstrap commands. `run` creates a fresh RNS identity and an in-memory
-client engine (no durable state, no local socket). The process owns discovery, deterministic offer
-selection, loser release, assignment, authenticated inspection, lease renewal,
-conclusive-loss rescheduling, and signal cancellation. Terminal-record retention on the allocator is
-an operator policy, not workload input.
+frontend plus the cluster bootstrap commands. The frontend uses the public
+[`client`](./client) Run Controller API; it does not contain a second orchestration implementation.
+Each controller creates a fresh RNS identity and an in-memory client engine (no durable state, no
+local socket). It owns discovery, deterministic offer selection, loser release, assignment,
+authenticated inspection, lease renewal, conclusive-loss rescheduling, and cancellation. CLI log
+tailing and local port binding adapt the controller's explicit `Logs` and `OpenTunnel` operations.
+Terminal-record retention on the allocator is an operator policy, not workload input.
 
 Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system
 binaries.
@@ -87,6 +91,11 @@ The pre-F22 local client API — the `r1s.v1.LocalClient` gRPC service, `r1s ser
 state, watch sequence, or local socket; the client is an ephemeral in-memory process that owns a
 run for its lifetime and keeps nothing across restart. See
 [F22-07](./roadmap/f22-rns-shared-instance/f22-07-client-cleanup.md).
+
+This removal does not mean applications must shell out to the CLI. They import
+[`client`](./client), become an RNS participant themselves, and communicate directly with
+allocators. A service that accepts commands from other applications and forwards them over RNS
+would recreate the removed authority and lifecycle boundary and is deliberately not provided.
 
 ## Execution and deployment layers
 

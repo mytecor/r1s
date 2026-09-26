@@ -277,6 +277,18 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   [F17](#f17-execution-lease), [F19](#f19-universal-tunnel-rework),
   [F20](#f20-client-managed-tunnel-targets), and F21-06.
 
+## [F23. Public Run Controller library](./roadmap/f23-run-controller-library/README.md)
+
+> Applications import the same ephemeral run controller used by the CLI and participate directly
+> in RNS, without a local client daemon or a second RPC authority boundary.
+
+- **Status:** ✅ complete
+- **Done when:** `github.com/mytecor/r1s/client` owns discovery, selection, assignment, lease
+  renewal, conclusive-loss rescheduling, explicit log reads, and authenticated tunnel-open control;
+  `r1s run` is a presentation/process-lifecycle adapter over it; and each controller has fresh
+  per-run RNS authority with no durable client state.
+- **Depends on:** [F22](#f22-shared-instance-rns-and-run-oriented-client).
+
 ## Current implementation order
 
 - [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
@@ -325,7 +337,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   rather than an invalid start.
 - [F18](#f18-observability) adds standard local export points and inspection surfaces after the
   client and API surfaces exist.
-- [F22](#f22-shared-instance-rns-and-run-oriented-client) is in progress: F22-01 makes the shared
+- [F22](#f22-shared-instance-rns-and-run-oriented-client) is complete: F22-01 makes the shared
   RNS daemon mandatory, removes `--rns-config`, and fails closed without taking ownership of the
   shared listener. F22-02 adds stable run identity, monotonic attempts, runtime fencing metadata,
   and explicit at-least-once rescheduling semantics. F22-03 adds the multi-cluster credential
@@ -343,6 +355,10 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   and spliced to the currently active execution. F22-07 completed the cutover: the legacy client
   DB and local API are gone, retention is allocator-config (`--retention`), and `make check` passes
   green.
+- [F23](#f23-public-run-controller-library) exposes the F22 run engine as the public Go
+  [`client`](./client) package. The CLI now supplies argument parsing, foreground/detached process
+  lifecycle, output routing, and local listener binding around that library instead of owning a
+  private orchestration implementation.
 
 The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
 (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live

@@ -8,23 +8,13 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
-	"github.com/mytecor/r1s/internal/protocol"
+	r1sclient "github.com/mytecor/r1s/client"
 )
 
 const (
-	runInspectInterval = 5 * time.Second
-	runInspectWait     = 5 * time.Second
-
 	// defaultOfferWait paces re-request offer collection and is the default
 	// --offer-wait for `r1s run`.
 	defaultOfferWait = 10 * time.Second
-
-	// defaultRenewWait bounds one lease-renewal ack wait in the run hold loop.
-	defaultRenewWait = 30 * time.Second
-
-	// defaultLeaseDuration matches the allocator's default initial lease so the
-	// run engine renews at a sane cadence without tuning anything.
-	defaultLeaseDuration = protocol.DefaultLease
 )
 
 // workloadExitError lets main preserve a workload's process status without
@@ -81,46 +71,15 @@ func (a *application) runExecution(arguments []string, stderr io.Writer) error {
 	return a.runForeground(flags.Arg(0), *offerWait, publishes.mappings, stderr)
 }
 
-// runRequestJSON decodes the single workload JSON argument, performs the
-// initial request/assignment, and returns the created request, the assigned
-// execution ID, and the chosen allocator identity.
-func (a *application) runRequestJSON(workloadJSON string, offerWait time.Duration) (*r1sv1.ExecutionRequest, string, []byte, error) {
-	request, err := decodeRequestJSON(workloadJSON)
-	if err != nil {
-		return nil, "", nil, err
-	}
-	_, executionID, allocator, err := a.runRequest(
-		a.ctx,
-		request.GetWorkload(),
-		request.GetPolicy(),
-		request.GetResourceClass(),
-		offerWait,
-		nil,
-		defaultLeaseDuration,
-		request.GetConstraints(),
-	)
-	if err != nil {
-		return nil, "", nil, err
-	}
-	created, ok := a.client.RequestForExecution(executionID)
-	if !ok {
-		return nil, "", nil, fmt.Errorf("run: execution %s has no in-memory request", executionID)
-	}
-	return created, executionID, allocator, nil
-}
-
 // foreground run: assign, announce to the terminal, then hold the run while a
 // concurrent tail copies allocator stdout/stderr to the matching terminal
 // streams and (when --publish is given) the publisher relays published ports to
 // the active execution attempt.
 func (a *application) runForeground(workloadJSON string, offerWait time.Duration, publishes []portMapping, stderr io.Writer) error {
-	created, executionID, allocator, err := a.runRequestJSON(workloadJSON, offerWait)
+	request, err := decodeRequestJSON(workloadJSON)
 	if err != nil {
 		return err
 	}
-	// Run-control lines go to stderr so foreground stdout carries only the
-	// workload's stdout; workload stderr still maps to the terminal's stderr.
-	fmt.Fprintf(stderr, "run=%s attempt=%d execution=%s allocator=%x status=assignment-sent\n", created.GetRunId(), created.GetAttempt(), executionID, allocator)
 
 	var publisher *runPublisher
 	if len(publishes) > 0 {
@@ -131,116 +90,48 @@ func (a *application) runForeground(workloadJSON string, offerWait time.Duration
 		if err != nil {
 			return err
 		}
-		publisher.SetActive(executionID)
 		publisher.start()
 		defer publisher.close()
-		for _, m := range publishes {
-			fmt.Fprintf(stderr, "publish: 127.0.0.1:%d -> container port %d (execution %s)\n", m.host, m.container, executionID)
-		}
 	}
 
 	tail := newForegroundTail(a, a.stdout, stderr)
-	tail.SetActive(executionID, created.GetRunId(), created.GetAttempt())
 	stop := make(chan struct{})
 	go tail.run(a.ctx, stop)
-
-	activeID, state, err := a.holdRun(a.ctx, executionID, offerWait, func(id string, request *r1sv1.ExecutionRequest) {
-		tail.SetActive(id, request.GetRunId(), request.GetAttempt())
-		if publisher != nil {
-			publisher.SetActive(id)
-		}
-	}, stderr)
+	result, err := a.controller.Run(a.ctx, request, r1sclient.RunOptions{
+		OfferWait: offerWait,
+		OnEvent: func(event r1sclient.Event) {
+			switch event.Kind {
+			case r1sclient.EventLeaseLost:
+				fmt.Fprintf(stderr, "execution=%s status=lease-lost\n", event.Previous)
+			case r1sclient.EventRenewalError:
+				fmt.Fprintf(stderr, "execution=%s lease-renewal-error=%v\n", event.Attempt.ExecutionID, event.Err)
+			case r1sclient.EventAttemptAssigned:
+				status := "assignment-sent"
+				if event.Previous != "" {
+					status = "rerequested"
+				}
+				fmt.Fprintf(stderr, "run=%s attempt=%d execution=%s allocator=%x status=%s\n", event.Attempt.RunID, event.Attempt.Number, event.Attempt.ExecutionID, event.Attempt.Allocator, status)
+				tail.SetActive(event.Attempt.ExecutionID, event.Attempt.RunID, event.Attempt.Number)
+				if publisher != nil {
+					publisher.SetActive(event.Attempt.ExecutionID)
+					if event.Previous == "" {
+						for _, mapping := range publishes {
+							fmt.Fprintf(stderr, "publish: 127.0.0.1:%d -> container port %d (execution %s)\n", mapping.host, mapping.container, event.Attempt.ExecutionID)
+						}
+					}
+				}
+			}
+		},
+	})
 	close(stop)
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			a.bestEffortRunCancel(activeID)
-			if cause := context.Cause(a.ctx); cause != nil {
-				return cause
-			}
+		if errors.Is(err, context.Canceled) && context.Cause(a.ctx) != nil {
+			return context.Cause(a.ctx)
 		}
 		return err
 	}
-	snapshot, _ := a.client.Execution(activeID)
-	printState(stderr, snapshot)
-	return workloadStatus(state)
-}
-
-// holdRun owns one logical run in memory. Missing responses are retried and
-// never imply loss; only authenticated NOT_FOUND/EXPIRED feedback or the
-// allocator's lease-expiry terminal state advances to a fresh attempt. When onActive
-// is non-nil it is called with each newly active execution so a concurrent log
-// tail can track rescheduling; statusLines writes residency status.
-func (a *application) holdRun(ctx context.Context, executionID string, offerWait time.Duration, onActive func(id string, request *r1sv1.ExecutionRequest), statusLines io.Writer) (string, *r1sv1.ExecutionState, error) {
-	if statusLines == nil {
-		statusLines = a.stdout
-	}
-	activeID := executionID
-	if onActive != nil {
-		if request, ok := a.client.RequestForExecution(activeID); ok {
-			onActive(activeID, request)
-		}
-	}
-	ticker := time.NewTicker(runInspectInterval)
-	defer ticker.Stop()
-
-	replace := func(previous, replacement string) {
-		request, _ := a.client.RequestForExecution(replacement)
-		fmt.Fprintf(statusLines, "execution=%s status=lease-lost\n", previous)
-		fmt.Fprintf(statusLines, "run=%s attempt=%d execution=%s status=rerequested\n", request.GetRunId(), request.GetAttempt(), replacement)
-		if onActive != nil {
-			onActive(replacement, request)
-		}
-	}
-
-	for {
-		if snapshot, ok := a.client.Execution(activeID); ok && snapshot.State != nil && protocol.Terminal(snapshot.State.GetPhase()) && !a.client.LeaseIntentLost(activeID) {
-			return activeID, snapshot.State, nil
-		}
-		if a.client.LeaseIntentLost(activeID) {
-			previous := activeID
-			replacement, err := a.reRequestLostLeaseWithWait(ctx, activeID, offerWait)
-			if err != nil {
-				return activeID, nil, err
-			}
-			activeID = replacement
-			replace(previous, activeID)
-			continue
-		}
-		if a.client.LeaseDue(activeID) {
-			previous := activeID
-			newID, _, rerequested, err := a.renewOrReRequestWithOfferWait(ctx, activeID, 0, defaultRenewWait, offerWait)
-			if err != nil && !errors.Is(err, context.Canceled) {
-				fmt.Fprintf(statusLines, "execution=%s lease-renewal-error=%v\n", activeID, err)
-			} else if err == nil && rerequested {
-				activeID = newID
-				replace(previous, activeID)
-			}
-		}
-
-		select {
-		case <-ctx.Done():
-			return activeID, nil, ctx.Err()
-		case <-ticker.C:
-		}
-		// Inspection is an explicit authenticated recovery read after a quiet
-		// period or reconnect. A timeout is inconclusive and does not reschedule.
-		if _, err := a.inspectState(ctx, activeID, runInspectWait); err != nil && errors.Is(err, context.Canceled) {
-			return activeID, nil, err
-		}
-	}
-}
-
-func (a *application) bestEffortRunCancel(executionID string) {
-	if executionID == "" {
-		return
-	}
-	destination, envelope, err := a.client.Cancel(executionID, "run process interrupted")
-	if err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = a.sendWithContext(ctx, destination, envelope)
+	printState(stderr, result.Attempt.ExecutionID, result.State)
+	return workloadStatus(result.State)
 }
 
 func workloadStatus(state *r1sv1.ExecutionState) error {

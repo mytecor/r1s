@@ -12,16 +12,15 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// CreateRequest durably creates a request before it is sent to any allocator.
+// CreateRequest records a request in memory before it is sent to any allocator.
 // It creates an any-node request with no placement constraints.
 func (o *Client) CreateRequest(workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string) (string, *r1sv1.Envelope, error) {
 	return o.createRequest(workload, policy, resourceClass, nil, "", 1)
 }
 
-// CreateRequestWithConstraints durably creates a request with placement
-// constraints. The constraints are validated and become part of the durable
-// request, so every allocator receives the same narrowing even after restart
-// and re-request.
+// CreateRequestWithConstraints records a request with placement constraints.
+// The constraints are validated and become part of the stable in-memory
+// request, so every allocator receives the same narrowing on re-request.
 func (o *Client) CreateRequestWithConstraints(workload *r1sv1.Workload, policy *r1sv1.ExecutionPolicy, resourceClass string, constraints *r1sv1.PlacementConstraints) (string, *r1sv1.Envelope, error) {
 	return o.createRequest(workload, policy, resourceClass, constraints, "", 1)
 }

@@ -10,22 +10,20 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
-	"github.com/mytecor/r1s/internal/client"
 	"github.com/mytecor/r1s/internal/protocol"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-func printState(writer io.Writer, snapshot client.ExecutionSnapshot) {
-	state := snapshot.State
+func printState(writer io.Writer, executionID string, state *r1sv1.ExecutionState) {
 	if state == nil {
-		fmt.Fprintf(writer, "execution=%s phase=unknown\n", snapshot.ExecutionID)
+		fmt.Fprintf(writer, "execution=%s phase=unknown\n", executionID)
 		return
 	}
 	exit := ""
 	if state.ExitCode != nil {
 		exit = fmt.Sprintf(" exit_code=%d", state.GetExitCode())
 	}
-	fmt.Fprintf(writer, "execution=%s phase=%s occurred_at=%s%s detail=%q\n", snapshot.ExecutionID, phaseName(state.GetPhase()), state.GetOccurredAt().AsTime().Format(time.RFC3339), exit, state.GetDetail())
+	fmt.Fprintf(writer, "execution=%s phase=%s occurred_at=%s%s detail=%q\n", executionID, phaseName(state.GetPhase()), state.GetOccurredAt().AsTime().Format(time.RFC3339), exit, state.GetDetail())
 }
 
 func phaseName(phase r1sv1.ExecutionPhase) string {

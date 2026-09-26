@@ -17,7 +17,7 @@ type releaseIntent struct {
 	Acknowledged bool      `json:"acknowledged,omitempty"`
 }
 
-// PendingRelease is a stable, durable command for one unselected allocator.
+// PendingRelease is a stable in-memory command for one unselected allocator.
 type PendingRelease struct {
 	Destination string
 	Envelope    *r1sv1.Envelope

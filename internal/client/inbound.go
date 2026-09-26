@@ -11,7 +11,7 @@ import (
 )
 
 // Handle accepts observations from an authenticated allocator and routes each
-// wire payload to the durable state transition that owns it.
+// wire payload to the in-memory state transition that owns it.
 func (o *Client) Handle(_ context.Context, envelope *r1sv1.Envelope) error {
 	if err := protocol.ValidateEnvelope(envelope); err != nil {
 		return err

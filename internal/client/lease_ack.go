@@ -8,7 +8,7 @@ import (
 )
 
 // This file is the protocol side of the client lease: the reactions to
-// allocator replies about a renewal. The durable lease-holding intent policy —
+// allocator replies about a renewal. The in-memory lease-holding intent policy —
 // how a lease is recorded, probed, and rebound — lives in lease_intent.go.
 
 // handleRenewAckLocked applies an allocator lease-renewal ack. Callers must

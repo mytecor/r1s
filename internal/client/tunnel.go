@@ -48,7 +48,7 @@ func (o *Client) TunnelOpen(executionID string, peerKey []byte, targets []tunnel
 
 // handleTunnelOpenAckLocked validates an allocator's reply to an
 // ExecutionTunnelOpen without persisting it: the binding lifecycle is owned by
-// the application that awaits the ack by correlation ID, so the durable client
+// the application that awaits the ack by correlation ID, so the in-memory client
 // state must not record it. The ack is still constrained (sender is the
 // execution's allocator, the correlation matches the outstanding open request)
 // so a stray or forged ack cannot be attributed to an open the client did not

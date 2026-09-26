@@ -39,8 +39,8 @@ func TestRunCommandUsesPositionalClusterWithoutPersistentIdentity(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer second.close()
-	if first.client == nil || second.client == nil {
-		t.Fatalf("run application has no in-memory client engine")
+	if first.controller == nil || second.controller == nil {
+		t.Fatalf("run application has no public run controller")
 	}
 	if bytes.Equal(first.identity, second.identity) {
 		t.Fatalf("separate runs reused ephemeral identity %x", first.identity)

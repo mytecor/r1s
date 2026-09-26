@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	r1sclient "github.com/mytecor/r1s/client"
 )
 
 // Detached run ownership (F22-05): `r1s run -d` hands the lease-holding run to
@@ -257,67 +256,81 @@ func detachedOutputPath(logFile, runDir string) string {
 // concurrent tail appends every stream and reschedule marker to the same file.
 // On clean exit the PID marker is removed and the output file is retained.
 func (a *application) runDetachedChild(workloadJSON string, offerWait time.Duration, handshakeFD int, logFile string, publishes []portMapping) error {
-	created, executionID, _, err := a.runRequestJSON(workloadJSON, offerWait)
+	request, err := decodeRequestJSON(workloadJSON)
 	if err != nil {
 		return err
 	}
-	runID := created.GetRunId()
-	runDir, err := runDirectory(runID)
-	if err != nil {
-		return err
-	}
-	if err := writePIDMarker(runDir); err != nil {
-		return fmt.Errorf("detached run %s: %w", runID, err)
-	}
-	defer removePIDMarker(runDir)
-
-	outputPath := detachedOutputPath(logFile, runDir)
-	file, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		return fmt.Errorf("detached run %s: open output: %w", runID, err)
-	}
-	defer file.Close()
-
+	runCtx, cancel := context.WithCancelCause(a.ctx)
+	defer cancel(nil)
+	var runID, runDir, outputPath string
+	var file *os.File
 	var publisher *runPublisher
-	if len(publishes) > 0 {
-		if err := a.ensureRunTunnelEdge(); err != nil {
-			return fmt.Errorf("detached run %s: %w", runID, err)
-		}
-		publisher, err = newRunPublisher(a.ctx, a, publishes)
-		if err != nil {
-			return fmt.Errorf("detached run %s: %w", runID, err)
-		}
-		publisher.SetActive(executionID)
-		publisher.start()
-		defer publisher.close()
-	}
-
-	// Signal ownership to the parent only now, when the reported paths already
-	// exist. The parent prints run/pid/log and returns; from here the child
-	// keeps the lease itself.
-	if err := signalDetachReady(handshakeFD, runID, outputPath, runDir); err != nil {
-		return err
-	}
-
-	tail := newDetachedTail(a, file)
-	tail.SetActive(executionID, runID, created.GetAttempt())
+	var tail *runTail
 	stop := make(chan struct{})
-	go tail.run(a.ctx, stop)
-
-	activeID, state, err := a.holdRun(a.ctx, executionID, offerWait, func(id string, request *r1sv1.ExecutionRequest) {
-		tail.SetActive(id, request.GetRunId(), request.GetAttempt())
-		if publisher != nil {
-			publisher.SetActive(id)
-		}
-	}, nil)
-	close(stop)
+	var initErr error
+	result, err := a.controller.Run(runCtx, request, r1sclient.RunOptions{
+		OfferWait: offerWait,
+		OnEvent: func(event r1sclient.Event) {
+			if event.Kind != r1sclient.EventAttemptAssigned {
+				return
+			}
+			if tail != nil {
+				tail.SetActive(event.Attempt.ExecutionID, event.Attempt.RunID, event.Attempt.Number)
+				if publisher != nil {
+					publisher.SetActive(event.Attempt.ExecutionID)
+				}
+				return
+			}
+			runID = event.Attempt.RunID
+			runDir, initErr = runDirectory(runID)
+			if initErr == nil {
+				initErr = writePIDMarker(runDir)
+			}
+			if initErr == nil {
+				outputPath = detachedOutputPath(logFile, runDir)
+				file, initErr = os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+			}
+			if initErr == nil && len(publishes) > 0 {
+				initErr = a.ensureRunTunnelEdge()
+				if initErr == nil {
+					publisher, initErr = newRunPublisher(runCtx, a, publishes)
+				}
+				if initErr == nil {
+					publisher.SetActive(event.Attempt.ExecutionID)
+					publisher.start()
+				}
+			}
+			if initErr == nil {
+				initErr = signalDetachReady(handshakeFD, runID, outputPath, runDir)
+			}
+			if initErr != nil {
+				cancel(initErr)
+				return
+			}
+			tail = newDetachedTail(a, file)
+			tail.SetActive(event.Attempt.ExecutionID, runID, event.Attempt.Number)
+			go tail.run(runCtx, stop)
+		},
+	})
+	if tail != nil {
+		close(stop)
+	}
+	if publisher != nil {
+		publisher.close()
+	}
+	if file != nil {
+		_ = file.Close()
+	}
+	if runDir != "" {
+		removePIDMarker(runDir)
+	}
+	if initErr != nil {
+		return fmt.Errorf("detached run %s: %w", runID, initErr)
+	}
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			a.bestEffortRunCancel(activeID)
-		}
 		return err
 	}
-	return workloadStatus(state)
+	return workloadStatus(result.State)
 }
 
 // signalDetachReady writes the machine-ready handshake line to the child's
