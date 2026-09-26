@@ -2,7 +2,9 @@
 
 Corresponds to [milestone F13](../../ROADMAP.md#f13-local-client-api).
 
-**Status:** ✅ complete; unit, socket-contract, and service-backed CLI acceptance tests pass
+**Status:** 🚫 superseded — the local gRPC service, `r1s serve`, the `--socket` routing, and the
+`Watch` journal were removed by [F22-07](../f22-rns-shared-instance/f22-07-client-cleanup.md).
+Historical record only; the client is now an ephemeral in-memory run process with no local API.
 
 ## Outcome
 

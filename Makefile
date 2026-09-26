@@ -2,7 +2,7 @@
 
 MODULE := github.com/mytecor/r1s
 PROTO_DIR := api/proto
-PROTO_FILES := r1s/v1/control.proto r1s/v1/local.proto
+PROTO_FILES := r1s/v1/control.proto
 PROTOC_INCLUDES := -I$(PROTO_DIR) -I/opt/homebrew/include
 PROTOC_GEN_GO := bin/protoc-gen-go
 PROTOC_GEN_GO_VERSION := v1.36.11

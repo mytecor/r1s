@@ -26,13 +26,13 @@ authenticated `logs` request.
 RNS is the resilient, low-bandwidth control plane. OCI images remain ordinary digest-pinned registry
 references fetched by containerd.
 
-Each `request` creates one immutable execution. Durable, client-owned desired state for one
-execution is `request --keep-alive`: the recorded intent is renewed for the service lifetime, and
-a conclusively lost lease re-requests the recorded workload as the next attempt of the same run,
-without pinning it to the previous allocator. A manifest-level
-`r1s deploy` layer is deferred (see [BACKLOG.md](./roadmap/BACKLOG.md)); if built, it would
-compose `request`, `inspect`, `cancel`, and the local `Watch` API without adding deployment state
-to allocators or the wire protocol.
+Each `r1s run` is one immutable execution attempt of a logical run. The client holds an
+in-memory lease for the run's lifetime, tails allocator-local logs to the terminal, and — on
+authenticated evidence that the previous execution is gone — re-requests the recorded workload as
+the next attempt of the same run. A conclusive lease loss re-requests without pinning to the
+previous allocator. A manifest-level `r1s deploy` layer is deferred
+(see [BACKLOG.md](./roadmap/BACKLOG.md)); if built, it would compose the run engine without adding
+deployment state to allocators or the wire protocol.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for protocol, authority, lifecycle, persistence, and adapter
 boundaries.
@@ -80,11 +80,9 @@ RNS remains the discovery, identity, and control plane. Tunnel application bytes
 embedded Yggdrasil adapter; the F21 private-RNS data-plane experiment was rejected by its recorded
 benchmark and is being rolled back without changing the tunnel UX or container-isolation boundary.
 
-`--identity` accepts an existing or new identity file path, or a private RNS identity in the same
-formats as Reticulum-Go's identity importer: 128-character hex, Base32, or Base64. Existing files take
-priority. An inline identity is not persisted; its default state and log paths are placed under
-`~/.config/r1s` and named with the public identity hash. Use `--state` and the allocator's `--logs`
-flag to override them.
+The F22 `run` path creates a client identity only in memory, keeps no client database, selects
+compatible offers deterministically, holds the execution lease, and reannounces a higher attempt of
+the same run only after authenticated evidence that the previous execution is gone.
 
 ## Quick start
 
@@ -125,24 +123,12 @@ r1s cluster list
 ```
 
 Runtime selection accepts a full ID or a unique hexadecimal prefix. `r1sd` requires exactly one
-positional cluster operand. During the F22 client cutover, the legacy workflow commands use the
-same selector through `--cluster`; the final `r1s run` grammar makes it positional. Join tokens are
+positional cluster operand; `r1s run` takes it positionally too. Join tokens are
 accepted only by `cluster join`, never as runtime selectors:
 
 ```sh
 r1sd --identity /var/lib/r1s/identity <cluster-id-or-unique-prefix>
-r1s --cluster <cluster-id-or-unique-prefix> \
-  --identity "$HOME/.config/r1s/identity" list
-```
-
-The F22 run-oriented path is available during the cutover. It creates a new client identity only in
-memory, keeps no client database, selects compatible offers deterministically, holds the execution
-lease, and reannounces a higher attempt of the same run only after authenticated evidence that the
-previous execution is gone:
-
-```sh
-r1s run <cluster-id-or-unique-prefix> \
-  '{"workload":{"image":"registry.example/image@sha256:..."},"resourceClass":"default"}'
+r1s run <cluster-id-or-unique-prefix> '<ExecutionRequest JSON>'
 ```
 
 Successful completion exits zero; a workload status from 1 through 255 is preserved. A terminal
@@ -163,60 +149,28 @@ include each permitted client's RNS identity.
 Submit a digest-pinned OCI image. Allocators are discovered through RNS announces:
 
 ```sh
-r1s \
-  --cluster <cluster-id-or-unique-prefix> \
-  --identity "$HOME/.config/r1s/identity" \
-  request \
-  '{"workload":{"image":"registry.example/image@sha256:..."},"policy":{"resultRetention":"86400s"},"resourceClass":"default"}'
+r1s run <cluster-id-or-unique-prefix> \
+  '{"workload":{"image":"registry.example/image@sha256:..."},"resourceClass":"default"}'
 ```
 
-The command returns durable request and execution IDs after assignment. The execution is then
-bounded by a client-held lease (10 minutes by default). Add `--keep-alive` (optionally `--lease`)
-to keep it running: direct mode blocks, renews the lease, and re-requests the recorded workload if
-the lease is ever lost; `--socket` mode records the duty durably in the service, whose renewal
-loop holds it while `r1s serve` runs. A re-request preserves the allocator pinning (`--allocator`)
-recorded with the intent, and the intent itself is durable: an interrupted direct-mode keep-alive
-request leaves it recorded, and a later `r1s serve` with the same client state resumes holding it.
-An execution whose lease expires without renewal is evicted
-locally; its terminal metadata stays retrievable within `result_retention`. Use the execution ID
-with `inspect`, `cancel`, `result`, or `logs`; use `list` to show saved requests. Run `r1s --help`
-or a subcommand with `--help` for all options.
+The run engine creates the request and assignment in memory (no client database or local socket),
+holds the execution lease for the run's lifetime, tails allocator-local stdout/stderr to the
+terminal, and re-requests the recorded workload as the next attempt only after authenticated
+evidence that the previous execution is gone. An execution whose lease expires without renewal is
+evicted locally and its workload re-requested. Container logs stay allocator-local and are
+transferred only over the authenticated log stream the run tail opens.
 
-## Local client API
+Run `r1s --help` or `r1s run --help` for all options.
 
-For applications that want a persistent client instead of rebuilding RNS, identity, and durable
-state per command, run the local service once and point workflows at it:
+## Historical surfaces
 
-```sh
-r1s serve \
-  --cluster <cluster-id-or-unique-prefix> \
-  --identity "$HOME/.config/r1s/identity" &
-
-r1s --socket "$HOME/.config/r1s/client.sock" \
-  request '{"workload":{"image":"registry.example/image@sha256:..."},"resourceClass":"default"}'
-r1s --socket "$HOME/.config/r1s/client.sock" list
-r1s --socket "$HOME/.config/r1s/client.sock" inspect <execution-id>
-```
-
-`r1s serve` keeps one client identity, state store, and RNS endpoint alive for the service lifetime
-and serves a versioned local gRPC API over a Unix socket (default mode `0600`, `--socket-mode` to
-change, default socket at `~/.config/r1s/client.sock`). It also streams durable execution-state
-changes through `Watch` so applications need not poll. The service is the only continuous
-lease-renewal holder: every lease-holding intent recorded by `request --keep-alive` is replayed from durable
-state on each tick, and a lost lease re-requests the recorded workload. The service is a local
-frontend for one client identity — it is not a cluster-wide API server and is never reachable over
-RNS.
-
-Direct mode remains the default and is still the way to run `serve` and `cluster`. Passing
-`--socket <path>` routes `request`, `list`, `inspect`, `result`, `cancel`, and `logs`
-through the local service; an unreachable explicit socket is an error, never a silent fallback to a
-new client identity.
-
-Without `--socket`, the CLI transparently discovers a running local service: when the default
-socket (`~/.config/r1s/client.sock`) is already listening, workflow commands route through it
-instead of building a fresh RNS endpoint for the invocation. If no service is running, the command
-falls back to direct mode as before. Explicit `--socket` remains authoritative and never silently
-falls back.
+The pre-F22 local client control plane is removed. There is no `request`, `serve`, `list`,
+`inspect`, `result`, `cancel`, `logs`, or `tunnel` command, no local gRPC/unix-socket client API
+(`--socket`, `--keep-alive`, `--identity`, `--state`, `--allocator`, `--rns-config`), and no
+durable client state or watch journal. The client is an ephemeral in-memory process: it holds a
+lease and keeps nothing across restart. Allocator-local bbolt state remains the sole execution
+database; terminal-record retention is an allocator operator policy (`--retention`), not workload
+input.
 
 ## Documentation
 

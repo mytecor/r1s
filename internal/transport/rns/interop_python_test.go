@@ -18,7 +18,6 @@ import (
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -408,7 +407,7 @@ func validInteropRequest() *r1sv1.Envelope {
 				Attempt:       1,
 				ResourceClass: "default",
 				Workload:      &r1sv1.Workload{Image: "example.test/image:latest"},
-				Policy:        &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)},
+				Policy:        &r1sv1.ExecutionPolicy{},
 			},
 		},
 	}

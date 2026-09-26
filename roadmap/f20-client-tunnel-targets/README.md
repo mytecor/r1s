@@ -8,7 +8,10 @@ Corresponds to a future milestone in [ROADMAP.md](../../ROADMAP.md#f20-client-ma
 to the container port `<container>` over its own tunnel stream, and the allocator only
 proxies/splices to whatever port the grant names. There are no named slots and no interactive pipe:
 every tunnel requires at least one `--port`. The allocator keeps its authorization role (peer-key
-pinning, one live session per execution) and resolves the requested port strictly inside that execution through the runtime.
+pinning, one live session per execution) and resolves the requested port strictly inside that
+execution through the runtime. **F22 note:** the standalone `r1s tunnel` command is gone; the
+client-supplied destinations survive as `r1s run -p host:container` under
+[F22-06](../f22-rns-shared-instance/f22-06-run-tunnels.md).
 
 This reverses the F14-01/BACKLOG decision that targets are resolved at grant time exclusively
 from allocator-local configuration.

@@ -2,7 +2,6 @@ package client
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"sort"
 	"strings"
@@ -41,14 +40,6 @@ func (o *Client) RegisterAllocator(candidate Allocator) error {
 		candidate.TunnelDestination = previous.TunnelDestination
 	}
 	o.allocators.put(candidate)
-	if err := o.persistLocked(context.Background()); err != nil {
-		if existed {
-			o.allocators.put(previous)
-		} else {
-			o.allocators.remove(candidate.Identity)
-		}
-		return err
-	}
 	return nil
 }
 

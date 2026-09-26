@@ -1,12 +1,9 @@
 # F14-02 — Tunnel edge and the `r1s tunnel` command
 
-**Status:** ✅ Done — the transport-neutral stream contract, in-memory fake, node-key derivation,
-`LocalTunnel` bidi stream, the serve-side relay, the client grant mint, the service-backed
-`r1s tunnel` command, the Yggdrasil stream-adaptation layer (framing, packet mux, stream adapter
-over the embedded `Core`), the `r1sd` accept-loop splice, and the live mesh test are landed and
-covered by tests; `make check` passes. The client-side edge surface is settled: `r1s serve --tunnel`
-enables the client edge (eager start, mirroring the allocator policy) and `--tunnel-peer` sets the
-bootstrap peer URIs (edge configuration, repeated or comma-separated).
+**Status:** 🚫 historically superseded — the `LocalTunnel` local-socket stream, the serve-side relay,
+the client grant mint, and the service-backed `r1s tunnel` command were removed by
+[F22-06](../f22-rns-shared-instance/f22-06-run-tunnels.md)/[F22-07](../f22-rns-shared-instance/f22-07-client-cleanup.md);
+tunnels are now started per-run with `r1s run -p host:container`. Historical record only.
 
 ## Outcome
 

@@ -2,7 +2,6 @@ package client
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"sort"
 	"time"
@@ -84,9 +83,5 @@ func (o *Client) handleReleaseAckLocked(envelope *r1sv1.Envelope, ack *r1sv1.Exe
 		return nil
 	}
 	offer.release.Acknowledged = true
-	if err := o.persistLocked(context.Background()); err != nil {
-		offer.release.Acknowledged = false
-		return err
-	}
 	return nil
 }

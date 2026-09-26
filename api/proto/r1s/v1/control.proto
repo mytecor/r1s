@@ -53,12 +53,13 @@ message Workload {
 // Lifetime is bounded by a durable, explicitly renewed client-held lease
 // (see ExecutionLeaseRenew), never by a request-time deadline: `deadline` and
 // `max_runtime` are retired and their field numbers are reserved, never reused.
-// `result_retention` is unchanged.
+// `result_retention` was retired with the F22 client cutover: terminal-record
+// retention is allocator-owned operator configuration, not workload input, so
+// field 3 is reserved and never reused. A workload cannot choose bookkeeping
+// retention.
 message ExecutionPolicy {
-  reserved 1, 2;
-  reserved "deadline", "max_runtime";
-
-  google.protobuf.Duration result_retention = 3;
+  reserved 1, 2, 3;
+  reserved "deadline", "max_runtime", "result_retention";
 }
 
 // NodeCapabilities is the allocator's normalized, bounded description of what

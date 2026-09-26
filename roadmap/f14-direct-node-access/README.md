@@ -2,12 +2,12 @@
 
 Corresponds to [milestone F14](../../ROADMAP.md#f14-direct-node-access-r1s-tunneld).
 
-**Status:** ✅ Done — F14-01 (access grant + endpoint + grant-and-session registry) and F14-02
-(tunnel edge and the `r1s tunnel` command) are implemented: the transport-neutral tunnel stream
-contract, in-memory fake, node-key derivation, `LocalTunnel` bidi RPC, the serve-side relay, the
-client grant mint, the service-backed `r1s tunnel` command, the Yggdrasil stream-adaptation layer
-(framing, packet mux, stream adapter over the embedded `Core`), the `r1sd` edge splice loop, and
-the live mesh test (`make check` passes).
+**Status:** 🚫 historically superseded — the serve-backed `r1s tunnel` command and the local-socket
+tunnel surface were removed by
+[F22-06](../f22-rns-shared-instance/f22-06-run-tunnels.md)/[F22-07](../f22-rns-shared-instance/f22-07-client-cleanup.md).
+Tunnels are now started per-run with `r1s run -p host:container` over the same transport-neutral
+splice, without a separate tunnel command or local service. The F14-01 grant/first implementation
+is recorded as history; the F14-02 grant mint and `LocalTunnel` RPC are gone.
 
 ## Outcome
 

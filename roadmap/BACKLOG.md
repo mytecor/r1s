@@ -212,6 +212,9 @@ This file records unresolved choices so they do not remain implicit in implement
     `~/.config/r1s/client.sock` is transparently used, otherwise the command runs in direct mode;
     an explicit `--socket` is authoritative and never silently falls back. Remaining future work
     (system-level service supervision, finer error UX) is not required for the resolved default.
+    **Superseded by [F22-07](./f22-rns-shared-instance/f22-07-client-cleanup.md):** the `--socket`
+    routing, `r1s serve`, automatic socket discovery, and the default `~/.config/r1s/client.sock`
+    are all removed; the client is an ephemeral in-memory run process.
 14. **Deployment desired state is the keep-alive intent, not a manifest** — [F15](./f15-deployment-reconciliation/README.md)
     was closed on 2026-09-16 without building `r1s deploy`: the durable, client-owned desired state
     for one execution is the lease-holding intent recorded by `request --keep-alive` and replayed
@@ -220,6 +223,9 @@ This file records unresolved choices so they do not remain implicit in implement
     create-once, restart recovery, and self-healing. The manifest layer — `r1s deploy apply/status`,
     multiple named deployments, revision hashes, create-before-destroy replacement, and removal —
     was never built and moved to the deferred list.
+    **Superseded by [F22-07](./f22-rns-shared-instance/f22-07-client-cleanup.md):**
+    `request --keep-alive` and the durable keep-alive intent were removed; the run now holds its
+    lease in memory and keeps no durable client-owned desired state.
 
 15. **F14 tunnel simplification review** — the F14 design was reviewed and simplified before
     implementation (2026-09-17): `r1s tunnel` is service-backed only (a bidi `LocalTunnel` stream
@@ -237,7 +243,9 @@ This file records unresolved choices so they do not remain implicit in implement
     edge startup, persisted node-key files independent of identity, and mint-time session-cap
     enforcement. See
     [F14-01](./f14-direct-node-access/f14-01-access-grant.md),
-    [F14-02](./f14-direct-node-access/f14-02-tunnel-service.md).
+    [F14-02](./f14-direct-node-access/f14-02-tunnel-service.md). **Superseded by
+    [F22-06](./f22-rns-shared-instance/f22-06-run-tunnels.md)/[F22-07](./f22-rns-shared-instance/f22-07-client-cleanup.md):**
+    the service-backed `r1s tunnel` is removed; tunnels are now per-run `r1s run -p host:container`.
 
 16. **F14-02 edge: embedded `Core` as `net.PacketConn`; the tunnel contract stays a byte stream** —
     reviewed 2026-09-18 and settled the open path left by decision 15: where the packet-level
@@ -375,7 +383,9 @@ This file records unresolved choices so they do not remain implicit in implement
 - External data plane for bulk application data — requires a fresh decision on whether it belongs
   in the system at all (see open decision 1 above).
 - Direct-mode client bridge for `r1s tunnel` (no live `r1s serve`): out of v1 scope; the
-  service-backed-only model is resolved decision 15.
+  service-backed-only model is resolved decision 15. **Moot as of
+  [F22-06](./f22-rns-shared-instance/f22-06-run-tunnels.md):** `r1s tunnel` and `r1s serve` are
+  gone; tunnels run per-`r1s run -p` without any local service.
 - TCP fallback or NAT-traversal plans for a tunnel edge deployment where the private peer set is
   not reachable.
 - Per-session isolation of the mesh packet pump: the embedded edge's single `readLoop`

@@ -1,8 +1,9 @@
 # F15-01 — Add durable `r1s deploy` reconciliation
 
 **Status:** ❌ closed 2026-09-16 without implementation — the durable single-execution part landed
-as the [F17-01](../f17-execution-lease/f17-01-execution-lease.md) keep-alive intent; the manifest
-scope below is deferred (see [BACKLOG.md](../BACKLOG.md)).
+as the [F17-01](../f17-execution-lease/f17-01-execution-lease.md) keep-alive intent, which was
+itself removed by [F22-07](../f22-rns-shared-instance/f22-07-client-cleanup.md); the manifest
+scope below is deferred (see [BACKLOG.md](../BACKLOG.md)). Historical record only.
 
 ## Outcome
 

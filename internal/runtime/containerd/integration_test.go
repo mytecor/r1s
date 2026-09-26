@@ -9,7 +9,6 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func TestContainerdFixtureLifecycle(t *testing.T) {
@@ -41,7 +40,7 @@ func TestContainerdFixtureLifecycle(t *testing.T) {
 			Command: []string{"/bin/sh", "-c"},
 			Args:    []string{"exit 7"},
 		},
-		Policy: &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)},
+		Policy: &r1sv1.ExecutionPolicy{},
 	}
 	if err := runtime.Start(ctx, request, func(completion r1sruntime.Completion) error {
 		reported <- completion
@@ -118,7 +117,7 @@ func TestContainerdFixtureRecovery(t *testing.T) {
 		Workload: &r1sv1.Workload{
 			Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{"sleep 1; exit 19"},
 		},
-		Policy:    &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)},
+		Policy:    &r1sv1.ExecutionPolicy{},
 		StartedAt: time.Now(),
 	}
 	startDetached(completed)

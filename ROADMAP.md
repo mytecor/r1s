@@ -129,7 +129,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > A persistent, identity-scoped local service exposes the client workflow to applications over a
 > Unix socket and streams execution-state changes without creating a cluster-wide API server.
 
-- **Status:** ✅ complete; socket-contract and service-backed CLI acceptance tests pass
+- **Status:** 🚫 superseded by [F22-07](./roadmap/f22-rns-shared-instance/f22-07-client-cleanup.md):
+  the local gRPC service, `r1s serve`, the `--socket` routing, and the `Watch` journal are removed.
+  Historical record only; the client is now an ephemeral in-memory run process.
 - **Done when:** applications can request, inspect, cancel, list, retrieve results or logs, and watch
   executions through the local API while the existing CLI remains usable.
 - **Depends on:** [F4](#f4-client-workflow), [F5](#f5-partition-recovery),
@@ -140,13 +142,10 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > An execution owner opens an authenticated tunnel from their client to a running execution over
 > Yggdrasil and carries arbitrary traffic inside it, independent of any artifact model.
 
-- **Status:** ✅ done — F14-01 (execution-scoped access grants) and F14-02 (tunnel edge and the
-  `r1s tunnel` command) are implemented: the transport-neutral tunnel stream contract, in-memory
-  fake, node-key derivation, `LocalTunnel` bidi RPC, the serve-side relay, the client grant mint,
-  the service-backed `r1s tunnel` command, the Yggdrasil stream-adaptation layer (framing, packet
-  mux, stream adapter over the embedded `Core`), the `r1sd` edge splice loop, and the live mesh
-  test (`make check` passes; the live mesh test peers two embedded nodes over a local link and
-  round-trips a multi-packet payload).
+- **Status:** 🚫 historically superseded — the serve-backed `r1s tunnel` command was removed by
+  [F22-06](./roadmap/f22-rns-shared-instance/f22-06-run-tunnels.md)/[F22-07](./roadmap/f22-rns-shared-instance/f22-07-client-cleanup.md);
+  tunnels are now started per-run with `r1s run -p host:container` over the same transport-neutral
+  splice, without a separate tunnel command or local service.
 - **Done when:** a client tunnels to a running execution through Yggdrasil, only the authenticated
   execution owner can open or keep the tunnel, and the core and protocol stay free of
   Yggdrasil-specific types while carrying no tunnel bytes over RNS. `r1s tunnel` is service-backed
@@ -160,12 +159,10 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > Durable client-owned desired state landed through the F17 keep-alive intent instead of a
 > manifest-driven deploy reconciler.
 
-- **Status:** ✅ closed 2026-09-16 via [F17](#f17-execution-lease): the durable single-execution
-  part is the lease-holding intent recorded by `request --keep-alive`, renewed by the shared client
-  engine, and converted into a re-request of the recorded workload on lease loss. The manifest
-  layer — `r1s deploy apply/status`, named multi-deployment state, revision hashes,
-  create-before-destroy replacement, removal semantics — is deferred; see
-  [BACKLOG.md](./roadmap/BACKLOG.md).
+- **Status:** 🚫 historically superseded — closed 2026-09-16 via [F17](#f17-execution-lease), and
+  the F17 keep-alive intent that carried its desired state was itself removed by
+  [F22-07](./roadmap/f22-rns-shared-instance/f22-07-client-cleanup.md): the run holds its lease in
+  memory and there is no durable client-owned deployment state. Recorded for context only.
 - **Depends on:** [F4](#f4-client-workflow), [F5](#f5-partition-recovery),
   [F13](#f13-local-client-api), [F17](#f17-execution-lease).
 
@@ -187,7 +184,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > a permanently gone client's execution is evicted locally after lease expiry.
 
 - **Status:** ✅ complete; deterministic allocator, client, protocol, socket-contract, and
-  service-backed CLI tests pass under `go test -race`
+  service-backed CLI tests pass under `go test -race`. The lease is still durably persisted on the
+  **allocator** and held in memory by the client run engine; the F22 client keeps no durable lease
+  intent of its own.
 - **Done when:** an unrenewed lease leads to local eviction with terminal state distinguishable
   from cancellation, renewal is owner-only and replay-safe, allocator restart honors persisted
   leases, and no transport connection state ever determines execution lifetime.
@@ -199,10 +198,12 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > Local structured logs, metrics, and client inspection commands expose allocator and execution
 > health without introducing global desired state or bundling an observability backend.
 
-- **Status:** 🚧 in progress — F22-01 complete
-- **Done when:** operators can inspect discovered allocators and executions and scrape documented
-  allocator-local metrics without receiving workload stdout/stderr implicitly.
-- **Depends on:** [F13](#f13-local-client-api).
+- **Status:** 🚧 in progress — F22-01 complete; inspection surface realigned to the F22 run-only
+  model (no removed `inspect`/`result`/`logs`/`list` commands, local API, or `Watch` journal)
+- **Done when:** operators can inspect discovered allocators and executions from `r1s run` / `r1sd`
+  output and scrape documented allocator-local metrics without receiving workload stdout/stderr
+  implicitly.
+- **Depends on:** F22 run-oriented client, allocator-local export points.
 
 ## [F19. Universal tunnel rework](./roadmap/f19-tunnel-rework/README.md)
 
@@ -212,7 +213,10 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > connection. The direction stays client→allocator — the client connects to the container, never the
 > other way around; there is no reverse/listen/publish surface.
 
-- **Status:** ✅ landed (2026-09)
+- **Status:** ✅ landed (2026-09); the standalone `r1s tunnel <id> --port` command was later
+  replaced by [F22-06](./roadmap/f22-rns-shared-instance/f22-06-run-tunnels.md) `r1s run -p host:container`, which
+  keeps the transport-neutral multiplexed streams and owner authentication without a separate
+  tunnel command or local service.
 - **Done when:** `r1s tunnel <execution-id> --port <host>:<container>` is the only user-facing tunnel
   command and exposes the execution as many addressable logical streams (one per inbound connection,
   always client→allocator) over one authenticated pair of node keys; destinations are the
@@ -230,7 +234,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   `127.0.0.1:<host>` and relays inbound connections to the container port `<container>` over the
   tunnel; `r1sd` carries no target configuration (`--tunnel-target` and
   `--tunnel-default-target` removed); a stream-open to a port not in the client-supplied list is
-  rejected `ReasonUnauthorized` before any payload byte.
+  rejected `ReasonUnauthorized` before any payload byte. The client-supplied destinations survive
+  as `r1s run -p` under [F22-06](./roadmap/f22-rns-shared-instance/f22-06-run-tunnels.md); the
+  standalone command is gone.
 - **Depends on:** [F19](#f19-universal-tunnel-rework), [F14](#f14-direct-node-access-r1s-tunneld).
 
 ## [F21. Tunnel data plane over system Yggdrasil + private RNS](./roadmap/f21-tunnel-rns-dataplane/README.md)
@@ -260,7 +266,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > persistence remains. The switch is intentionally incompatible: old client state and CLI surfaces
 > are not migrated or supported.
 
-- **Status:** 🚧 in progress — F22-01 through F22-06 complete
+- **Status:** ✅ complete — F22-01 through F22-07 done
 - **Done when:** `r1s run` owns discovery, deterministic placement, leases, rescheduling, log
   tailing, and tunnels across stable `run_id`/monotonic attempts; detached runs retain output;
   cluster choice is explicit; production transport requires a shared RNS instance; legacy client
@@ -274,29 +280,39 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 ## Current implementation order
 
 - [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
-  explicitly renewed client-held lease instead of a request-time deadline, and `r1s serve` renews
-  the durable lease-holding intents recorded by `r1s request --keep-alive`.
+  explicitly renewed client-held lease instead of a request-time deadline. Under F22 the lease is
+  durably persisted on the **allocator** and held in memory by the `r1s run` engine
+  ([F22-07](./roadmap/f22-rns-shared-instance/f22-07-client-cleanup.md)); the old
+  service-backed keep-alive intent and `r1s serve` renewal loop are removed.
 - [F15](#f15-deployment-reconciliation) was closed on 2026-09-16 without building the manifest
   layer: the durable desired state for one execution already exists as the keep-alive intent from
   [F17](#f17-execution-lease) — renewed by the client engine, re-requested with its allocator
-  pinning after lease loss. A manifest-driven `r1s deploy` (named multi-deployment state, revision
+  pinning after lease loss. Both the keep-alive intent and the run's lease are now in-memory under
+  [F22-07](./roadmap/f22-rns-shared-instance/f22-07-client-cleanup.md); the manifest layer was
+  never built. A manifest-driven `r1s deploy` (named multi-deployment state, revision
   diffing, create-before-destroy replacement, removal) is deferred in
   [BACKLOG.md](./roadmap/BACKLOG.md).
-- [F14](#f14-direct-node-access-r1s-tunneld) landed (2026-09): `r1s tunnel` with the
-  allocator-side edge inside `r1sd` gives the authenticated execution owner a direct Yggdrasil
-  tunnel to a running execution over an embedded yggdrasil-go node, independent of artifact
-  transfer, without Yggdrasil-specific protocol types or a new global state source.
+- [F14](#f14-direct-node-access-r1s-tunneld) historical record (2026-09): the serve-backed
+  `r1s tunnel` with the allocator-side edge inside `r1sd` gave the authenticated execution owner a
+  direct Yggdrasil tunnel to a running execution over an embedded yggdrasil-go node, independent
+  of artifact transfer, without Yggdrasil-specific protocol types or a new global state source.
+  The standalone tunnel command was removed by
+  [F22-06](./roadmap/f22-rns-shared-instance/f22-06-run-tunnels.md).
 - [F19](#f19-universal-tunnel-rework) landed (2026-09): the F14 single interactive byte pipe is
   reworked into a multiplexed, addressable stream transport — several streams, always
   client→allocator, over one authenticated mesh connection. `r1s tunnel <id> --port <host>:<port>`
   binds a local listener and relays to the container port; the interactive pipe is removed and a
   tunnel requires at least one `--port`. The allocator-side slot resolution was reworked as
   [F20](#f20-client-managed-tunnel-targets) so the client, not `r1sd`, owns the destination ports.
+  Under [F22-06](./roadmap/f22-rns-shared-instance/f22-06-run-tunnels.md) the standalone command
+  was removed in favor of per-run `r1s run -p host:container`.
   See [F19-01](./roadmap/f19-tunnel-rework/f19-01-universal-tunnel.md).
 - [F20](#f20-client-managed-tunnel-targets) landed: the destination source of truth moved from
   allocator config to the `r1s` client — `r1s tunnel <id> --port <host>:<container>` binds a local
   listener and sends the container port in the grant, `r1sd` drops `--tunnel-target` /
-  `--tunnel-default-target` and becomes a proxy/splice point to grant-carried ports.
+  `--tunnel-default-target` and becomes a proxy/splice point to grant-carried ports. The
+  client-supplied destinations survive as `r1s run -p` under
+  [F22-06](./roadmap/f22-rns-shared-instance/f22-06-run-tunnels.md); the standalone command is gone.
 - [F21](#f21-tunnel-data-plane-over-system-yggdrasil--private-rns) reached its benchmark decision:
   the private RNS tunnel is a no-go, the embedded Ygg adapter remains selected, and F21-06 rolls
   back the experimental RNS package and unused Open/advertisement slice. The benchmark and upstream
@@ -324,8 +340,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   owner-authenticated open handshake: the allocator binds the authenticated run owner's edge key and
   container ports to the execution for its lifetime (no grant ID/TTL/single-use), and a run
   process's loopback listeners stay bound across reschedules while each new stream is authenticated
-  and spliced to the currently active execution. The remaining task removes the legacy client DB
-  and local API.
+  and spliced to the currently active execution. F22-07 completed the cutover: the legacy client
+  DB and local API are gone, retention is allocator-config (`--retention`), and `make check` passes
+  green.
 
 The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
 (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live

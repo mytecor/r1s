@@ -63,9 +63,9 @@ func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.Execu
 	if len(a.offers)*2+len(a.tombstones)+2 > a.maxRecords {
 		return nil, ErrCapacityExhausted
 	}
-	if request.GetPolicy().GetResultRetention().AsDuration() > CommandHorizon {
-		return nil, fmt.Errorf("%w: retention exceeds seven days", protocol.ErrInvalidEnvelope)
-	}
+	// Retention is allocator operator configuration (F22-07), never workload
+	// input: a workload cannot choose bookkeeping retention, and every
+	// configured horizon is bounded by CommandHorizon at construction.
 	if err := a.admitLocked(envelope.GetSender(), false); err != nil {
 		return nil, err
 	}

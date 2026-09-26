@@ -5,27 +5,29 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"path/filepath"
-	"strings"
 	"sync"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
 	"github.com/mytecor/r1s/internal/cluster"
-	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport/rns"
 	"github.com/mytecor/r1s/internal/tunnel"
 	"github.com/mytecor/r1s/internal/tunnel/yggdrasil"
 )
 
+// application is the F22 run-oriented client process. Its RNS identity and
+// client engine exist only in memory for this process; allocator state is
+// still durable and authoritative. There is no persistent client database,
+// local gRPC service, Unix command socket, or durable lease intent (F22-07):
+// a restart of the client never resumes a run, and the allocator retains the
+// execution database.
 type application struct {
-	ctx          context.Context
-	stdout       io.Writer
-	endpoint     *rns.Endpoint
-	client       *client.Client
-	store        *statebolt.Store
-	finish       func() []client.PendingRelease
-	identity     []byte
+	ctx      context.Context
+	stdout   io.Writer
+	endpoint *rns.Endpoint
+	client   *client.Client
+	identity []byte
+
 	tunnelDialer tunnel.Dialer
 
 	// clusterSelector is the resolved cluster ID/prefix from the command line,
@@ -42,69 +44,24 @@ type application struct {
 	tunnelSessionsMu sync.Mutex
 	tunnelSessions   map[string]*tunnelPair
 
-	// waitMu guards waiters, the registry that routes inbound control-plane
-	// envelopes to the awaiting workflows (request, inspect, cancel, lease
-	// renewal, logs, tunnel grant) by correlation ID. A single envelope maps to
-	// the one message ID that requested it; routing by key means several
-	// concurrent awaiters never steal or drop each other's replies the way a
-	// shared consume-and-drop channel would.
+	// waiterRN is the correlation-addressable registry that routes inbound
+	// control-plane envelopes to the awaiting workflows (offer collection,
+	// inspection, lease ack, logs, tunnel open) by correlation ID. A single
+	// envelope maps to the one message ID that requested it; routing by key
+	// means several concurrent awaiters never steal or drop each other's
+	// replies the way a shared consume-and-drop channel would.
 	waitMu  sync.Mutex
 	waiters map[string][]chan *r1sv1.Envelope
-}
 
-func openApplication(ctx context.Context, options commandLine, stdout io.Writer) (*application, error) {
-	clusterDirectory, err := cluster.DefaultDirectory()
-	if err != nil {
-		return nil, err
-	}
-	clusterKey, _, err := cluster.Resolve(clusterDirectory, options.clusterSelector)
-	if err != nil {
-		return nil, fmt.Errorf("select cluster (run 'r1s cluster list'): %w", err)
-	}
-	identityDirectory, err := identityDataDirectory(options.identitySource)
-	if err != nil {
-		return nil, err
-	}
-
-	app := &application{ctx: ctx, stdout: stdout}
-	app.endpoint, err = rns.New(rns.Config{
-		IdentitySource: options.identitySource,
-		ClusterKey:     clusterKey,
-		NetworkWait:    options.networkWait,
-	}, app.handleEnvelope)
-	if err != nil {
-		return nil, err
-	}
-	identityHash, err := hex.DecodeString(app.endpoint.Name())
-	if err != nil {
-		app.close()
-		return nil, fmt.Errorf("decode local identity: %w", err)
-	}
-	app.identity = identityHash
-	statePath := options.statePath
-	if strings.TrimSpace(statePath) == "" {
-		if rns.IsInlineIdentitySource(options.identitySource) {
-			statePath = filepath.Join(identityDirectory, app.endpoint.Name()+".client.db")
-		} else {
-			statePath = options.identitySource + ".client.db"
-		}
-	}
-	app.store, err = statebolt.Open(statePath)
-	if err != nil {
-		app.close()
-		return nil, err
-	}
-	app.client, err = client.New(client.Config{Identity: identityHash, Store: app.store})
-	if err != nil {
-		app.close()
-		return nil, err
-	}
-	return app, nil
+	// offerReleases is the stop callback of the background offer-release
+	// worker (see start). nil until start has run.
+	offerReleases func() []client.PendingRelease
 }
 
 // openRunApplication constructs the F22 run-oriented client. Its RNS identity
 // and client engine exist only in memory for this process; allocator state is
-// still durable and authoritative.
+// still durable and authoritative. There is no persistent client store, local
+// API socket, or durable identity: each run is a fresh ephemeral identity.
 func openRunApplication(ctx context.Context, options commandLine, stdout io.Writer) (*application, error) {
 	clusterDirectory, err := cluster.DefaultDirectory()
 	if err != nil {
@@ -138,36 +95,36 @@ func openRunApplication(ctx context.Context, options commandLine, stdout io.Writ
 	return app, nil
 }
 
+// start launches the ephemeral transport edge and the offer-release worker.
+// Foreground runs call it; a detached parent never calls it (the child process
+// starts its own).
 func (a *application) start() error {
 	if err := a.endpoint.Start(a.ctx); err != nil {
 		return err
 	}
-	a.finish = a.client.StartOfferReleases(a.ctx, a.endpoint.Send)
+	a.offerReleases = a.client.StartOfferReleases(a.ctx, a.endpoint.Send)
 	return nil
 }
 
 func (a *application) stop(diagnostics io.Writer) {
-	if a.finish != nil {
-		for _, release := range a.finish() {
+	if a.offerReleases != nil {
+		for _, release := range a.offerReleases() {
 			fmt.Fprintf(diagnostics, "offer release pending allocator=%s offer=%s; retained for retry, lease expiry remains the fallback\n", release.Destination, release.Envelope.GetExecutionOfferRelease().GetOfferId())
 		}
 	}
-	// Release the client edge's overlay node before the durable client store is
-	// closed. No-op in direct mode (no edge is built).
+	// Release the client edge's overlay node before anything else. No-op in
+	// direct mode (no edge is built).
 	if a.tunnelDialer != nil {
 		_ = a.tunnelDialer.Close()
 		a.tunnelDialer = nil
 	}
-	// Stop incoming callbacks before the durable client store is closed.
+	// Stop incoming callbacks before anything backed by this process is gone.
 	_ = a.endpoint.Close()
 }
 
 func (a *application) close() {
 	if a.endpoint != nil {
 		_ = a.endpoint.Close()
-	}
-	if a.store != nil {
-		_ = a.store.Close()
 	}
 }
 

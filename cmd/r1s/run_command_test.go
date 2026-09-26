@@ -26,7 +26,7 @@ func TestRunCommandUsesPositionalClusterWithoutPersistentIdentity(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.clusterSelector != id[:12] || options.identitySource != "" || options.statePath != "" {
+	if options.clusterSelector != id[:12] || options.command != "run" {
 		t.Fatalf("run options = %+v", options)
 	}
 	first, err := openRunApplication(context.Background(), options, &bytes.Buffer{})
@@ -39,8 +39,8 @@ func TestRunCommandUsesPositionalClusterWithoutPersistentIdentity(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer second.close()
-	if first.store != nil || second.store != nil {
-		t.Fatal("run application opened a durable client store")
+	if first.client == nil || second.client == nil {
+		t.Fatalf("run application has no in-memory client engine")
 	}
 	if bytes.Equal(first.identity, second.identity) {
 		t.Fatalf("separate runs reused ephemeral identity %x", first.identity)

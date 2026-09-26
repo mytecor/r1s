@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -13,21 +12,14 @@ import (
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/allocator"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
-	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestSelectIsDeterministicAndDurable(t *testing.T) {
+func TestSelectIsDeterministic(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0).UTC()
-	path := filepath.Join(t.TempDir(), "client.db")
-	store, err := statebolt.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	core, err := New(Config{Identity: []byte("client"), Store: store, Now: func() time.Time { return now }, NewID: sequenceIDs("request", "request-message", "execution", "assign-message")})
+	core, err := New(Config{Identity: []byte("client"), Now: func() time.Time { return now }, NewID: sequenceIDs("request", "request-message", "execution", "assign-message")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,28 +41,17 @@ func TestSelectIsDeterministicAndDurable(t *testing.T) {
 	if destination != "near" || assignment.GetExecutionAssign().GetOfferId() != "offer-near" {
 		t.Fatalf("selection destination=%q assignment=%v", destination, assignment)
 	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	reopenedStore, err := statebolt.Open(path)
+	// Re-selecting the same request returns the identical assignment without
+	// re-ranking (the client records the selection in memory for the run).
+	repeatDestination, repeatAssignment, err := core.Select(requestID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reopenedStore.Close()
-	restarted, err := New(Config{Identity: []byte("client"), Store: reopenedStore, Now: func() time.Time { return now.Add(time.Minute) }, NewID: sequenceIDs("must-not-be-used")})
-	if err != nil {
-		t.Fatal(err)
+	if repeatDestination != destination || !proto.Equal(repeatAssignment, assignment) {
+		t.Fatalf("re-selection changed assignment:\nfirst=%v\nrepeat=%v", assignment, repeatAssignment)
 	}
-	restartedDestination, restartedAssignment, err := restarted.Select(requestID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if restartedDestination != destination || !proto.Equal(restartedAssignment, assignment) {
-		t.Fatalf("assignment changed after restart:\nfirst=%v\nrestarted=%v", assignment, restartedAssignment)
-	}
-	if len(restarted.Executions()) != 1 {
-		t.Fatalf("executions after restart = %d, want 1", len(restarted.Executions()))
+	if len(core.Executions()) != 1 {
+		t.Fatalf("executions = %d, want 1", len(core.Executions()))
 	}
 }
 
@@ -321,7 +302,7 @@ func testWorkload() *r1sv1.Workload {
 }
 
 func testPolicy() *r1sv1.ExecutionPolicy {
-	return &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}
+	return &r1sv1.ExecutionPolicy{}
 }
 
 func sequenceIDs(values ...string) func() string {

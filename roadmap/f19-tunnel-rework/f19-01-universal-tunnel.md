@@ -6,7 +6,9 @@ addressable, client→allocator stream transport behind the single `r1s tunnel` 
 interactive pipe. The multi-destination (container-port list) grant, the per-pair multiplexing
 layer (framing, per-stream flow control, stream-open authorization), the `--port` CLI surface, and
 the `LocalTunnelOpen.target_port` envelope are landed and covered by tests, including a two-stream
-live-mesh leg; `make check` passes.
+live-mesh leg; `make check` passes. **F22 note:** the standalone `r1s tunnel` command was removed;
+the same transport-neutral multiplexed streams now run per-`r1s run -p host:container`
+([F22-06](../f22-rns-shared-instance/f22-06-run-tunnels.md)).
 
 ## Outcome
 

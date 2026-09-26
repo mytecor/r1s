@@ -1,6 +1,6 @@
 # F22-07 — Legacy client removal and allocator-local retention
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete
 
 ## Outcome
 

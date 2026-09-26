@@ -11,5 +11,4 @@ var (
 	ErrNoOffer            = errors.New("no usable offer")
 	ErrConflict           = errors.New("client state conflict")
 	ErrUnauthorized       = errors.New("unauthorized allocator")
-	ErrStore              = errors.New("client state store failure")
 )

@@ -75,10 +75,6 @@ func (o *Client) handleOfferLocked(envelope *r1sv1.Envelope, offer *r1sv1.Execut
 		newOffer.release = intent
 	}
 	record.offers[offer.GetOfferId()] = newOffer
-	if err := o.persistLocked(context.Background()); err != nil {
-		delete(record.offers, offer.GetOfferId())
-		return err
-	}
 	return nil
 }
 
@@ -119,22 +115,13 @@ func (o *Client) handleStateLocked(envelope *r1sv1.Envelope, state *r1sv1.Execut
 		}
 	}
 	previous := record.state
-	savedSeq := o.watchSequence
-	savedJournal := o.watchJournal
 	record.state = proto.Clone(state).(*r1sv1.ExecutionState)
+	_ = previous
 	// A terminal eviction for lease expiry converts the intent into a
 	// re-request duty; ordinary completions and cancellations do not.
 	if protocol.Terminal(record.state.GetPhase()) && isLostLeaseState(record.state) {
 		record.leaseLost = true
 		record.leaseRenewMessageID = ""
 	}
-	event := o.watchAppendLocked(record.id, record.state)
-	if err := o.persistLocked(context.Background()); err != nil {
-		record.state = previous
-		o.watchSequence = savedSeq
-		o.watchJournal = savedJournal
-		return err
-	}
-	o.watchNotifyLocked(event)
 	return nil
 }

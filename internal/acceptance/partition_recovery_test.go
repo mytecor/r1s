@@ -26,10 +26,8 @@ import (
 	"github.com/mytecor/r1s/internal/client"
 	"github.com/mytecor/r1s/internal/cluster"
 	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
-	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"github.com/mytecor/r1s/internal/transport/rns"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 const executionLabel = "io.r1s.execution-id"
@@ -65,7 +63,6 @@ func TestPartitionRecovery(t *testing.T) {
 	allocatorIdentity := filepath.Join(root, "allocator.identity")
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	clientIdentity := filepath.Join(root, "client.identity")
-	clientState := filepath.Join(root, "client.state.db")
 	namespace := fmt.Sprintf("r1s-f5-%d", time.Now().UnixNano())
 	address := os.Getenv("CONTAINERD_ADDRESS")
 	if address == "" {
@@ -91,7 +88,7 @@ func TestPartitionRecovery(t *testing.T) {
 	}()
 
 	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace)
-	liveClient = newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity, clientState)
+	liveClient = newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
 	service := liveClient.waitForAllocator(t, daemon.identity)
 	if service.Destination != daemon.destination {
 		t.Fatalf("discovered allocator destination = %s, want %s", service.Destination, daemon.destination)
@@ -127,10 +124,10 @@ func TestPartitionRecovery(t *testing.T) {
 	// Completion and cleanup happen while the client is still offline.
 	waitForContainerCount(t, observer, namespace, executionID, 0, 30*time.Second)
 
-	// Restart the client from its durable state. Select returns the exact original
-	// assignment, which is replayed to the restarted allocator before a fresh
-	// inspect retrieves the retained terminal result.
-	liveClient = newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity, clientState)
+	// Bring the client back online as a fresh ephemeral process. The client keeps
+	// no durable state; Select resolves the request against the allocator's
+	// durable snapshots, which replay the exact original assignment.
+	liveClient = newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
 	liveClient.waitForAllocator(t, daemon.identity)
 	replayedDestination, replayedAssignment, err := liveClient.core.Select(requestID)
 	if err != nil {
@@ -177,7 +174,6 @@ func TestPartitionRecovery(t *testing.T) {
 type acceptanceClient struct {
 	endpoint *rns.Endpoint
 	core     *client.Client
-	store    *statebolt.Store
 	cancel   context.CancelFunc
 	closed   bool
 	// observed receives every inbound envelope (after core.Handle); a test
@@ -185,7 +181,7 @@ type acceptanceClient struct {
 	observed chan *r1sv1.Envelope
 }
 
-func newAcceptanceClient(t *testing.T, listenPort, targetPort int, identityPath, statePath string) *acceptanceClient {
+func newAcceptanceClient(t *testing.T, listenPort, targetPort int, identityPath string) *acceptanceClient {
 	t.Helper()
 	configuration := common.DefaultConfig()
 	configuration.EnableTransport = false
@@ -227,14 +223,8 @@ func newAcceptanceClient(t *testing.T, listenPort, targetPort int, identityPath,
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := statebolt.Open(statePath)
+	result.core, err = client.New(client.Config{Identity: identity})
 	if err != nil {
-		t.Fatal(err)
-	}
-	result.store = store
-	result.core, err = client.New(client.Config{Identity: identity, Store: store})
-	if err != nil {
-		_ = store.Close()
 		_ = endpoint.Close()
 		t.Fatal(err)
 	}
@@ -256,9 +246,6 @@ func (c *acceptanceClient) close(t *testing.T) {
 	c.cancel()
 	if err := c.endpoint.Close(); err != nil {
 		t.Errorf("close client endpoint: %v", err)
-	}
-	if err := c.store.Close(); err != nil {
-		t.Errorf("close client store: %v", err)
 	}
 }
 
@@ -301,9 +288,7 @@ func startExecution(t *testing.T, c *acceptanceClient, destination, image, scrip
 	t.Helper()
 	requestID, request, err := c.core.CreateRequest(&r1sv1.Workload{
 		Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{script},
-	}, &r1sv1.ExecutionPolicy{
-		ResultRetention: durationpb.New(time.Hour),
-	}, "default")
+	}, &r1sv1.ExecutionPolicy{}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}

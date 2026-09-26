@@ -2,7 +2,6 @@ package client
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
@@ -51,13 +50,5 @@ func (o *Client) Select(requestID string) (string, *r1sv1.Envelope, error) {
 	}
 	record.executionID = executionID
 	o.executions[executionID] = execution
-	if err := o.persistLocked(context.Background()); err != nil {
-		for offer := range prepared {
-			offer.release = nil
-		}
-		record.executionID = ""
-		delete(o.executions, executionID)
-		return "", nil, err
-	}
 	return execution.destination, o.assignmentEnvelopeLocked(execution), nil
 }

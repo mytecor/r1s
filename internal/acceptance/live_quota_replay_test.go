@@ -14,7 +14,6 @@ import (
 	containerdclient "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -58,7 +57,6 @@ func TestLiveIdentityQuotaEnforced(t *testing.T) {
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	allocatorLogs := filepath.Join(root, "allocator.logs")
 	clientIdentity := filepath.Join(root, "client.identity")
-	clientState := filepath.Join(root, "client.state.db")
 	namespace := fmt.Sprintf("r1s-f10q-%d", time.Now().UnixNano())
 	address := os.Getenv("CONTAINERD_ADDRESS")
 	if address == "" {
@@ -70,7 +68,7 @@ func TestLiveIdentityQuotaEnforced(t *testing.T) {
 	}
 	defer observer.Close()
 
-	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity, clientState)
+	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
 	liveClient.observed = make(chan *r1sv1.Envelope, 64)
 	defer liveClient.close(t)
 	identityHex := liveClient.endpoint.Name()
@@ -105,7 +103,7 @@ func TestLiveIdentityQuotaEnforced(t *testing.T) {
 	// First request consumes the single offer quota.
 	requestID, request, err := liveClient.core.CreateRequest(&r1sv1.Workload{
 		Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{"sleep 90; exit 0"},
-	}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}, "default")
+	}, &r1sv1.ExecutionPolicy{}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +121,7 @@ func TestLiveIdentityQuotaEnforced(t *testing.T) {
 	// authenticated client. The rejection must not create a workload.
 	rejectedID, rejectedRequest, err := liveClient.core.CreateRequest(&r1sv1.Workload{
 		Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{"echo SHOULD-NOT-RUN"},
-	}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}, "default")
+	}, &r1sv1.ExecutionPolicy{}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +149,7 @@ func TestLiveIdentityQuotaEnforced(t *testing.T) {
 	// has headroom but the identity's execution quota is full.
 	secondRequestID, secondRequest, err := liveClient.core.CreateRequest(&r1sv1.Workload{
 		Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{"sleep 90; exit 0"},
-	}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}, "default")
+	}, &r1sv1.ExecutionPolicy{}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +224,7 @@ func TestLiveIdentityQuotaEnforced(t *testing.T) {
 	drainObserved(liveClient.observed)
 	freshID, freshRequest, err := liveClient.core.CreateRequest(&r1sv1.Workload{
 		Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{"sleep 5; exit 0"},
-	}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}, "default")
+	}, &r1sv1.ExecutionPolicy{}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +327,6 @@ func TestLiveRejectionUnderLossNoDuplicateExecution(t *testing.T) {
 	allocatorIdentity := filepath.Join(root, "allocator.identity")
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	clientIdentity := filepath.Join(root, "client.identity")
-	clientState := filepath.Join(root, "client.state.db")
 	namespace := fmt.Sprintf("r1s-f8-%d", time.Now().UnixNano())
 	address := os.Getenv("CONTAINERD_ADDRESS")
 	if address == "" {
@@ -341,7 +338,7 @@ func TestLiveRejectionUnderLossNoDuplicateExecution(t *testing.T) {
 	}
 	defer observer.Close()
 
-	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity, clientState)
+	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
 	liveClient.observed = make(chan *r1sv1.Envelope, 64)
 	defer liveClient.close(t)
 	var daemon *allocatorProcess
@@ -365,7 +362,7 @@ func TestLiveRejectionUnderLossNoDuplicateExecution(t *testing.T) {
 	// correlated rejection every time without starting anything.
 	rejectedID, rejectedRequest, err := liveClient.core.CreateRequest(&r1sv1.Workload{
 		Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{"echo MUST-NOT-RUN"},
-	}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}, "default")
+	}, &r1sv1.ExecutionPolicy{}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +423,6 @@ func TestLiveSweepCrashPreservesCapacityAndAuthority(t *testing.T) {
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	allocatorLogs := filepath.Join(root, "allocator.logs")
 	clientIdentity := filepath.Join(root, "client.identity")
-	clientState := filepath.Join(root, "client.state.db")
 	namespace := fmt.Sprintf("r1s-f11-%d", time.Now().UnixNano())
 	address := os.Getenv("CONTAINERD_ADDRESS")
 	if address == "" {
@@ -438,7 +434,7 @@ func TestLiveSweepCrashPreservesCapacityAndAuthority(t *testing.T) {
 	}
 	defer observer.Close()
 
-	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity, clientState)
+	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
 	liveClient.observed = make(chan *r1sv1.Envelope, 64)
 	defer liveClient.close(t)
 	var daemon *allocatorProcess
@@ -462,7 +458,7 @@ func TestLiveSweepCrashPreservesCapacityAndAuthority(t *testing.T) {
 	// Short-retention workload: completes quickly and becomes collectable.
 	requestID, request, err := liveClient.core.CreateRequest(&r1sv1.Workload{
 		Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{"sleep 2; exit 7"},
-	}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(500 * time.Millisecond)}, "default")
+	}, &r1sv1.ExecutionPolicy{}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +524,7 @@ func TestLiveSweepCrashPreservesCapacityAndAuthority(t *testing.T) {
 	drainObserved(liveClient.observed)
 	freshID, freshRequest, err := liveClient.core.CreateRequest(&r1sv1.Workload{
 		Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{"sleep 3; exit 0"},
-	}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}, "default")
+	}, &r1sv1.ExecutionPolicy{}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}

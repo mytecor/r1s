@@ -8,7 +8,6 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -23,7 +22,7 @@ func releaseClient(t *testing.T) (*Client, *r1sv1.Envelope) {
 			t.Fatal(err)
 		}
 	}
-	_, request, err := core.CreateRequest(&r1sv1.Workload{Image: "example/image:latest"}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}, "default")
+	_, request, err := core.CreateRequest(&r1sv1.Workload{Image: "example/image:latest"}, &r1sv1.ExecutionPolicy{}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}

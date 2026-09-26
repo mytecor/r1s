@@ -41,17 +41,8 @@ func validateRequest(envelope *r1sv1.Envelope, request *r1sv1.ExecutionRequest) 
 		}
 	}
 
-	policy := request.GetPolicy()
-	if policy == nil {
+	if request.GetPolicy() == nil {
 		return invalid("execution_request.policy", "is required")
-	}
-	if policy.GetResultRetention() != nil {
-		if err := policy.GetResultRetention().CheckValid(); err != nil {
-			return invalid("execution_request.policy.result_retention", err.Error())
-		}
-		if policy.GetResultRetention().AsDuration() < 0 {
-			return invalid("execution_request.policy.result_retention", "must not be negative")
-		}
 	}
 	return nil
 }

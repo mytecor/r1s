@@ -2,11 +2,9 @@ package client
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
@@ -59,10 +57,6 @@ func (o *Client) createRequest(workload *r1sv1.Workload, policy *r1sv1.Execution
 		return "", nil, err
 	}
 	o.requests[requestID] = &requestRecord{request: request, messageID: messageID, createdAt: now, offers: make(map[string]*offerRecord)}
-	if err := o.persistLocked(context.Background()); err != nil {
-		delete(o.requests, requestID)
-		return "", nil, err
-	}
 	return requestID, proto.Clone(envelope).(*r1sv1.Envelope), nil
 }
 
@@ -99,18 +93,13 @@ func (o *Client) Inspect(executionID string) (string, *r1sv1.Envelope, error) {
 		record.inspectSentAt = previousSentAt
 		return "", nil, fmt.Errorf("%w: ID generator returned an empty ID", ErrInvalidConfig)
 	}
-	if err := o.persistLocked(context.Background()); err != nil {
-		record.inspectMessageID = previous
-		record.inspectSentAt = previousSentAt
-		return "", nil, err
-	}
 	return record.destination, &r1sv1.Envelope{
 		MessageId: record.inspectMessageID, Sender: bytes.Clone(o.identity), SentAt: timestamppb.New(record.inspectSentAt),
 		Payload: &r1sv1.Envelope_ExecutionInspect{ExecutionInspect: &r1sv1.ExecutionInspect{ExecutionId: executionID}},
 	}, nil
 }
 
-// Cancel durably records a stable cancellation before it is sent.
+// Cancel records a stable cancellation before it is sent.
 func (o *Client) Cancel(executionID, reason string) (string, *r1sv1.Envelope, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -124,12 +113,6 @@ func (o *Client) Cancel(executionID, reason string) (string, *r1sv1.Envelope, er
 		record.cancelReason = reason
 		if record.cancelMessageID == "" {
 			return "", nil, fmt.Errorf("%w: ID generator returned an empty ID", ErrInvalidConfig)
-		}
-		if err := o.persistLocked(context.Background()); err != nil {
-			record.cancelMessageID = ""
-			record.cancelSentAt = time.Time{}
-			record.cancelReason = ""
-			return "", nil, err
 		}
 	} else if record.cancelReason != reason {
 		return "", nil, ErrConflict

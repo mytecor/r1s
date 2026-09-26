@@ -45,7 +45,7 @@ The source boundaries are:
 ```text
 api/proto/r1s/v1/       versioned wire schema
 internal/protocol/      message validation and compatibility
-internal/client/         durable requests, offer selection, and observed execution state
+internal/client/         in-memory request state, offer selection, and observed execution state
 internal/cluster/        cluster key, public ID, join token, and local state
 internal/allocator/     offers, capacity, assignment, authorization
 internal/transport/     transport boundary and RNS adapter
@@ -55,7 +55,7 @@ internal/runtime/       runtime boundary and containerd adapter
 The protocol, allocator, transport contract and in-memory adapter, runtime contract, RNS adapter,
 and containerd adapter are present. Python-reference RNS discovery interoperability and reliable
 Channel envelope delivery (including recovery from injected packet loss) are proven via a gated live
-harness. Durable allocator and client state, restart reconciliation, and the complete partition
+harness. Durable allocator state, restart reconciliation, and the complete partition
 recovery acceptance harness are implemented. The live recovery harness remains gated for a Linux
 host with containerd and has passed on the project test host.
 
@@ -68,67 +68,45 @@ transport, runtime, and client behavior remains in reusable packages.
 | Binary | Source | Purpose | Introduced by |
 | --- | --- | --- | --- |
 | `r1sd` | `cmd/r1sd/` | Allocator service and cluster bootstrap CLI | F2, F3, F12 |
-| `r1s` | `cmd/r1s/` | Client, cluster bootstrap, and local client API CLI | F4, F12, F13 |
+| `r1s` | `cmd/r1s/` | Client `run` and cluster bootstrap CLI | F4, F12, F22 |
 
-During the F22 cutover, the `r1s` binary has one run-oriented frontend alongside two legacy
-frontends that still share the durable client engine:
-
-- **Run mode** (`r1s run <cluster> <workload>`) creates a fresh RNS identity and client engine only
-  in memory. The process owns discovery, deterministic offer selection, loser release, assignment,
-  authenticated inspection, lease renewal, conclusive-loss rescheduling, and signal cancellation.
-  A later attempt repeats ordinary placement without allocator pinning. Process restart creates new
-  authority and cannot reclaim the old execution; its allocator-enforced lease expires
-  independently.
-
-- **Direct mode** (default) builds an RNS endpoint, identity, and state store for the lifetime of a
-  single command. The endpoint is a client of the required platform-default shared RNS instance;
-  it never loads interfaces, creates a private stack, or becomes the shared listener. `cluster`
-  and `serve` run only in direct mode.
-- **Service-backed mode** (`r1s --socket <path> …`) forwards `request`, `list`, `inspect`, `result`,
-  `cancel`, and `logs` over a Unix socket to a persistent `r1s serve` process. `r1s serve`
-  is a local, identity-scoped frontend (see the local client API section below), never a cluster API
-  server. An unreachable socket is an error, never a fallback that creates a second identity or
-  assignment. `r1s serve` is also the only continuous lease-renewal holder.
-
-The direct and service-backed frontends remain only until F22-07 removes the legacy client control
-plane. Run mode does not use either frontend's identity, database, socket, or allocator pinning.
+Since F22-07 removed the legacy client control plane, the `r1s` binary has a single run-oriented
+frontend plus the cluster bootstrap commands. `run` creates a fresh RNS identity and an in-memory
+client engine (no durable state, no local socket). The process owns discovery, deterministic offer
+selection, loser release, assignment, authenticated inspection, lease renewal,
+conclusive-loss rescheduling, and signal cancellation. Terminal-record retention on the allocator is
+an operator policy, not workload input.
 
 Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system
 binaries.
 
-## Local client API
+## Local client API (removed)
 
-The local client API is a versioned gRPC service (`r1s.v1.LocalClient`) served only on a Unix
-socket by `r1s serve`. It fronts exactly one local client identity and shares all of the client's
-authority, persistence, replay, and reconnect behavior; it owns no allocator state and performs no
-global scheduling.
-
-The `Watch` RPC streams durable execution-state transitions. Every accepted transition is assigned
-a monotonic sequence that is persisted with the client snapshot, so a watcher resumes from an exact
-durable position across service restarts without inventing or reordering revisions. The retained
-journal is bounded; a watcher that falls behind is told to re-synchronize (`resync`) rather than
-silently missing an event. Socket permissions default to `0600` and the socket is never exposed
-over RNS, so the service cannot become a remotely reachable cluster-wide control endpoint.
-
-The API surface is defined in `api/proto/r1s/v1/local.proto`; messages are additive and local-only
-and never travel over the RNS control plane.
+The pre-F22 local client API — the `r1s.v1.LocalClient` gRPC service, `r1s serve`, the Unix-socket
+`--socket` routing, and the `Watch` journal — was removed by F22-07. There is no durable client
+state, watch sequence, or local socket; the client is an ephemeral in-memory process that owns a
+run for its lifetime and keeps nothing across restart. See
+[F22-07](./roadmap/f22-rns-shared-instance/f22-07-client-cleanup.md).
 
 ## Execution and deployment layers
 
-The unit managed by r1s is one immutable execution. `request` creates one execution; `inspect`,
-`result`, `logs`, and `cancel` address that execution explicitly. A request is
-therefore not a deployment declaration.
+The unit managed by r1s is one immutable execution of a logical run, created by `r1s run`. The
+run engine owns the lease, observes terminal state, and re-requests the recorded workload as the
+next attempt on authenticated evidence of conclusive loss. A single execution is therefore not a
+deployment declaration.
 
-The closest thing to desired state today is the durable lease-holding intent recorded by
-`request --keep-alive` ([F17](./roadmap/f17-execution-lease/README.md)): the shared client engine
-renews it, and a lost lease converts it into a re-request of the recorded workload, so one
-execution heals across restarts without becoming a deployment declaration. A manifest-driven
+The closest thing to desired state is the run-lifetime lease held by the in-memory run engine
+([F17](./roadmap/f17-execution-lease/README.md)): a lost lease converts into a re-request of the
+recorded workload, so one run heals across restarts of the previous execution without becoming a
+deployment declaration. A manifest-driven
 `r1s deploy` layer — durable deployment names, desired specification hashes, and the mapping to
 execution IDs for one client identity — was planned as
 [F15](./roadmap/f15-deployment-reconciliation/README.md) and is deferred (see
 [BACKLOG.md](./roadmap/BACKLOG.md)). It would have stayed a client-side layer over the same
 execution operations, without deployment messages in the RNS protocol, allocator-owned desired
-state, a global scheduler, or a cluster-wide source of truth.
+state, a global scheduler, or a cluster-wide source of truth. F15's desired state and its
+client-owned record would have been ephemeral in-process state under the F22 model, not a durable
+client database.
 
 This boundary also preserves the lifetime rule below: losing a controller connection never stops
 an assigned execution.
@@ -185,7 +163,7 @@ payload. The package version will be part of the Protobuf namespace and import p
 
 The initial exchange is:
 
-1. A client publishes `ExecutionRequest` with an OCI workload and `result_retention` policy.
+1. A client publishes `ExecutionRequest` with an OCI workload, resource class, and constraints.
 2. An allocator with free capacity creates a time-bounded `ExecutionOffer`.
 3. The client sends `ExecutionAssign` to exactly one allocator.
 4. The allocator starts the workload under a durable client-held lease and publishes
@@ -262,16 +240,16 @@ Because a renewal can succeed while its acknowledgement is lost, a conservative 
 lease-loss threshold may allow two attempts to overlap. r1s introduces no coordinator and makes no
 exactly-once claim.
 
-`r1s request --keep-alive` records a durable lease-holding intent and renews the lease for the
-lifetime of the command: in direct mode the request process itself is the renewal loop and
-re-requests the recorded workload whenever the lease is lost; in service-backed mode the flag is
-forwarded to `r1s serve`, whose renewal loop replays every recorded intent from durable state on
-each tick and performs the same re-request on lease loss. A renewal never attaches logs, results,
+`r1s run` holds the lease for the lifetime of the command: the run engine is the renewal loop and
+re-requests the recorded workload whenever the lease is lost, advancing to the next attempt. The
+intent lives only in the in-memory client; process restart cannot reclaim the old execution, whose
+allocator-enforced lease expires independently. A renewal never attaches logs, results,
 or other payload; it returns only the new expiry. Evicted executions commit terminal state with a
 stable lease-expiry reason that is distinguishable from a client cancellation.
 
-Terminal metadata is durably retained so a client can retrieve it after reconnecting. The
-`result_retention` deadline, replay-safe tombstones, and bounded local log storage are enforced by
+Terminal metadata is durably retained by the allocator so a client can retrieve it after
+reconnecting. The allocator-configured retention deadline, replay-safe tombstones, and bounded
+local log storage are enforced by
 [F11](./roadmap/f11-state-retention/README.md) and [F9](./roadmap/f9-local-logs/README.md).
 
 Container stdout/stderr belongs in local allocator storage. Logs are transferred only after an
@@ -368,19 +346,14 @@ store failure leaves a stopped task available for the next recovery attempt.
 
 Result storage beyond terminal metadata remains open in [BACKLOG.md](./roadmap/BACKLOG.md).
 
-Client requests, offers, the chosen assignment, allocator route, cancellation intent, and latest
-observed state are stored in a separate identity-bound bbolt snapshot. Assignment message IDs and
-timestamps are durable, so retry after a crash replays the same assignment rather than choosing a
-second allocator. Inspect uses a fresh message ID so allocator replay caching cannot return an old
-state.
-
-When an identity comes from a file, the default state database remains beside that file. When it is
-provided inline, the default state and allocator log paths live under `~/.config/r1s` and use the
-public identity hash rather than private identity material. Explicit `--state` and `--logs` paths
-override those defaults.
+The client keeps no durable state: it does not persist requests, offers, assignments, or observed
+state anywhere on disk. The run engine holds all of it in memory for the run's lifetime; a client
+process restart starts fresh authority and cannot reclaim an old execution, whose allocator-enforced
+lease expires independently. Inspection is the explicit authenticated read that recovers terminal
+metadata from the allocator after a reconnect.
 
 The gated end-to-end recovery harness runs `r1sd` as a separate process over a loopback RNS UDP
 pair. It disconnects the client, restarts the allocator while the labelled containerd task remains
-running, waits for offline completion, restores the client, replays its durable assignment, and
-retrieves terminal metadata with a fresh inspect. A second real workload proves repeated request
-and cancellation envelopes remain idempotent.
+running, waits for offline completion, reconnects a fresh ephemeral client, replays its assignment
+against the allocator's durable state, and retrieves terminal metadata with a fresh inspect. A
+second real workload proves repeated request and cancellation envelopes remain idempotent.

@@ -1,6 +1,9 @@
 # F14-01 — Execution-scoped access grant and tunnel endpoint
 
-**Status:** ✅ Implemented (grant + endpoint + allocator registry + target resolution). The F14-02 edge, the embedded node, and `r1s tunnel` remain planned.
+**Status:** 🚫 historically superseded — the grant/endpoint flow was replaced by the
+[F22-06](../f22-rns-shared-instance/f22-06-run-tunnels.md) additive owner-authenticated open
+handshake, and the client edge is now per-run (`r1s run -p`) under
+[F22-07](../f22-rns-shared-instance/f22-07-client-cleanup.md). Historical record only.
 
 ## Outcome
 

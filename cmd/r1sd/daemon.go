@@ -135,7 +135,7 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 	}
 	result.core, err = allocator.New(allocator.Config{
 		Identity: identityHash, Capacity: options.capacity, Store: result.stateStore,
-		Admission: admission, Logs: logs, MaxRecords: options.maxRecords, Node: node,
+		Admission: admission, Logs: logs, MaxRecords: options.maxRecords, Retention: options.retention, Node: node,
 		Tunnel: allocator.TunnelConfig{
 			Enabled:  options.tunnelEnabled,
 			Endpoint: result.tunnelEndpointAdvertisement(),

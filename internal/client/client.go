@@ -3,7 +3,6 @@ package client
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -13,16 +12,12 @@ import (
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 )
 
-// StateStore atomically loads and saves one opaque client snapshot.
-type StateStore interface {
-	Load(context.Context) ([]byte, error)
-	Save(context.Context, []byte) error
-}
-
-// Config defines local client authority and persistence.
+// Config defines local client authority. Since F22-07 the client is an
+// ephemeral, in-memory run process: there is no persistent store, durable
+// identity, or durable lease intent, so Config carries only the authenticated
+// authority and its time/ID sources.
 type Config struct {
 	Identity []byte
-	Store    StateStore
 	Now      func() time.Time
 	NewID    func() string
 }
@@ -109,28 +104,25 @@ type ExecutionSnapshot struct {
 	State       *r1sv1.ExecutionState
 }
 
-// Client owns durable request selection and observed execution state.
+// Client owns request selection and observed execution state in memory for the
+// lifetime of one run process (F22). There is no durable client snapshot: a
+// restart of the client never resumes a run, and the allocator retains the
+// execution database.
 type Client struct {
 	logMessageID string
 	logRequest   *r1sv1.ExecutionLogsRequest
 	mu           sync.Mutex
 
 	identity []byte
-	store    StateStore
 	now      func() time.Time
 	newID    func() string
 
 	allocators allocatorCatalog
 	requests   map[string]*requestRecord
 	executions map[string]*executionRecord
-
-	// watch state
-	watchSequence  uint64
-	watchJournal   watchJournal
-	watchObservers []*watchSubscription
 }
 
-// New restores or constructs client state.
+// New constructs client state. There is no restoration from durable storage.
 func New(config Config) (*Client, error) {
 	if len(config.Identity) == 0 {
 		return nil, fmt.Errorf("%w: identity is required", ErrInvalidConfig)
@@ -141,17 +133,10 @@ func New(config Config) (*Client, error) {
 	if config.NewID == nil {
 		config.NewID = randomID
 	}
-	result := &Client{
-		identity: bytes.Clone(config.Identity), store: config.Store, now: config.Now, newID: config.NewID,
+	return &Client{
+		identity: bytes.Clone(config.Identity), now: config.Now, newID: config.NewID,
 		allocators: newAllocatorCatalog(), requests: make(map[string]*requestRecord), executions: make(map[string]*executionRecord),
-	}
-	result.mu.Lock()
-	err := result.loadLocked(context.Background())
-	result.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
+	}, nil
 }
 
 func randomID() string {

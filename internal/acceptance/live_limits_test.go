@@ -55,7 +55,6 @@ func TestLiveResourceLimitsEnforced(t *testing.T) {
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	allocatorLogs := filepath.Join(root, "allocator.logs")
 	clientIdentity := filepath.Join(root, "client.identity")
-	clientState := filepath.Join(root, "client.state.db")
 	namespace := fmt.Sprintf("r1s-f10-%d", time.Now().UnixNano())
 	address := os.Getenv("CONTAINERD_ADDRESS")
 	if address == "" {
@@ -81,7 +80,7 @@ func TestLiveResourceLimitsEnforced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity, clientState)
+	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
 	defer liveClient.close(t)
 	var daemon *allocatorProcess
 	defer func() {

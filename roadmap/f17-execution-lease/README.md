@@ -3,7 +3,9 @@
 Corresponds to [milestone F17](../../ROADMAP.md#f17-execution-lease).
 
 **Status:** ✅ complete; deterministic allocator, client, protocol, socket-contract, and
-service-backed CLI tests pass under `go test -race`
+service-backed CLI tests pass under `go test -race`. **F22 note:** the lease is still durably
+persisted on the **allocator** and held in memory by the client run engine; the F22 client keeps
+no durable lease intent of its own ([F22-07](../f22-rns-shared-instance/f22-07-client-cleanup.md)).
 
 ## Outcome
 

@@ -602,12 +602,14 @@ func (x *Workload) GetWorkingDirectory() string {
 // Lifetime is bounded by a durable, explicitly renewed client-held lease
 // (see ExecutionLeaseRenew), never by a request-time deadline: `deadline` and
 // `max_runtime` are retired and their field numbers are reserved, never reused.
-// `result_retention` is unchanged.
+// `result_retention` was retired with the F22 client cutover: terminal-record
+// retention is allocator-owned operator configuration, not workload input, so
+// field 3 is reserved and never reused. A workload cannot choose bookkeeping
+// retention.
 type ExecutionPolicy struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	ResultRetention *durationpb.Duration   `protobuf:"bytes,3,opt,name=result_retention,json=resultRetention,proto3" json:"result_retention,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecutionPolicy) Reset() {
@@ -638,13 +640,6 @@ func (x *ExecutionPolicy) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ExecutionPolicy.ProtoReflect.Descriptor instead.
 func (*ExecutionPolicy) Descriptor() ([]byte, []int) {
 	return file_r1s_v1_control_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *ExecutionPolicy) GetResultRetention() *durationpb.Duration {
-	if x != nil {
-		return x.ResultRetention
-	}
-	return nil
 }
 
 // NodeCapabilities is the allocator's normalized, bounded description of what
@@ -2082,9 +2077,8 @@ const file_r1s_v1_control_proto_rawDesc = "" +
 	"\x11working_directory\x18\x05 \x01(\tR\x10workingDirectory\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"z\n" +
-	"\x0fExecutionPolicy\x12D\n" +
-	"\x10result_retention\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x0fresultRetentionJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\bdeadlineR\vmax_runtime\"\xb5\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"L\n" +
+	"\x0fExecutionPolicyJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\bdeadlineR\vmax_runtimeR\x10result_retention\"\xb5\x02\n" +
 	"\x10NodeCapabilities\x12\x0e\n" +
 	"\x02os\x18\x01 \x01(\tR\x02os\x12\x12\n" +
 	"\x04arch\x18\x02 \x01(\tR\x04arch\x12\x18\n" +
@@ -2283,27 +2277,26 @@ var file_r1s_v1_control_proto_depIdxs = []int32{
 	22, // 14: r1s.v1.Envelope.execution_tunnel_open:type_name -> r1s.v1.ExecutionTunnelOpen
 	23, // 15: r1s.v1.Envelope.execution_tunnel_open_ack:type_name -> r1s.v1.ExecutionTunnelOpenAck
 	26, // 16: r1s.v1.Workload.environment:type_name -> r1s.v1.Workload.EnvironmentEntry
-	30, // 17: r1s.v1.ExecutionPolicy.result_retention:type_name -> google.protobuf.Duration
-	27, // 18: r1s.v1.NodeCapabilities.labels:type_name -> r1s.v1.NodeCapabilities.LabelsEntry
-	28, // 19: r1s.v1.PlacementConstraints.labels:type_name -> r1s.v1.PlacementConstraints.LabelsEntry
-	4,  // 20: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
-	5,  // 21: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
-	7,  // 22: r1s.v1.ExecutionRequest.constraints:type_name -> r1s.v1.PlacementConstraints
-	29, // 23: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
-	6,  // 24: r1s.v1.ExecutionOffer.node:type_name -> r1s.v1.NodeCapabilities
-	0,  // 25: r1s.v1.ExecutionOfferReleaseAck.outcome:type_name -> r1s.v1.OfferReleaseOutcome
-	1,  // 26: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
-	29, // 27: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
-	30, // 28: r1s.v1.ExecutionLeaseRenew.lease_duration:type_name -> google.protobuf.Duration
-	29, // 29: r1s.v1.ExecutionLeaseRenewAck.expires_at:type_name -> google.protobuf.Timestamp
-	21, // 30: r1s.v1.ExecutionTunnelOpen.targets:type_name -> r1s.v1.TunnelTarget
-	21, // 31: r1s.v1.ExecutionTunnelOpenAck.targets:type_name -> r1s.v1.TunnelTarget
-	2,  // 32: r1s.v1.TunnelOpenResult.error:type_name -> r1s.v1.TunnelOpenError
-	33, // [33:33] is the sub-list for method output_type
-	33, // [33:33] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	27, // 17: r1s.v1.NodeCapabilities.labels:type_name -> r1s.v1.NodeCapabilities.LabelsEntry
+	28, // 18: r1s.v1.PlacementConstraints.labels:type_name -> r1s.v1.PlacementConstraints.LabelsEntry
+	4,  // 19: r1s.v1.ExecutionRequest.workload:type_name -> r1s.v1.Workload
+	5,  // 20: r1s.v1.ExecutionRequest.policy:type_name -> r1s.v1.ExecutionPolicy
+	7,  // 21: r1s.v1.ExecutionRequest.constraints:type_name -> r1s.v1.PlacementConstraints
+	29, // 22: r1s.v1.ExecutionOffer.expires_at:type_name -> google.protobuf.Timestamp
+	6,  // 23: r1s.v1.ExecutionOffer.node:type_name -> r1s.v1.NodeCapabilities
+	0,  // 24: r1s.v1.ExecutionOfferReleaseAck.outcome:type_name -> r1s.v1.OfferReleaseOutcome
+	1,  // 25: r1s.v1.ExecutionState.phase:type_name -> r1s.v1.ExecutionPhase
+	29, // 26: r1s.v1.ExecutionState.occurred_at:type_name -> google.protobuf.Timestamp
+	30, // 27: r1s.v1.ExecutionLeaseRenew.lease_duration:type_name -> google.protobuf.Duration
+	29, // 28: r1s.v1.ExecutionLeaseRenewAck.expires_at:type_name -> google.protobuf.Timestamp
+	21, // 29: r1s.v1.ExecutionTunnelOpen.targets:type_name -> r1s.v1.TunnelTarget
+	21, // 30: r1s.v1.ExecutionTunnelOpenAck.targets:type_name -> r1s.v1.TunnelTarget
+	2,  // 31: r1s.v1.TunnelOpenResult.error:type_name -> r1s.v1.TunnelOpenError
+	32, // [32:32] is the sub-list for method output_type
+	32, // [32:32] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_r1s_v1_control_proto_init() }

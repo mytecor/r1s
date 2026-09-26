@@ -2,7 +2,10 @@
 
 Corresponds to [milestone F18](../../ROADMAP.md#f18-observability).
 
-**Status:** ⏳ Planned
+**Status:** ⏳ Planned — the planned inspection surface must align with the F22 run-only model: it
+builds on `r1s run` and allocator-local export points, not the removed
+`inspect`/`result`/`logs`/`list` commands, local client API, or `Watch` journal
+([F22-07](../f22-rns-shared-instance/f22-07-client-cleanup.md)).
 
 ## Outcome
 
@@ -11,7 +14,7 @@ and standard metrics export points without adding a mandatory telemetry backend 
 
 ## Dependencies
 
-- [F13. Local client API](../f13-local-client-api/README.md)
+- [F13. Local client API](../f13-local-client-api/README.md) — superseded; see the F22 run model.
 
 ## Scope
 

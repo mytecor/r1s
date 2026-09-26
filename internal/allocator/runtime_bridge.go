@@ -83,7 +83,7 @@ func (a *Allocator) finishLocked(record *executionRecord, phase r1sv1.ExecutionP
 	if a.highWater.After(end) {
 		end = a.highWater
 	}
-	record.retainUntil = end.Add(retention(record.request.GetPolicy()))
+	record.retainUntil = end.Add(a.retention)
 	if !record.released {
 		a.capacity.release(record.resourceClass)
 		record.released = true

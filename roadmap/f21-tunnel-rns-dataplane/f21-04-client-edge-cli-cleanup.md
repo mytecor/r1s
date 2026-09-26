@@ -15,9 +15,8 @@ current F19/F20 Ygg edge, CLI, and `LocalTunnel` behavior.
   `Link.Identify()`, sends `Open { execution_id, port }`, then relays `127.0.0.1:<host>` ⇄
   `Channel`/`Buffer` ⇄ `127.0.0.1:<container>` (one local TCP connection = one Link = one stream).
   No embedded Ygg node is started by the client.
-- **Local API**: rework `LocalTunnelOpen` / `Tunnel` on
-  [`localserver`](../../internal/localserver) to the Open-message model (F21-02); keep the stream
-  RPC shape and byte-clean stdout contract.
+- **Local API**: rework `LocalTunnelOpen` / `Tunnel` on `localserver` to the Open-message
+  model (F21-02); keep the stream RPC shape and byte-clean stdout contract.
 - **Config**: remove `--tunnel-peer`, `--tunnel-endpoint-pubkey`, and the opaque-Ygg
   `--tunnel-endpoint` flags. Add allocator config `--tunnel-interface ygg0`, `--tunnel-port 4242`,
   `--tunnel-enabled` (existing flag reused) and keep `r1s serve --tunnel`. Public Ygg peers are the

@@ -21,7 +21,15 @@ const (
 
 // Config defines local allocator authority and fixed class capacities.
 type Config struct {
-	MaxRecords     int
+	// MaxRecords bounds the durable offer/execution/tombstone budget.
+	MaxRecords int
+	// Retention is the terminal-record retention the allocator applies to
+	// every completed execution. It is operator configuration, never workload
+	// input (F22-07): after the policy's result_retention was retired, a
+	// workload cannot choose bookkeeping retention. Zero means
+	// DefaultRetention; any value is bounded by CommandHorizon, which also
+	// bounds replay-safe tombstones.
+	Retention      time.Duration
 	Identity       []byte
 	Capacity       map[string]uint32
 	OfferTTL       time.Duration

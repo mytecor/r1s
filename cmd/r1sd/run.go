@@ -27,6 +27,7 @@ type commandLine struct {
 	logBudget             int64
 	maxRecords            int
 	sweepInterval         time.Duration
+	retention             time.Duration
 	admissionPath         string
 	statePath             string
 	clusterSelector       string
@@ -76,6 +77,7 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	logBytes := flags.Int64("log-bytes", 1<<20, "maximum retained bytes per stream")
 	logBudget := flags.Int64("log-budget", 2<<30, "maximum reserved local log data bytes")
 	maxRecords := flags.Int("max-records", allocator.DefaultMaxRecords, "maximum durable offer/execution/tombstone budget")
+	retention := flags.Duration("retention", allocator.DefaultRetention, "terminal-record retention horizon after completion (bounded by the replay horizon)")
 	sweepInterval := flags.Duration("sweep-interval", time.Minute, "bounded-history and offer-expiry cleanup interval")
 	admissionPath := flags.String("admission-policy", "", "local resource profiles, allowed identities, and quotas JSON")
 	statePath := flags.String("state", "", "allocator state database (defaults beside the identity file or under ~/.config/r1s)")
@@ -105,6 +107,9 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	}
 	if *sweepInterval <= 0 {
 		return commandLine{}, errors.New("--sweep-interval must be positive")
+	}
+	if *retention < 0 {
+		return commandLine{}, errors.New("--retention must not be negative")
 	}
 	capacity, err := parseCapacity(*capacityValue)
 	if err != nil {
@@ -136,6 +141,7 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		containerdNamespace: *containerdNamespace, containerdSnapshotter: *containerdSnapshotter,
 		logPath: *logPath, logBytes: *logBytes, logBudget: *logBudget, maxRecords: *maxRecords,
 		sweepInterval: *sweepInterval, admissionPath: *admissionPath, statePath: *statePath,
+		retention:       *retention,
 		clusterSelector: flags.Arg(0),
 		tunnelEnabled:   *tunnelEnabled,
 		tunnelEndpoint:  tunnelEndpointBytes, tunnelEndpointPubKey: tunnelEndpointPubKeyBytes,

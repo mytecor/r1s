@@ -31,6 +31,7 @@ type Allocator struct {
 	capacity  *capacityLedger
 	offerTTL  time.Duration
 	leaseTTL  time.Duration
+	retention time.Duration
 	now       func() time.Time
 	newID     func() string
 	runtime   r1sruntime.Runtime
@@ -108,12 +109,19 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 	if config.MaxRecords < 2 {
 		return nil, ErrInvalidConfig
 	}
+	if config.Retention == 0 {
+		config.Retention = DefaultRetention
+	}
+	if config.Retention < 0 {
+		return nil, ErrInvalidConfig
+	}
 	result := &Allocator{
 		maxRecords: config.MaxRecords, tombstones: make(map[string]tombstone),
 		identity:   bytes.Clone(config.Identity),
 		capacity:   capacity,
 		offerTTL:   config.OfferTTL,
 		leaseTTL:   config.LeaseTTL,
+		retention:  retention(config.Retention),
 		now:        config.Now,
 		newID:      config.NewID,
 		runtime:    runtime,

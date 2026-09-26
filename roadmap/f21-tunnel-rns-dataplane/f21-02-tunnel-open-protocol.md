@@ -45,12 +45,11 @@ replacing the minted-grant flow entirely.
 - **New Open/result messages**: replace grant messages with tunnel-open protocol:
   `Open { execution_id, port }` as the first application message after Link establishment and
   identification, and a reply of `OK` or a classified error (mirrored in
-  [`LocalTunnelClose.Reason`](../../api/proto/r1s/v1/local.proto)). After `OK` the byte stream
+  [`TunnelOpenError`](../../api/proto/r1s/v1/control.proto)). After `OK` the byte stream
   begins; there is no preamble, no grant ID, no single-use token.
 - **Protocol cleanup, direct (no back-compat)**: delete `ExecutionTunnelGrant`,
   `ExecutionTunnelGrantAck`, the `ygg_peer_pubkey` field, grant ID/TTL and the preamble from
-  [`control.proto`](../../api/proto/r1s/v1/control.proto) and
-  [`local.proto`](../../api/proto/r1s/v1/local.proto); rework `LocalTunnelOpen` to carry
+  [`control.proto`](../../api/proto/r1s/v1/control.proto); rework `LocalTunnelOpen` to carry
   `execution_id` + `target_port` only, with no grant-carried target list. Remove
   `Registry.Mint`/`Accept`, grant fields, and `Preamble{ExecutionID, GrantID}` from the core.
 - **No backward compatibility is kept**: field numbers and names may be cleaned directly.

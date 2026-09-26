@@ -23,7 +23,6 @@ import (
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -331,9 +330,7 @@ func benchRequest(now time.Time, messageID, client, requestID string) *r1sv1.Env
 				Attempt:       1,
 				ResourceClass: "default",
 				Workload:      &r1sv1.Workload{Image: "example.test/image:latest"},
-				Policy: &r1sv1.ExecutionPolicy{
-					ResultRetention: durationpb.New(24 * time.Hour),
-				},
+				Policy:        &r1sv1.ExecutionPolicy{},
 			},
 		},
 	}

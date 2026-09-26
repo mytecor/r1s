@@ -6,6 +6,9 @@ its own tunnel stream addressed by a container port only, the allocator validate
 binds the client-supplied container ports into the minted grant, and the edge splices each stream
 to `127.0.0.1:<container>`. There are no named slots and no interactive pipe: every tunnel requires
 at least one `--port`. `r1sd --tunnel-target` / `--tunnel-default-target` are removed.
+**F22 note:** the standalone `r1s tunnel` command is gone; the client-supplied destinations
+survive as `r1s run -p host:container` under
+[F22-06](../f22-rns-shared-instance/f22-06-run-tunnels.md).
 
 ## Scope
 

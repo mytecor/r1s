@@ -20,9 +20,7 @@ func TestDecodeRequestJSON(t *testing.T) {
     "environment": {"MODE": "test"},
     "workingDirectory": "/work"
   },
-  "policy": {
-    "resultRetention": "86400s"
-  }
+  "policy": {}
 }`)
 	if err != nil {
 		t.Fatal(err)
@@ -30,15 +28,13 @@ func TestDecodeRequestJSON(t *testing.T) {
 	if request.GetRequestId() != "" || request.GetResourceClass() != "default" || request.GetWorkload().GetImage() == "" {
 		t.Fatalf("request = %v", request)
 	}
-	if got := request.GetPolicy().GetResultRetention().AsDuration().Seconds(); got != 86400 {
-		t.Fatalf("result retention = %v", got)
-	}
 }
 
 func TestDecodeRequestJSONRejectsManagedAndUnknownFields(t *testing.T) {
 	for name, input := range map[string]string{
 		"managed request ID": `{"requestId":"caller-selected"}`,
 		"unknown field":      `{"unexpected":true}`,
+		"retired retention":  `{"policy":{"resultRetention":"86400s"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := decodeRequestJSON(input); err == nil {
@@ -67,9 +63,32 @@ func TestHelpUsesCanonicalDoubleDashFlags(t *testing.T) {
 }
 
 func TestRNSConfigFlagIsRemoved(t *testing.T) {
-	_, err := parseCommandLine([]string{"--rns-config", "unused", "list"}, &bytes.Buffer{})
+	_, err := parseCommandLine([]string{"--rns-config", "unused", "run", "abcd", `{}`}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
 		t.Fatalf("parseCommandLine() error = %v, want removed flag diagnostic", err)
+	}
+}
+
+// TestLegacyClientFlagsAreGone locks in the F22-07 cutover: the legacy
+// identity/state/socket/allocator/keep-alive surfaces no longer exist as
+// top-level or workflow options, and the removed workflow commands are
+// rejected outright.
+func TestLegacyClientFlagsAreGone(t *testing.T) {
+	for _, args := range [][]string{
+		{"--identity", "x", "run", "abcd", `{}`},
+		{"--state", "s.db", "run", "abcd", `{}`},
+		{"--socket", "c.sock", "run", "abcd", `{}`},
+		{"--keep-alive", "run", "abcd", `{}`},
+		{"--allocator", "d", "run", "abcd", `{}`},
+	} {
+		if _, err := parseCommandLine(args, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+			t.Fatalf("legacy flags not rejected in %v: %v", args, err)
+		}
+	}
+	for _, command := range []string{"request", "serve", "list", "inspect", "cancel", "result", "logs", "tunnel"} {
+		if _, err := parseCommandLine([]string{command}, &bytes.Buffer{}); err == nil {
+			t.Fatalf("removed command %q was accepted", command)
+		}
 	}
 }
 
@@ -98,21 +117,6 @@ func TestClusterInitDoesNotRequireNetworkFlags(t *testing.T) {
 	}
 }
 
-func TestInlineClusterTokenErrorIsRedacted(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	err := run(context.Background(), []string{
-		"--cluster", "r1s1:not-base64",
-		"--identity", "unused",
-		"list",
-	}, &stdout, &stderr)
-	if err == nil || !strings.Contains(err.Error(), "cluster identifier must be a hexadecimal prefix") {
-		t.Fatalf("error = %v, want invalid selector diagnostic", err)
-	}
-	if strings.Contains(err.Error(), "not-base64") {
-		t.Fatalf("error exposed inline token: %v", err)
-	}
-}
-
 func TestAmbiguousClusterFailsBeforeTransportStartup(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -136,11 +140,10 @@ func TestAmbiguousClusterFailsBeforeTransportStartup(t *testing.T) {
 	if selector == "" {
 		t.Fatal("failed to construct ambiguous cluster prefix")
 	}
-	_, err = openApplication(context.Background(), commandLine{
-		identitySource:  "unused",
+	_, err = openRunApplication(context.Background(), commandLine{
 		clusterSelector: selector,
 	}, &bytes.Buffer{})
 	if !errors.Is(err, cluster.ErrAmbiguous) {
-		t.Fatalf("openApplication() error = %v, want ErrAmbiguous", err)
+		t.Fatalf("openRunApplication() error = %v, want ErrAmbiguous", err)
 	}
 }

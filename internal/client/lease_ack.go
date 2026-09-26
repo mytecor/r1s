@@ -2,8 +2,6 @@ package client
 
 import (
 	"bytes"
-	"context"
-	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
@@ -28,17 +26,9 @@ func (o *Client) handleRenewAckLocked(envelope *r1sv1.Envelope, ack *r1sv1.Execu
 	if record.leaseLost {
 		return ErrConflict
 	}
-	previousID := record.leaseRenewMessageID
-	previousRenewedAt := record.leaseRenewedAt
 	record.leaseRenewMessageID = ""
 	record.leaseRenewedAt = o.now().UTC()
 	record.leaseExpiresAt = ack.GetExpiresAt().AsTime()
-	if err := o.persistLocked(context.Background()); err != nil {
-		record.leaseRenewMessageID = previousID
-		record.leaseRenewedAt = previousRenewedAt
-		record.leaseExpiresAt = time.Time{}
-		return err
-	}
 	return nil
 }
 
@@ -55,16 +45,11 @@ func (o *Client) markRenewalFailureLocked(executionID, code string) {
 	if record := o.executions[executionID]; record != nil {
 		record.leaseRenewMessageID = ""
 		record.leaseLost = true
-		_ = o.persistLocked(context.Background())
 	}
 }
 
 func (o *Client) markLeaseLostLocked(record *executionRecord) (string, *r1sv1.Envelope, bool, error) {
 	record.leaseLost = true
-	if err := o.persistLocked(context.Background()); err != nil {
-		record.leaseLost = false
-		return "", nil, false, err
-	}
 	return record.destination, nil, true, nil
 }
 

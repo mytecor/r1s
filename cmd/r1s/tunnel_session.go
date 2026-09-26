@@ -12,6 +12,12 @@ import (
 	"github.com/mytecor/r1s/internal/tunnel/yggdrasil"
 )
 
+// openAckTimeout bounds one owner open-ack over the control plane. It is
+// deliberately generous for a first connect across the mesh; an open that does
+// not come back in time is aborted so the caller can surface a clear error and
+// retry.
+const openAckTimeout = 30 * time.Second
+
 // Client-side F19/F22 tunnel session management for the run-oriented client:
 // the authenticated owner open over the control plane, the edge dial with its
 // routing preamble, and the per-execution cache of authenticated mesh pairs.

@@ -14,6 +14,17 @@ import (
 const (
 	runInspectInterval = 5 * time.Second
 	runInspectWait     = 5 * time.Second
+
+	// defaultOfferWait paces re-request offer collection and is the default
+	// --offer-wait for `r1s run`.
+	defaultOfferWait = 10 * time.Second
+
+	// defaultRenewWait bounds one lease-renewal ack wait in the run hold loop.
+	defaultRenewWait = 30 * time.Second
+
+	// defaultLeaseDuration matches the allocator's default initial lease so the
+	// run engine renews at a sane cadence without tuning anything.
+	defaultLeaseDuration = protocol.DefaultLease
 )
 
 // workloadExitError lets main preserve a workload's process status without

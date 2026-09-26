@@ -2,7 +2,6 @@ package client
 
 import (
 	"bytes"
-	"context"
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
@@ -71,11 +70,6 @@ func (o *Client) Maintain(executionID string, leaseDuration time.Duration) (dest
 			ExecutionId: record.id, LeaseDuration: durationpb.New(record.leaseDuration),
 		}},
 	}
-	if err := o.persistLocked(context.Background()); err != nil {
-		record.leaseRenewMessageID = ""
-		record.leaseRenewedAt = time.Time{}
-		return "", nil, false, err
-	}
 	return record.destination, envelope, false, nil
 }
 
@@ -120,15 +114,8 @@ func (o *Client) RecordLeaseIntent(executionID string, leaseDuration time.Durati
 	if leaseDuration <= 0 {
 		leaseDuration = clientDefaultLease
 	}
-	previousDuration := record.leaseDuration
-	previousAllocators := record.leaseAllocators
 	record.leaseDuration = leaseDuration
 	record.leaseAllocators = pinnedAllocators(allocators)
-	if err := o.persistLocked(context.Background()); err != nil {
-		record.leaseDuration = previousDuration
-		record.leaseAllocators = previousAllocators
-		return err
-	}
 	return nil
 }
 
@@ -232,27 +219,12 @@ func (o *Client) RebindLeaseIntent(oldExecutionID, newExecutionID string) error 
 	if previous.leaseDuration <= 0 {
 		return ErrConflict
 	}
-	savedOld := previous.leaseDuration
-	savedOldLost := previous.leaseLost
-	savedOldAllocators := previous.leaseAllocators
-	savedNewDuration := replacement.leaseDuration
-	savedNewLost := replacement.leaseLost
-	savedNewAllocators := replacement.leaseAllocators
+	replacement.leaseDuration = previous.leaseDuration
 	previous.leaseDuration = 0
 	previous.leaseLost = false
+	replacement.leaseAllocators = previous.leaseAllocators
 	previous.leaseAllocators = nil
-	replacement.leaseDuration = savedOld
 	replacement.leaseLost = false
-	replacement.leaseAllocators = savedOldAllocators
 	replacement.leaseExpiresAt = time.Time{}
-	if err := o.persistLocked(context.Background()); err != nil {
-		previous.leaseDuration = savedOld
-		previous.leaseLost = savedOldLost
-		previous.leaseAllocators = savedOldAllocators
-		replacement.leaseDuration = savedNewDuration
-		replacement.leaseLost = savedNewLost
-		replacement.leaseAllocators = savedNewAllocators
-		return err
-	}
 	return nil
 }

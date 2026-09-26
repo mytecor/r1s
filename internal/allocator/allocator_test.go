@@ -14,7 +14,6 @@ import (
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -510,9 +509,7 @@ func requestEnvelope(now time.Time, messageID, client, requestID string) *r1sv1.
 			Attempt:       1,
 			ResourceClass: "default",
 			Workload:      &r1sv1.Workload{Image: "example.test/image:latest"},
-			Policy: &r1sv1.ExecutionPolicy{
-				ResultRetention: durationpb.New(time.Hour),
-			},
+			Policy:        &r1sv1.ExecutionPolicy{},
 		}},
 	}
 }

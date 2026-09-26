@@ -7,7 +7,6 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func testRequest(executionID string, _ ...time.Duration) r1sruntime.StartRequest {
@@ -22,7 +21,7 @@ func testRequest(executionID string, _ ...time.Duration) r1sruntime.StartRequest
 			Args:        []string{"exit 7"},
 			Environment: map[string]string{"B": "2", "A": "1"},
 		},
-		Policy: &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)},
+		Policy: &r1sv1.ExecutionPolicy{},
 	}
 }
 

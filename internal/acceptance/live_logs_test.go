@@ -14,7 +14,6 @@ import (
 
 	containerdclient "github.com/containerd/containerd/v2/client"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // TestLiveRetainedLogsSurviveRestart closes the F9-01 live gap: a failed or
@@ -58,7 +57,6 @@ func TestLiveRetainedLogsSurviveRestart(t *testing.T) {
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	allocatorLogs := filepath.Join(root, "allocator.logs")
 	clientIdentity := filepath.Join(root, "client.identity")
-	clientState := filepath.Join(root, "client.state.db")
 	namespace := "r1s-f9-logs"
 	address := os.Getenv("CONTAINERD_ADDRESS")
 	if address == "" {
@@ -70,7 +68,7 @@ func TestLiveRetainedLogsSurviveRestart(t *testing.T) {
 	}
 	defer observer.Close()
 
-	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity, clientState)
+	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
 	defer liveClient.close(t)
 	var daemon *allocatorProcess
 	defer func() {
@@ -126,7 +124,7 @@ func startWritingExecution(t *testing.T, c *acceptanceClient, destination, image
 	t.Helper()
 	requestID, request, err := c.core.CreateRequest(&r1sv1.Workload{
 		Image: image, Command: []string{"/bin/sh", "-c"}, Args: []string{script},
-	}, &r1sv1.ExecutionPolicy{ResultRetention: durationpb.New(time.Hour)}, "default")
+	}, &r1sv1.ExecutionPolicy{}, "default")
 	if err != nil {
 		t.Fatal(err)
 	}

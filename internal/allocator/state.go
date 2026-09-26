@@ -96,7 +96,7 @@ func (a *Allocator) loadLocked(ctx context.Context) error {
 			leaseUntil: saved.LeaseUntil,
 		}
 		if protocol.Terminal(saved.Phase) && saved.RetainUntil.IsZero() {
-			a.executions[saved.ID].retainUntil = saved.OccurredAt.Add(retention(request.GetPolicy()))
+			a.executions[saved.ID].retainUntil = saved.OccurredAt.Add(a.retention)
 		}
 		// A pre-lease snapshot grants running executions one fresh lease so an
 		// upgrade never evicts work that was alive before the restart.

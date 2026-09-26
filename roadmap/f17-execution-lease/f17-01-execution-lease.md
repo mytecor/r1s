@@ -1,6 +1,9 @@
 # F17-01 — Add renewable client-held execution leases
 
-**Status:** ✅ complete; deterministic and CLI tests pass under `go test -race`
+**Status:** ✅ complete; deterministic and CLI tests pass under `go test -race`. **F22 note:** the
+lease persists durably on the allocator and in memory in the client run engine; the removed
+service-backed lease-renewal loop and durable intent belong to
+[F22-07](../f22-rns-shared-instance/f22-07-client-cleanup.md).
 
 ## Outcome
 

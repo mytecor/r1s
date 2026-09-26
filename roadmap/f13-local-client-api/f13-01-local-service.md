@@ -1,6 +1,9 @@
 # F13-01 — Add the persistent local client service
 
-**Status:** ✅ complete; unit, socket-contract, and service-backed CLI acceptance tests pass
+**Status:** 🚫 superseded — removed by [F22-07](../f22-rns-shared-instance/f22-07-client-cleanup.md).
+Historical record only; the `r1s serve` service and its Unix-socket
+gRPC API (`api/proto/r1s/v1/local.proto`, `internal/localserver`, the `Watch` journal) no
+longer exist. The client now runs as an ephemeral in-memory run process.
 
 ## Outcome
 

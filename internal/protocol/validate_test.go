@@ -50,9 +50,6 @@ func TestValidateEnvelope(t *testing.T) {
 		"missing policy": func(envelope *r1sv1.Envelope) {
 			envelope.GetExecutionRequest().Policy = nil
 		},
-		"negative result retention": func(envelope *r1sv1.Envelope) {
-			envelope.GetExecutionRequest().Policy.ResultRetention = durationpb.New(-time.Second)
-		},
 	}
 
 	if err := protocol.ValidateEnvelope(valid); err != nil {
@@ -208,9 +205,7 @@ func validRequestEnvelope(now time.Time) *r1sv1.Envelope {
 			Image:       "example.test/image:latest",
 			Environment: map[string]string{"KEY": "value"},
 		},
-		Policy: &r1sv1.ExecutionPolicy{
-			ResultRetention: durationpb.New(time.Minute),
-		},
+		Policy: &r1sv1.ExecutionPolicy{},
 	}})
 }
 

@@ -6,7 +6,10 @@ Corresponds to a future milestone in [ROADMAP.md](../../ROADMAP.md#f19-universal
 interactive byte pipe (SSH-oriented: one live session per execution, one target per grant) into a
 general-purpose, addressable, multiplexed stream transport **behind a single `r1s tunnel`
 command** (ngrok-style UX, client→allocator only). See
-[F19-01](./f19-01-universal-tunnel.md); `make check` passes.
+[F19-01](./f19-01-universal-tunnel.md); `make check` passes. **F22 note:** the standalone
+`r1s tunnel` command was replaced by [F22-06](../f22-rns-shared-instance/f22-06-run-tunnels.md)
+`r1s run -p host:container`, which keeps the transport-neutral multiplexed streams and owner
+authentication without a separate tunnel command or local service.
 
 ## Outcome
 

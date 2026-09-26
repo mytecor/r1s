@@ -19,8 +19,10 @@ import (
 // lease never outlives the tombstones that guard it.
 const CommandHorizon = 7 * 24 * time.Hour
 
-// DefaultRetention is the result_retention every allocator applies when the
-// request policy does not specify one.
+// DefaultRetention is the allocator's operator-configured terminal-record
+// retention horizon applied when no explicit --retention is set. Since the F22
+// cutover, retention is allocator-local policy — a workload cannot choose it —
+// and every configured value is bounded below by CommandHorizon.
 const DefaultRetention = 24 * time.Hour
 
 // DefaultMaxRecords bounds the allocator's retained terminal records.
@@ -40,13 +42,11 @@ type tombstone struct {
 	CleanupPending bool      `json:"cleanup_pending,omitempty"`
 }
 
-// retention resolves the policy's result_retention bounded by the command
-// replay horizon.
-func retention(policy *r1sv1.ExecutionPolicy) time.Duration {
-	if policy.GetResultRetention() == nil {
-		return DefaultRetention
-	}
-	return min(policy.GetResultRetention().AsDuration(), CommandHorizon)
+// retention bounds an operator-configured retention horizon by the command
+// replay horizon, so no terminal record outlives the tombstones that guard it
+// and a configured value never exceeds the replay-safe ceiling.
+func retention(configured time.Duration) time.Duration {
+	return min(configured, CommandHorizon)
 }
 
 // effectiveNowLocked returns the allocator's monotonic now: it never moves

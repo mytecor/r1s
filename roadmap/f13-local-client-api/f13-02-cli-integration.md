@@ -1,6 +1,8 @@
 # F13-02 — Route CLI workflows through the local API
 
-**Status:** ✅ complete; service-backed CLI acceptance test passes
+**Status:** 🚫 superseded — removed by [F22-07](../f22-rns-shared-instance/f22-07-client-cleanup.md).
+Historical record only; the `--socket` routing and the `internal/localapi` gRPC client no
+longer exist.
 
 ## Outcome
 
