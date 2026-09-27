@@ -1,81 +1,56 @@
+// Package rns adapts r1s discovery descriptors and Protobuf envelopes to the
+// reusable authenticated transport implemented by meshbus/rns.
 package rns
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
-	"github.com/Quad4-Software/Reticulum-Go/pkg/destination"
-	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/cluster"
 	coretransport "github.com/mytecor/r1s/internal/transport"
 	"github.com/mytecor/r1s/meshbus"
-	"github.com/mytecor/r1s/meshbus/realm"
+	meshrns "github.com/mytecor/r1s/meshbus/rns"
 )
 
 const (
-	defaultAppName          = "r1s"
-	defaultAspect           = "allocator"
-	defaultAnnounceInterval = 5 * time.Minute
-	defaultNetworkWait      = 30 * time.Second
+	defaultAppName = "r1s"
+	defaultAspect  = "allocator"
 )
 
 var (
-	ErrInvalidConfig      = errors.New("invalid RNS transport configuration")
-	ErrNotStarted         = errors.New("RNS endpoint is not started")
-	ErrInvalidDestination = errors.New("invalid RNS destination")
+	ErrInvalidConfig         = meshrns.ErrInvalidConfig
+	ErrNotStarted            = meshrns.ErrNotStarted
+	ErrInvalidDestination    = meshrns.ErrInvalidDestination
+	ErrClusterAuthentication = meshrns.ErrRealmAuthentication
 )
 
-// Config defines one Reticulum endpoint. Production endpoints leave Reticulum
-// nil and require the platform-default shared instance. A non-nil Reticulum
-// config is reserved for deterministic and live standalone test harnesses.
+// Config defines the r1s-specific projection onto a reusable meshbus RNS
+// endpoint. Reticulum and Interfaces are test-harness overrides; production
+// endpoints attach to the platform-default shared instance.
 type Config struct {
-	Reticulum *common.ReticulumConfig
-	// connectShared is a test-only override for attaching production-mode
-	// endpoints to an isolated shared-instance listener.
-	connectShared sharedConnector
-	// IdentitySource is an existing or new identity file path, or a private
-	// RNS identity encoded in hex, Base32, or URL-safe Base64.
-	IdentitySource string
-	// EphemeralIdentity creates a fresh identity in memory. It is intended for
-	// one run-oriented client process and is mutually exclusive with
-	// IdentitySource; the private identity is never written to disk.
+	Reticulum         *common.ReticulumConfig
+	IdentitySource    string
 	EphemeralIdentity bool
-	// ClusterKey is the shared 256-bit membership secret. It is used only for
-	// local ID derivation and link challenge-response, and is never announced.
-	ClusterKey []byte
-	// Capacity advertises this endpoint as an allocator. An empty map creates a
-	// passive client endpoint that discovers allocators but does not announce one.
-	Capacity map[string]uint32
-	// Node is the endpoint's bounded placement advertisement. It is optional;
-	// when present, the announce descriptor carries the coarse os/arch/runtime
-	// summary and every offer embeds the full NodeCapabilities.
-	Node *r1sv1.NodeCapabilities
-	// Tunnel, when non-nil and enabled, advertises the allocator's tunnel
-	// Backbone/TCP listener (Ygg IPv6 host:port) plus the tunnel RNS destination
-	// hash through the announce descriptor (F21-02). It is the minimum needed
-	// for a client to create a private tunnel RNS transport; no Ygg public key
-	// is advertised. Nil (or Port == 0) advertises no tunnel endpoint.
-	Tunnel *TunnelAdvertisement
-
-	AppName          string
-	Aspect           string
-	AnnounceInterval time.Duration
-	NetworkWait      time.Duration
-	// Interfaces, when non-empty, replaces config-driven interface
-	// construction. Tests use this to inject wrapped interfaces (for example
-	// packet-loss capture) while keeping the transport machinery intact.
-	Interfaces []interfaces.Interface
+	ClusterKey        []byte
+	Capacity          map[string]uint32
+	Node              *r1sv1.NodeCapabilities
+	Tunnel            *TunnelAdvertisement
+	AppName           string
+	Aspect            string
+	AnnounceInterval  time.Duration
+	NetworkWait       time.Duration
+	Interfaces        []interfaces.Interface
 }
 
-// Service describes an allocator learned from an authenticated announce.
+// Service describes an allocator learned from a realm-validated r1s
+// descriptor.
 type Service struct {
 	Destination string
 	Identity    string
@@ -83,9 +58,7 @@ type Service struct {
 	Hops        uint8
 }
 
-// TunnelEndpoint returns the allocator's advertised tunnel Backbone/TCP
-// listener (host:port) and tunnel RNS destination hash, or false when the
-// allocator advertised no tunnel edge.
+// TunnelEndpoint returns the allocator's advertised tunnel endpoint.
 func (s Service) TunnelEndpoint() (host string, port int, destination string, ok bool) {
 	if s.Descriptor.TunnelPort <= 0 || s.Descriptor.TunnelHost == "" {
 		return "", 0, "", false
@@ -93,57 +66,19 @@ func (s Service) TunnelEndpoint() (host string, port int, destination string, ok
 	return s.Descriptor.TunnelHost, s.Descriptor.TunnelPort, s.Descriptor.TunnelDestination, true
 }
 
-// Endpoint is the r1s transport facade over authenticated meshbus direct
-// messages. Link establishment and Channel delivery remain behind it.
+// Endpoint is the thin r1s facade over a public meshbus RNS endpoint.
 type Endpoint struct {
-	mu          sync.Mutex
-	stack       *stack
-	identity    *identity.Identity
-	destination *destination.Destination
-	handler     meshbus.Handler
-	interval    time.Duration
-	networkWait time.Duration
-	name        string
-	advertises  bool
-	realm       *realm.Realm
-	clusterID   []byte
-
-	started      bool
-	closed       bool
-	connections  *connectionRegistry
-	discovered   chan Service
-	stopAnnounce context.CancelFunc
+	transport  *meshrns.Endpoint
+	identity   []byte
+	discovered chan Service
 }
 
 var _ coretransport.Endpoint = (*Endpoint)(nil)
 
-// New constructs an endpoint without starting network interfaces.
+// New constructs an r1s endpoint without starting its meshbus transport.
 func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	if handler == nil {
 		return nil, fmt.Errorf("%w: handler is required", ErrInvalidConfig)
-	}
-	return newEndpoint(config, envelopeHandler(handler))
-}
-
-func newEndpoint(config Config, handler meshbus.Handler) (*Endpoint, error) {
-	if handler == nil || (config.EphemeralIdentity == (strings.TrimSpace(config.IdentitySource) != "")) {
-		return nil, fmt.Errorf("%w: exactly one of identity source or ephemeral identity is required, along with a handler", ErrInvalidConfig)
-	}
-	clusterRealm, err := cluster.OpenRealm(config.ClusterKey)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
-	}
-	clusterID := clusterRealm.ID()
-	var descriptorData []byte
-	if len(config.Capacity) > 0 {
-		descriptor, err := newDescriptor(clusterID, config.Capacity, config.Node, config.Tunnel)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
-		}
-		descriptorData, err = descriptor.marshal()
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
-		}
 	}
 	if config.AppName == "" {
 		config.AppName = defaultAppName
@@ -151,85 +86,94 @@ func newEndpoint(config Config, handler meshbus.Handler) (*Endpoint, error) {
 	if config.Aspect == "" {
 		config.Aspect = defaultAspect
 	}
-	if config.AnnounceInterval == 0 {
-		config.AnnounceInterval = defaultAnnounceInterval
-	}
-	if config.AnnounceInterval < 0 {
-		return nil, fmt.Errorf("%w: announce interval must be positive", ErrInvalidConfig)
-	}
-	if config.NetworkWait == 0 {
-		config.NetworkWait = defaultNetworkWait
-	}
-	if config.NetworkWait < 0 {
-		return nil, fmt.Errorf("%w: network wait must be positive", ErrInvalidConfig)
-	}
 
-	var localIdentity *identity.Identity
-	if config.EphemeralIdentity {
-		localIdentity, err = identity.New()
-		if err != nil {
-			return nil, fmt.Errorf("generate ephemeral identity: %w", err)
-		}
-	} else {
-		localIdentity, err = loadOrCreateIdentity(config.IdentitySource)
-		if err != nil {
-			return nil, fmt.Errorf("load identity: %w", err)
-		}
-	}
-	rnsStack, err := newStack(config.Reticulum, config.Interfaces...)
+	discovered := make(chan Service, 32)
+	transport, err := meshrns.New(meshrns.Config{
+		Reticulum:         config.Reticulum,
+		IdentitySource:    config.IdentitySource,
+		EphemeralIdentity: config.EphemeralIdentity,
+		RealmKey:          config.ClusterKey,
+		RealmIDDomain:     cluster.RealmIDDomain,
+		RealmAuthDomain:   cluster.RealmAuthenticationDomain,
+		AppName:           config.AppName,
+		Aspect:            config.Aspect,
+		AnnounceInterval:  config.AnnounceInterval,
+		NetworkWait:       config.NetworkWait,
+		Interfaces:        config.Interfaces,
+		Codec: descriptorCodec{
+			capacity: config.Capacity,
+			node:     config.Node,
+			tunnel:   config.Tunnel,
+		},
+		Handler: envelopeHandler(handler),
+		OnDiscover: func(peer meshbus.PeerID, route string, hops uint8, _ map[string]string, appData []byte) {
+			descriptor, parseErr := parseDescriptor(appData)
+			if parseErr != nil {
+				return
+			}
+			service := Service{Destination: route, Identity: peer.String(), Descriptor: descriptor, Hops: hops}
+			select {
+			case discovered <- service:
+			default:
+			}
+		},
+	})
 	if err != nil {
-		return nil, fmt.Errorf("construct Reticulum stack: %w", err)
+		return nil, err
 	}
-	if config.connectShared != nil {
-		if !rnsStack.required {
-			return nil, fmt.Errorf("%w: shared-instance connector cannot be combined with a standalone Reticulum config", ErrInvalidConfig)
-		}
-		rnsStack.connect = config.connectShared
-	}
-	localDestination, err := destination.New(localIdentity, destination.In, destination.Single, config.AppName, rnsStack.transport, config.Aspect)
+	identityHash, err := hex.DecodeString(transport.Name())
 	if err != nil {
-		return nil, fmt.Errorf("construct RNS destination: %w", err)
+		_ = transport.Close()
+		return nil, fmt.Errorf("decode local identity: %w", err)
 	}
-	localDestination.AcceptsLinks(true)
-	localDestination.SetDefaultAppData(descriptorData)
-
-	endpoint := &Endpoint{
-		stack: rnsStack, identity: localIdentity, destination: localDestination,
-		handler: handler, interval: config.AnnounceInterval, networkWait: config.NetworkWait,
-		name: hex.EncodeToString(localIdentity.Hash()), realm: clusterRealm, clusterID: clusterID,
-		advertises:  len(descriptorData) > 0,
-		connections: newConnectionRegistry(), discovered: make(chan Service, 32),
-	}
-	localDestination.SetLinkEstablishedCallback(endpoint.acceptLink)
-	rnsStack.transport.RegisterAnnounceHandler(&announceHandler{endpoint: endpoint, aspect: config.AppName + "." + config.Aspect})
-	return endpoint, nil
+	return &Endpoint{transport: transport, identity: identityHash, discovered: discovered}, nil
 }
 
-// Name is the hex-encoded hash of the RNS identity.
-func (e *Endpoint) Name() string { return e.name }
-
-// Destination is the hex-encoded destination hash clients use for their first connection.
-func (e *Endpoint) Destination() string { return hex.EncodeToString(e.destination.GetHash()) }
-
-// Discoveries reports validated allocator announces. Delivery is best-effort and bounded.
+func (e *Endpoint) Name() string                { return e.transport.Name() }
+func (e *Endpoint) Destination() string         { return e.transport.Destination() }
 func (e *Endpoint) Discoveries() <-chan Service { return e.discovered }
-
-// DestinationForIdentity returns the last authenticated allocator destination
-// learned through an announce or an outbound session.
-func (e *Endpoint) DestinationForIdentity(identityHash string) (string, bool) {
-	key := strings.ToLower(strings.TrimSpace(identityHash))
-	destinationHash, ok := e.connections.destination(key)
-	if !ok {
-		return "", false
-	}
-	return hex.EncodeToString(destinationHash), true
+func (e *Endpoint) Start(ctx context.Context) error {
+	return e.transport.Start(ctx)
+}
+func (e *Endpoint) Close() error { return e.transport.Close() }
+func (e *Endpoint) DestinationForIdentity(identity string) (string, bool) {
+	return e.transport.DestinationForIdentity(identity)
 }
 
-func parseDestination(value string) ([]byte, string, error) {
-	value = strings.ToLower(strings.TrimSpace(value))
-	decoded, err := hex.DecodeString(value)
-	if err != nil || len(decoded) != 16 {
-		return nil, "", fmt.Errorf("%w: expected a 32-character hex hash", ErrInvalidDestination)
+type descriptorCodec struct {
+	capacity map[string]uint32
+	node     *r1sv1.NodeCapabilities
+	tunnel   *TunnelAdvertisement
+}
+
+func (c descriptorCodec) Build(realmID, _ []byte) ([]byte, error) {
+	if len(c.capacity) == 0 {
+		return nil, nil
 	}
-	return decoded, value, nil
+	descriptor, err := newDescriptor(realmID, c.capacity, c.node, c.tunnel)
+	if err != nil {
+		return nil, err
+	}
+	return descriptor.marshal()
+}
+
+func (descriptorCodec) Parse(appData, expectedRealmID []byte) (map[string]string, error) {
+	descriptor, err := parseDescriptor(appData)
+	if err != nil {
+		return nil, err
+	}
+	announcedRealm, err := hex.DecodeString(descriptor.ClusterID)
+	if err != nil || !bytes.Equal(announcedRealm, expectedRealmID) {
+		return nil, meshrns.ErrRealmMismatch
+	}
+	return map[string]string{}, nil
+}
+
+func translateSendError(err error) error {
+	switch {
+	case errors.Is(err, meshrns.ErrClosed):
+		return coretransport.ErrEndpointClosed
+	default:
+		return err
+	}
 }

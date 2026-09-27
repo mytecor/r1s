@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/sharedinstance"
+	rnstransport "github.com/Quad4-Software/Reticulum-Go/pkg/transport"
 	"github.com/mytecor/r1s/meshbus"
 )
 
@@ -26,6 +29,19 @@ func freeUDPPort(t *testing.T) int {
 		t.Fatal(err)
 	}
 	port := listener.LocalAddr().(*net.UDPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -214,6 +230,89 @@ func TestDiscoveredPeerReceivesDirectBytesWithoutR1s(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("direct meshbus bytes were not delivered")
+	}
+}
+
+func TestEndpointsExchangeDirectBytesThroughSharedInstance(t *testing.T) {
+	port := freeTCPPort(t)
+	serverConfig := common.NewReticulumConfig()
+	serverConfig.EnableTransport = true
+	serverConfig.InMemoryStorage = true
+	serverTransport := rnstransport.NewTransport(serverConfig)
+	if err := serverTransport.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := serverTransport.InitializePathRequestHandler(); err != nil {
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	server, err := interfaces.NewLocalServerInterface(port, "", false, func(client *interfaces.LocalClientInterface) {
+		if registerErr := serverTransport.RegisterInterface(client.GetName(), &serializedLocalClient{LocalClientInterface: client}); registerErr != nil {
+			_ = client.Stop()
+		}
+	}, nil)
+	if err != nil {
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	if err := server.Start(); err != nil {
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	if err := serverTransport.RegisterInterface(server.GetName(), server); err != nil {
+		_ = server.Stop()
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = server.Stop()
+		_ = serverTransport.Close()
+	})
+
+	connector := func(transport *rnstransport.Transport) (*sharedinstance.Instance, error) {
+		return connectSharedInstanceAt(transport, port, "", false)
+	}
+	received := make(chan meshbus.ReceivedMessage, 1)
+	client, err := New(Config{
+		connectShared: connector, EphemeralIdentity: true, RealmKey: testRealmKey(),
+		Codec: passiveCodec{}, Handler: func(context.Context, meshbus.ReceivedMessage) error { return nil }, NetworkWait: 8 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocator, err := New(Config{
+		connectShared: connector, EphemeralIdentity: true, RealmKey: testRealmKey(),
+		Handler: func(_ context.Context, message meshbus.ReceivedMessage) error { received <- message; return nil }, NetworkWait: 8 * time.Second,
+	})
+	if err != nil {
+		_ = client.Close()
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for _, endpoint := range []*Endpoint{client, allocator} {
+		if err := endpoint.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = endpoint.Close() })
+	}
+	if client.stack.shared.Mode != sharedinstance.ModeClient || allocator.stack.shared.Mode != sharedinstance.ModeClient {
+		t.Fatalf("endpoint shared modes = %v, %v; want ModeClient", client.stack.shared.Mode, allocator.stack.shared.Mode)
+	}
+
+	waitForPeer(t, client, allocator.Name())
+	sendContext, stop := context.WithTimeout(context.Background(), 8*time.Second)
+	defer stop()
+	if err := client.SendMessage(sendContext, client.Peers()[0].Route, []byte("shared-instance")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case message := <-received:
+		if string(message.Payload()) != "shared-instance" || message.Sender().String() != client.Name() {
+			t.Fatalf("message sender=%s payload=%q", message.Sender().String(), message.Payload())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("direct message was not delivered through shared instance")
 	}
 }
 

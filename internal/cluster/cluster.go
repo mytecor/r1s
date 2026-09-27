@@ -19,12 +19,12 @@ import (
 )
 
 const (
-	KeySize        = realm.KeySize
-	tokenPrefix    = "r1s1:"
-	stateVersion   = 1
-	idDomain       = "r1s-cluster-id-v1"
-	authDomain     = "r1s-auth-v1"
-	DefaultRelPath = ".config/r1s/clusters"
+	KeySize                   = realm.KeySize
+	tokenPrefix               = "r1s1:"
+	stateVersion              = 1
+	RealmIDDomain             = "r1s-cluster-id-v1"
+	RealmAuthenticationDomain = "r1s-auth-v1"
+	DefaultRelPath            = ".config/r1s/clusters"
 )
 
 var (
@@ -69,8 +69,8 @@ func OpenRealm(key []byte) (*realm.Realm, error) {
 	}
 	opened, err := realm.Open(realm.Config{
 		Key:                  key,
-		IDDomain:             idDomain,
-		AuthenticationDomain: authDomain,
+		IDDomain:             RealmIDDomain,
+		AuthenticationDomain: RealmAuthenticationDomain,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open cluster realm: %w", err)

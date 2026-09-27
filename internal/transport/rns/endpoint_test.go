@@ -12,30 +12,32 @@ import (
 	"time"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
-	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
-	"github.com/Quad4-Software/Reticulum-Go/pkg/sharedinstance"
-	rnstransport "github.com/Quad4-Software/Reticulum-Go/pkg/transport"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/meshbus"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestDeliverReplacesForgedSenderBeforeValidation(t *testing.T) {
+func TestEnvelopeHandlerReplacesForgedSenderBeforeValidation(t *testing.T) {
 	authenticated := bytes.Repeat([]byte{0x42}, 16)
 	received := make(chan *r1sv1.Envelope, 1)
-	endpoint := &Endpoint{handler: envelopeHandler(func(_ context.Context, envelope *r1sv1.Envelope) error {
+	handler := envelopeHandler(func(_ context.Context, envelope *r1sv1.Envelope) error {
 		received <- envelope
 		return nil
-	})}
+	})
 	envelope := validEnvelope()
 	envelope.Sender = []byte("forged")
 	data, err := proto.Marshal(envelope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint.deliver(&session{sender: authenticated, authenticated: true}, data)
-
+	message, err := meshbus.NewReceivedMessage(authenticated, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := handler(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case delivered := <-received:
 		if !bytes.Equal(delivered.GetSender(), authenticated) {
@@ -46,64 +48,30 @@ func TestDeliverReplacesForgedSenderBeforeValidation(t *testing.T) {
 	}
 }
 
-func TestDeliverRejectsUnauthenticatedAndInvalidEnvelopes(t *testing.T) {
+func TestEnvelopeHandlerRejectsMalformedAndInvalidEnvelopes(t *testing.T) {
 	called := make(chan struct{}, 1)
-	endpoint := &Endpoint{handler: envelopeHandler(func(context.Context, *r1sv1.Envelope) error {
+	handler := envelopeHandler(func(context.Context, *r1sv1.Envelope) error {
 		called <- struct{}{}
 		return nil
-	})}
-	validData, err := proto.Marshal(validEnvelope())
-	if err != nil {
-		t.Fatal(err)
+	})
+	for _, payload := range [][]byte{[]byte("not protobuf"), {0x78, 0x01}} {
+		message, err := meshbus.NewReceivedMessage(bytes.Repeat([]byte{1}, 16), payload)
+		if err != nil {
+			continue
+		}
+		if err := handler(context.Background(), message); err != nil {
+			t.Fatal(err)
+		}
 	}
-	endpoint.deliver(&session{}, validData)
-	endpoint.deliver(&session{sender: bytes.Repeat([]byte{1}, 16), authenticated: true}, []byte("not protobuf"))
 	select {
 	case <-called:
-		t.Fatal("handler called for unauthenticated or invalid data")
+		t.Fatal("handler called for malformed or invalid data")
 	case <-time.After(20 * time.Millisecond):
 	}
 }
 
-func TestDeliverExposesOpaquePayloadOnlyWithAuthenticatedPeer(t *testing.T) {
-	authenticated := bytes.Repeat([]byte{0x33}, 16)
-	received := make(chan meshbus.ReceivedMessage, 1)
-	endpoint := &Endpoint{handler: func(_ context.Context, message meshbus.ReceivedMessage) error {
-		received <- message
-		return nil
-	}}
-	endpoint.deliver(&session{}, []byte("unauthenticated"))
-	endpoint.deliver(&session{sender: authenticated, authenticated: true}, []byte("opaque"))
-
-	select {
-	case delivered := <-received:
-		if !bytes.Equal(delivered.Sender().Bytes(), authenticated) || string(delivered.Payload()) != "opaque" {
-			t.Fatalf("direct message sender=%x payload=%q", delivered.Sender().Bytes(), delivered.Payload())
-		}
-	case <-time.After(time.Second):
-		t.Fatal("authenticated direct message was not delivered")
-	}
-}
-
-func TestParseDestination(t *testing.T) {
-	want := bytes.Repeat([]byte{0xab}, 16)
-	got, key, err := parseDestination("  ABABABABABABABABABABABABABABABAB  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, want) || key != "abababababababababababababababab" {
-		t.Fatalf("destination = %x, key = %q", got, key)
-	}
-	if _, _, err := parseDestination("short"); err == nil {
-		t.Fatal("invalid destination accepted")
-	}
-}
-
 func TestEphemeralEndpointsReceiveFreshInMemoryIdentities(t *testing.T) {
-	config := Config{
-		EphemeralIdentity: true,
-		ClusterKey:        testClusterKey(),
-	}
+	config := Config{EphemeralIdentity: true, ClusterKey: testClusterKey()}
 	first, err := New(config, func(context.Context, *r1sv1.Envelope) error { return nil })
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +90,7 @@ func TestEphemeralEndpointsReceiveFreshInMemoryIdentities(t *testing.T) {
 	}
 }
 
-func TestEndpointsExchangeAuthenticatedEnvelopeOverUDP(t *testing.T) {
+func TestEndpointsExchangeAuthenticatedEnvelopeOverPublicMeshbusAdapter(t *testing.T) {
 	portA := freeUDPPort(t)
 	portB := freeUDPPort(t)
 	for portB == portA {
@@ -130,32 +98,23 @@ func TestEndpointsExchangeAuthenticatedEnvelopeOverUDP(t *testing.T) {
 	}
 	root := t.TempDir()
 	received := make(chan *r1sv1.Envelope, 1)
-	replies := make(chan *r1sv1.Envelope, 1)
-	endpointA := newTestEndpointWithCapacity(t, filepath.Join(root, "a"), portA, portB, nil, func(_ context.Context, envelope *r1sv1.Envelope) error {
-		replies <- envelope
-		return nil
-	})
-	if endpointA.advertises {
-		t.Fatal("passive client endpoint advertises allocator capacity")
-	}
-	endpointB := newTestEndpoint(t, filepath.Join(root, "b"), portB, portA, func(_ context.Context, envelope *r1sv1.Envelope) error {
+	client := newTestEndpointWithCapacity(t, filepath.Join(root, "client"), portA, portB, nil, func(context.Context, *r1sv1.Envelope) error { return nil })
+	allocator := newTestEndpoint(t, filepath.Join(root, "allocator"), portB, portA, func(_ context.Context, envelope *r1sv1.Envelope) error {
 		received <- envelope
 		return nil
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := endpointA.Start(ctx); err != nil {
-		t.Fatal(err)
+	for _, endpoint := range []*Endpoint{client, allocator} {
+		if err := endpoint.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = endpoint.Close() })
 	}
-	t.Cleanup(func() { _ = endpointA.Close() })
-	if err := endpointB.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = endpointB.Close() })
 
 	select {
-	case service := <-endpointA.Discoveries():
-		if service.Destination != endpointB.Destination() || service.Descriptor.Capacity["default"] != 1 {
+	case service := <-client.Discoveries():
+		if service.Destination != allocator.Destination() || service.Identity != allocator.Name() || service.Descriptor.Capacity["default"] != 1 {
 			t.Fatalf("service = %+v", service)
 		}
 	case <-time.After(5 * time.Second):
@@ -166,181 +125,17 @@ func TestEndpointsExchangeAuthenticatedEnvelopeOverUDP(t *testing.T) {
 	envelope.Sender = []byte("forged-payload-sender")
 	sendContext, stopSend := context.WithTimeout(context.Background(), 8*time.Second)
 	defer stopSend()
-	if err := endpointA.Send(sendContext, endpointB.Destination(), envelope); err != nil {
+	if err := client.Send(sendContext, allocator.Destination(), envelope); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case delivered := <-received:
-		want, err := hex.DecodeString(endpointA.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
+		want, _ := hex.DecodeString(client.Name())
 		if !bytes.Equal(delivered.GetSender(), want) {
 			t.Fatalf("sender = %x, want authenticated identity %x", delivered.GetSender(), want)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("envelope was not delivered")
-	}
-
-	destinationHash, _, err := parseDestination(endpointB.Destination())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, active := endpointA.connections.resolve(destinationHash, endpointB.Destination())
-	if active == nil {
-		t.Fatal("outbound session was not cached")
-	}
-	active.link.Teardown()
-	endpointA.stack.transport.ExpirePath(destinationHash)
-
-	reconnected := validEnvelope()
-	reconnected.MessageId = "after-reconnect"
-	if err := endpointA.Send(sendContext, endpointB.Destination(), reconnected); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case delivered := <-received:
-		if delivered.GetMessageId() != "after-reconnect" {
-			t.Fatalf("message after reconnect = %q", delivered.GetMessageId())
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("envelope was not delivered after path and link reconnect")
-	}
-
-	release := validEnvelope()
-	release.MessageId = "release"
-	release.Payload = &r1sv1.Envelope_ExecutionOfferRelease{ExecutionOfferRelease: &r1sv1.ExecutionOfferRelease{RequestId: "request", OfferId: "offer"}}
-	if err := endpointA.Send(sendContext, endpointB.Destination(), release); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case delivered := <-received:
-		if !proto.Equal(delivered.GetExecutionOfferRelease(), release.GetExecutionOfferRelease()) {
-			t.Fatalf("release payload=%v", delivered)
-		}
-		wantSender, _ := hex.DecodeString(endpointA.Name())
-		if !bytes.Equal(delivered.GetSender(), wantSender) {
-			t.Fatal("release sender is not authenticated")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("release not delivered")
-	}
-	ack := validEnvelope()
-	ack.MessageId, ack.CorrelationId = "release-ack", "release"
-	ack.Payload = &r1sv1.Envelope_ExecutionOfferReleaseAck{ExecutionOfferReleaseAck: &r1sv1.ExecutionOfferReleaseAck{RequestId: "request", OfferId: "offer", Outcome: r1sv1.OfferReleaseOutcome_OFFER_RELEASE_OUTCOME_RELEASED}}
-	if err := endpointB.Send(sendContext, endpointA.Name(), ack); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case delivered := <-replies:
-		wantSender, _ := hex.DecodeString(endpointB.Name())
-		if !proto.Equal(delivered.GetExecutionOfferReleaseAck(), ack.GetExecutionOfferReleaseAck()) || delivered.GetCorrelationId() != "release" || !bytes.Equal(delivered.GetSender(), wantSender) {
-			t.Fatalf("release acknowledgement=%v", delivered)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("release acknowledgement not delivered")
-	}
-}
-
-func TestEndpointsExchangeAuthenticatedEnvelopeThroughSharedInstance(t *testing.T) {
-	port := freeTCPPort(t)
-	serverConfig := common.NewReticulumConfig()
-	serverConfig.EnableTransport = true
-	serverConfig.InMemoryStorage = true
-	serverTransport := rnstransport.NewTransport(serverConfig)
-	if err := serverTransport.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if err := serverTransport.InitializePathRequestHandler(); err != nil {
-		_ = serverTransport.Close()
-		t.Fatal(err)
-	}
-	server, err := interfaces.NewLocalServerInterface(port, "", false, func(client *interfaces.LocalClientInterface) {
-		if registerErr := serverTransport.RegisterInterface(client.GetName(), &serializedLocalClient{LocalClientInterface: client}); registerErr != nil {
-			_ = client.Stop()
-		}
-	}, nil)
-	if err != nil {
-		_ = serverTransport.Close()
-		t.Fatal(err)
-	}
-	if err := server.Start(); err != nil {
-		_ = serverTransport.Close()
-		t.Fatal(err)
-	}
-	if err := serverTransport.RegisterInterface(server.GetName(), server); err != nil {
-		_ = server.Stop()
-		_ = serverTransport.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = server.Stop()
-		_ = serverTransport.Close()
-	})
-
-	connector := func(transport *rnstransport.Transport) (*sharedinstance.Instance, error) {
-		return connectSharedInstanceAt(transport, port, "", false)
-	}
-	received := make(chan *r1sv1.Envelope, 1)
-	client, err := New(Config{
-		connectShared:  connector,
-		IdentitySource: filepath.Join(t.TempDir(), "client.identity"),
-		ClusterKey:     testClusterKey(),
-		NetworkWait:    8 * time.Second,
-	}, func(context.Context, *r1sv1.Envelope) error { return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-	allocator, err := New(Config{
-		connectShared:  connector,
-		IdentitySource: filepath.Join(t.TempDir(), "allocator.identity"),
-		ClusterKey:     testClusterKey(),
-		Capacity:       map[string]uint32{"default": 1},
-		NetworkWait:    8 * time.Second,
-	}, func(_ context.Context, envelope *r1sv1.Envelope) error {
-		received <- envelope
-		return nil
-	})
-	if err != nil {
-		_ = client.Close()
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = client.Close() })
-	if err := allocator.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = allocator.Close() })
-	if client.stack.shared.Mode != sharedinstance.ModeClient || allocator.stack.shared.Mode != sharedinstance.ModeClient {
-		t.Fatalf("endpoint shared modes = %v, %v; want ModeClient", client.stack.shared.Mode, allocator.stack.shared.Mode)
-	}
-
-	select {
-	case service := <-client.Discoveries():
-		if service.Destination != allocator.Destination() {
-			t.Fatalf("discovered destination = %s, want %s", service.Destination, allocator.Destination())
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("allocator announce was not discovered through shared instance")
-	}
-
-	sendContext, stop := context.WithTimeout(context.Background(), 8*time.Second)
-	defer stop()
-	if err := client.Send(sendContext, allocator.Destination(), validEnvelope()); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case envelope := <-received:
-		want, _ := hex.DecodeString(client.Name())
-		if !bytes.Equal(envelope.GetSender(), want) {
-			t.Fatalf("sender = %x, want authenticated identity %x", envelope.GetSender(), want)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("control envelope was not delivered through shared instance")
 	}
 }
 
@@ -361,14 +156,12 @@ func TestMismatchedClusterIsNotDiscoveredOrAuthorized(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := client.Start(ctx); err != nil {
-		t.Fatal(err)
+	for _, endpoint := range []*Endpoint{client, allocator} {
+		if err := endpoint.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = endpoint.Close() })
 	}
-	t.Cleanup(func() { _ = client.Close() })
-	if err := allocator.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = allocator.Close() })
 	select {
 	case service := <-client.Discoveries():
 		t.Fatalf("foreign cluster discovered: %+v", service)
@@ -395,19 +188,11 @@ func newTestEndpointWithCluster(t *testing.T, storage string, listenPort, target
 	config.EnableTransport = false
 	config.ConfigPath = storage
 	config.Interfaces = map[string]*common.InterfaceConfig{
-		"test": {
-			Type:       "UDPInterface",
-			Enabled:    true,
-			Address:    fmt.Sprintf("127.0.0.1:%d", listenPort),
-			TargetHost: fmt.Sprintf("127.0.0.1:%d", targetPort),
-		},
+		"test": {Type: "UDPInterface", Enabled: true, Address: fmt.Sprintf("127.0.0.1:%d", listenPort), TargetHost: fmt.Sprintf("127.0.0.1:%d", targetPort)},
 	}
 	endpoint, err := New(Config{
-		Reticulum:      config,
-		IdentitySource: filepath.Join(storage, "r1sd.identity"),
-		ClusterKey:     key,
-		Capacity:       capacity,
-		NetworkWait:    8 * time.Second,
+		Reticulum: config, IdentitySource: filepath.Join(storage, "r1sd.identity"), ClusterKey: key,
+		Capacity: capacity, NetworkWait: 8 * time.Second,
 	}, handler)
 	if err != nil {
 		t.Fatal(err)
@@ -430,26 +215,9 @@ func freeUDPPort(t *testing.T) int {
 	return port
 }
 
-func freeTCPPort(t *testing.T) int {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return port
-}
-
 func validEnvelope() *r1sv1.Envelope {
 	return &r1sv1.Envelope{
-		MessageId: "message",
-		Sender:    []byte("payload-sender"),
-		SentAt:    timestamppb.Now(),
-		Payload: &r1sv1.Envelope_ExecutionCancel{
-			ExecutionCancel: &r1sv1.ExecutionCancel{ExecutionId: "execution"},
-		},
+		MessageId: "message", Sender: []byte("payload-sender"), SentAt: timestamppb.Now(),
+		Payload: &r1sv1.Envelope_ExecutionCancel{ExecutionCancel: &r1sv1.ExecutionCancel{ExecutionId: "execution"}},
 	}
 }

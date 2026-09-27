@@ -1,6 +1,6 @@
 # F24-06 — Move r1s onto the public meshbus transport
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete
 
 ## Outcome
 
@@ -66,3 +66,25 @@ allocator catalog
 - Foreign cluster/realm traffic remains rejected.
 - Existing reconnect, shared-instance and Python compatibility tests pass.
 - `make check` passes.
+
+## Implementation notes
+
+The r1s [`internal/transport/rns`](../../internal/transport/rns) package is now a thin application
+adapter over the public [`meshbus/rns`](../../meshbus/rns) endpoint. It retains only the established
+`r1s.v1` allocator descriptor, placement/capacity/tunnel projection, Protobuf envelope
+encoding/validation, and the allocator discovery channel used by the client and authority broker.
+
+The duplicated RNS stack, identity loader, announces, path lookup, Links, Channels, realm
+challenge-response, pre-authentication buffers, connection registry, reconnect behavior, and
+direct-message delivery were removed from the internal package. Identity helpers used by `r1sd`
+delegate to `meshbus/rns` rather than maintaining a second implementation.
+
+r1s configures the public adapter with the existing `r1s-cluster-id-v1` and `r1s-auth-v1`
+compatibility domains and supplies a `PresenceCodec` for the existing descriptor bytes. The codec
+rejects foreign cluster IDs before discovery, while the envelope handler always replaces the
+serialized sender with the authenticated `meshbus.ReceivedMessage` sender before validation.
+
+Deterministic tests cover r1s descriptor discovery and authenticated envelope exchange through the
+public adapter, forged-sender replacement, foreign-realm rejection, generic reconnect behavior,
+and direct delivery through a required shared instance. The existing Python-reference compatibility
+harness remains at the r1s adapter boundary because it exchanges r1s Protobuf envelopes.

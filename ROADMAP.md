@@ -300,7 +300,7 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 - **Status:** 🚧 in progress — F24-01 extracts realm membership, F24-02 separates authenticated
   direct messages, F24-03 adds bounded one-hop pub/sub, F24-04 introduces the generic
   transport-independent peer discovery contract (`PeerDirectory`), and F24-05 extracts the reusable
-  `meshbus/rns` adapter (complete). F24-06 moves r1s onto that public adapter, and F24-07 adds a
+  `meshbus/rns` adapter, and F24-06 moved r1s onto that public adapter (complete). F24-07 adds a
   cohesive application-facing Node API.
 - **Done when:** r1s composes its control protocol over a reusable meshbus direct-message boundary;
   authenticated realm peers can publish best-effort, TTL-bounded, deduplicated events by fan-out;
@@ -315,19 +315,20 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   and bounded pub/sub boundaries. r1s keeps the `cluster` CLI, token format, credential store,
   established ID/authentication domains, and its Protobuf control semantics. Pub/sub is one-hop
   fan-out with exact local topics, TTL, bounded deduplication and backpressure; r1s does not recast
-  execution messages as events. The remaining extraction is split into four tasks: F24-04 fixed a
-  transport-independent peer discovery contract (`PeerDirectory`), F24-05 physically extracts a
-  reusable `meshbus/rns` adapter, F24-06 moves r1s onto that adapter so only r1s-specific
-  adaptation stays in `internal/transport/rns`, and F24-07 adds a cohesive Node API so
+  execution messages as events. F24-04 fixed a transport-independent peer discovery contract
+  (`PeerDirectory`), F24-05 physically extracted a reusable `meshbus/rns` adapter, and F24-06 moved
+  r1s onto that adapter so only r1s-specific adaptation stays in `internal/transport/rns`. The
+  remaining F24-07 task adds a cohesive Node API so
   applications do not hand-wire `Realm + RNS adapter + PeerDirectory + Bus`. After F24-07, F24
   closes without subscription gossip, multi-hop routing, persistence or ACK — meshbus stays a
   small brokerless primitive. F24-05 is complete: the public `meshbus/rns` package owns the generic
   RNS machinery (identity, destinations, announces, Links, realm authentication, Channels, direct
   delivery, session reuse, peer routes, pre-auth buffering, PeerDirectory integration) behind a
   pluggable `PresenceCodec` whose default is the bounded `meshbus.v1` presence descriptor, and it
-  exposes `SendMessage`/`ReceivedMessage`/`Peers`/`Routes` without importing r1s. Only the r1s
-  descriptor, the Protobuf envelope, and r1s-specific adaptation remain in
-  `internal/transport/rns` pending F24-06.
+  exposes `SendMessage`/`ReceivedMessage`/`Peers`/`Routes` without importing r1s. F24-06 is complete:
+  the duplicated internal RNS machinery is removed, and only the r1s descriptor, Protobuf envelope,
+  allocator discovery projection, and compatibility-domain configuration remain in
+  `internal/transport/rns`.
 
 - [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
   explicitly renewed client-held lease instead of a request-time deadline. Under F22 the lease is

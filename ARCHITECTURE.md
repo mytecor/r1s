@@ -58,7 +58,7 @@ internal/protocol/      message validation and compatibility
 internal/client/         in-memory request state, offer selection, and observed execution state
 internal/cluster/        r1s cluster naming, join token, credential store, and realm compatibility profile
 internal/allocator/     offers, capacity, assignment, authorization
-internal/transport/     transport boundary and RNS adapter
+internal/transport/     transport boundary and r1s-specific meshbus adaptation
 internal/runtime/       runtime boundary and containerd adapter
 ```
 
@@ -111,7 +111,7 @@ The generic event wire form is versioned independently with the `MBE` v1 marker.
 ID, topic, publication time, TTL, content type, and opaque payload, but never a sender. On receive,
 the sender is taken exclusively from the enclosing authenticated direct message. r1s does not
 instantiate the event bus, so the existing r1s Protobuf wire protocol and behavior are unchanged.
-The remaining extraction completes in four steps: F24-04 fixed the transport-independent peer
+The staged extraction uses four final steps: F24-04 fixed the transport-independent peer
 discovery contract (`PeerDirectory`) — a bounded, copy-safe directory of authenticated
 `PeerID`s with opaque routes and advisory metadata, named a directory rather than a cluster
 because the realm is a security boundary while the directory is only observable network state.
@@ -121,7 +121,7 @@ authentication, Channels, direct delivery, session reuse, peer routes, pre-auth 
 PeerDirectory integration — behind a pluggable `PresenceCodec` whose default is the bounded
 `meshbus.v1` presence descriptor, exposing `SendMessage`/`ReceivedMessage`/`Peers`/`Routes`
 without importing r1s),
-F24-06 moves r1s onto that adapter (only r1s-specific adaptation stays in `internal/transport/rns`), and F24-07 adds a cohesive application-facing Node API. After F24-07,
+F24-06 moved r1s onto that adapter (only r1s-specific adaptation stays in `internal/transport/rns`), and F24-07 adds a cohesive application-facing Node API. After F24-07,
 meshbus is complete as a small brokerless primitive.
 
 ## Commands

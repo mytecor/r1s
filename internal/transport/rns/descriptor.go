@@ -1,4 +1,4 @@
-// Package rns implements authenticated r1s envelope delivery over Reticulum-Go.
+// Package rns adapts r1s descriptors and envelopes to meshbus transports.
 package rns
 
 import (

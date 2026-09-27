@@ -39,13 +39,13 @@ func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Enve
 		return fmt.Errorf("%w: envelope is required", coretransport.ErrInvalidEndpoint)
 	}
 	cloned := proto.Clone(envelope).(*r1sv1.Envelope)
-	cloned.Sender = bytes.Clone(e.identity.Hash())
+	cloned.Sender = bytes.Clone(e.identity)
 	data, err := proto.Marshal(cloned)
 	if err != nil {
 		return fmt.Errorf("marshal envelope: %w", err)
 	}
-	if err := e.SendMessage(ctx, target, data); err != nil {
-		return err
+	if err := e.transport.SendMessage(ctx, target, data); err != nil {
+		return translateSendError(err)
 	}
 	return nil
 }
