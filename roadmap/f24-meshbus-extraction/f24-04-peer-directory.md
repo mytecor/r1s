@@ -1,76 +1,61 @@
 # F24-04 — Extract generic peer discovery
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete
 
 ## Outcome
 
-Move the generic concept of realm peer discovery out of the r1s RNS transport. This task
-introduces the transport-independent discovery contract only; Reticulum-Go code is not moved yet.
-After this task, meshbus can represent discovered peers independently of Reticulum and
-independently of r1s allocator descriptors.
+The public [`meshbus`](../../meshbus) package now owns the transport-independent realm peer
+discovery contract. `meshbus.PeerDirectory` is a bounded, observable directory of authenticated
+realm peers learned through discovery — named a directory, not a cluster, because the **realm is
+a security boundary**, whereas the directory is only the observable state of the network.
 
-The entity is named `PeerDirectory`/`PeerStore`, not `Cluster`, because the **realm is a security
-boundary**, whereas the directory is only the observable state of the network.
+A discovered [`Peer`](../../meshbus/peer.go) carries:
 
-## Context
+- an authenticated/public `PeerID` established by the transport;
+- an opaque `Route` used to reach the peer (never an authenticated sender identity);
+- optional bounded `Metadata` (advisory application hints such as os/arch);
+- an optional advisory `Hops` path metric such as hop count; and
+- a local `LastSeen` timestamp used for deterministic stale expiry.
 
-The current discovery implementation lives in:
+The generic package imports only the Go standard library. No Reticulum-Go and no r1s protocol,
+allocator, runtime, or command types enter `meshbus`.
 
-- `internal/transport/rns/discovery.go`
-- `internal/transport/rns/endpoint.go`
-- `internal/transport/rns/connections.go`
+## Directory behaviour
 
-The current `Service` and `Descriptor` types are r1s-specific and expose allocator capacity,
-placement hints and tunnel metadata. meshbus needs only enough information to identify and route
-to peers in the same authenticated realm.
+- `Remember(Peer)` adds a peer keyed by authenticated `PeerID`, or updates an existing peer in
+  place — a duplicate discovery never creates a second entry.
+- `Resolve(PeerID)` returns the current transport route for an identity.
+- `Get(PeerID)` returns one immutable copy of a peer.
+- `Peers()` returns a bounded, copy-safe, identity-ordered snapshot for fan-out.
+- `Routes()` returns the bounded route snapshot consumed by `meshbus.Bus` fan-out via
+  `PeerSourceFunc`.
+- `Remove(PeerID)` forgets a peer; `ExpireStale(age)` deterministically ages out idle peers.
+- `Len()` reports the current count.
 
-## Scope
+## Resource bounds
 
-Introduce transport-independent peer discovery primitives under `meshbus`. A discovered peer
-should contain at minimum:
+- `MaxPeers` (default 1024) caps remembered peers; new identities are rejected at capacity while
+  updates to known identities still succeed.
+- `MaxMetadataBytes` (default 4096) caps the total application-metadata bytes carried on each peer
+  record.
+- `Peers()` and `Routes()` return immutable copies, so a caller mutating a snapshot or its
+  metadata cannot corrupt the directory.
 
-- authenticated/public `PeerID`;
-- transport route/address represented opaquely;
-- optional bounded application metadata;
-- optional advisory path metric such as hop count.
+## Authority and limits
 
-Add a peer registry/directory that can:
-
-- remember discovered peers;
-- update an existing peer;
-- resolve a `PeerID` to its current transport route;
-- return a bounded snapshot of known peers for pub/sub fan-out;
-- remove or expire stale entries.
-
-The directory must have explicit resource bounds.
-
-Discovery is advisory only. Presence must not grant application authorization.
-
-Do not put allocator capacity, runtime, tunnel information, execution roles or r1s protocol types
-into meshbus.
-
-## Constraints
-
-- No Reticulum-Go imports in the generic meshbus package.
-- No r1s imports.
-- Peer identity must never come from untrusted application metadata.
-- A route learned through discovery is not an authenticated sender identity.
-- Do not add durable membership or a globally authoritative peer list.
-- Do not add gossip or subscription advertisement.
+Discovery is advisory only. Peer identity never comes from application metadata; a record without
+an authenticated identity is rejected regardless of its route. A route learned through discovery
+is never an authenticated sender identity — `ReceivedMessage.Sender` still comes only from the
+transport session. The directory adds no durable membership, no globally authoritative peer list,
+and no gossip or subscription advertisement.
 
 ## Acceptance
 
 - meshbus peer discovery primitives import only the Go standard library.
-- Peer snapshots are immutable/copy-safe.
+- Peer snapshots are immutable and copy-safe.
 - Duplicate discoveries update one peer instead of creating duplicates.
-- Peer count and metadata size are bounded.
-- Stale peers can be expired deterministically.
-- Bus can consume the peer directory snapshot without r1s types.
-- Deterministic tests cover update, expiry, bounds and copy safety.
+- Peer count and metadata size are bounded, with `ErrPeerLimit` and `ErrMetadataLimit`.
+- Stale peers expire deterministically from `LastSeen`.
+- The Bus consumes the peer-directory route snapshot without r1s types.
+- Deterministic tests cover update, expiry, bounds, and copy safety.
 - `make check` passes.
-
-## Notes
-
-This is the foundation layer. F24-05 is deliberately kept separate so the clean
-transport-independent discovery contract is fixed before the current r1s-shaped
-`internal/transport/rns` architecture is carried out of the tree.
