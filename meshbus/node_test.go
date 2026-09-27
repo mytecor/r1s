@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -20,18 +21,18 @@ func newMemoryNetwork() *memoryNetwork {
 }
 
 type memoryNodeTransport struct {
-	network   *memoryNetwork
-	id        PeerID
-	route     string
-	handler   Handler
-	directory *PeerDirectory
+	network  *memoryNetwork
+	id       PeerID
+	route    string
+	handler  Handler
+	observer PeerObserver
 
 	mu      sync.RWMutex
 	started bool
 	closed  bool
 }
 
-func (n *memoryNetwork) factory(identity byte, directoryConfig DirectoryConfig, capture **memoryNodeTransport) TransportFactory {
+func (n *memoryNetwork) factory(identity byte, capture **memoryNodeTransport) TransportFactory {
 	return func(handler Handler) (NodeTransport, error) {
 		peer, err := NewPeerID([]byte{identity})
 		if err != nil {
@@ -39,7 +40,6 @@ func (n *memoryNetwork) factory(identity byte, directoryConfig DirectoryConfig, 
 		}
 		transport := &memoryNodeTransport{
 			network: n, id: peer, route: fmt.Sprintf("memory-%02x", identity), handler: handler,
-			directory: NewPeerDirectory(directoryConfig),
 		}
 		n.mu.Lock()
 		n.endpoints[transport.route] = transport
@@ -73,7 +73,12 @@ func (t *memoryNodeTransport) Close() error {
 	return nil
 }
 
-func (t *memoryNodeTransport) Directory() *PeerDirectory { return t.directory }
+func (t *memoryNodeTransport) Identity() PeerID { return t.id }
+
+func (t *memoryNodeTransport) SetPeerObserver(observer PeerObserver) error {
+	t.observer = observer
+	return nil
+}
 
 func (t *memoryNodeTransport) SendMessage(ctx context.Context, route string, payload []byte) error {
 	if err := ctx.Err(); err != nil {
@@ -98,6 +103,12 @@ func (t *memoryNodeTransport) SendMessage(ctx context.Context, route string, pay
 	if !targetReady {
 		return errors.New("memory target is not available")
 	}
+	if err := t.observer.Authenticated(target.id, target.route); err != nil {
+		return err
+	}
+	if err := target.observer.Authenticated(t.id, t.route); err != nil {
+		return err
+	}
 	message, err := NewReceivedMessage(t.id.Bytes(), bytes.Clone(payload))
 	if err != nil {
 		return err
@@ -106,7 +117,7 @@ func (t *memoryNodeTransport) SendMessage(ctx context.Context, route string, pay
 }
 
 func (t *memoryNodeTransport) discover(peer *memoryNodeTransport, metadata map[string]string) error {
-	return t.directory.Remember(Peer{ID: peer.id, Route: peer.route, Metadata: metadata})
+	return t.observer.Discovered(Peer{ID: peer.id, Route: peer.route, Metadata: metadata})
 }
 
 func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
@@ -114,20 +125,22 @@ func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 	var transportA, transportB *memoryNodeTransport
 	directB := make(chan ReceivedMessage, 1)
 	nodeA, err := NewNode(NodeConfig{
-		Transport: network.factory(0xa1, DirectoryConfig{MaxPeers: 1, MaxMetadataBytes: 8}, &transportA),
+		Transport: network.factory(0xa1, &transportA),
 		Bus:       BusConfig{MaxSubscriptions: 1, MaxFanoutPeers: 1, FanoutConcurrency: 1},
+		Directory: DirectoryConfig{MaxPeers: 1, MaxMetadataBytes: 8},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer nodeA.Close()
 	nodeB, err := NewNode(NodeConfig{
-		Transport: network.factory(0xb2, DirectoryConfig{MaxPeers: 1, MaxMetadataBytes: 8}, &transportB),
+		Transport: network.factory(0xb2, &transportB),
 		DirectHandler: func(_ context.Context, message ReceivedMessage) error {
 			directB <- message
 			return nil
 		},
-		Bus: BusConfig{MaxSubscriptions: 1, MaxFanoutPeers: 1, FanoutConcurrency: 1},
+		Bus:       BusConfig{MaxSubscriptions: 1, MaxFanoutPeers: 1, FanoutConcurrency: 1},
+		Directory: DirectoryConfig{MaxPeers: 1, MaxMetadataBytes: 8},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -147,8 +160,8 @@ func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 	if err := transportB.discover(transportA, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(nodeA.Peers()) != 1 || nodeA.Peers()[0].ID != transportB.id || len(nodeB.Peers()) != 1 {
-		t.Fatalf("peer snapshots A=%+v B=%+v", nodeA.Peers(), nodeB.Peers())
+	if len(nodeA.DiscoveredPeers()) != 1 || len(nodeB.DiscoveredPeers()) != 1 || len(nodeA.Peers()) != 0 || len(nodeB.Peers()) != 0 {
+		t.Fatalf("before auth discovered A=%+v B=%+v authenticated A=%+v B=%+v", nodeA.DiscoveredPeers(), nodeB.DiscoveredPeers(), nodeA.Peers(), nodeB.Peers())
 	}
 
 	if err := nodeA.Send(ctx, transportB.id, []byte("direct")); err != nil {
@@ -162,16 +175,30 @@ func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("direct message was not delivered")
 	}
+	if len(nodeA.Peers()) != 1 || nodeA.Peers()[0].ID != transportB.id || len(nodeB.Peers()) != 1 {
+		t.Fatalf("authenticated peer snapshots A=%+v B=%+v", nodeA.Peers(), nodeB.Peers())
+	}
 
 	events := make(chan ReceivedEvent, 1)
+	localEvents := make(chan ReceivedEvent, 1)
+	if _, err := nodeA.Subscribe("node.event", func(_ context.Context, event ReceivedEvent) error {
+		localEvents <- event
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := nodeB.Subscribe("node.event", func(_ context.Context, event ReceivedEvent) error {
 		events <- event
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := nodeA.Publish(ctx, "node.event", []byte("published"), PublishOptions{}); err != nil {
+	result, err := nodeA.Publish(ctx, "node.event", []byte("published"), PublishOptions{})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result.Attempted != 1 || result.Delivered != 1 || !result.LocalDelivered || len(result.Failed) != 0 {
+		t.Fatalf("publish result = %+v", result)
 	}
 	select {
 	case event := <-events:
@@ -181,9 +208,17 @@ func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("published event was not delivered")
 	}
+	select {
+	case event := <-localEvents:
+		if event.Sender != transportA.id || string(event.Payload) != "published" {
+			t.Fatalf("local event sender=%s payload=%q", event.Sender.String(), event.Payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("published event was not delivered locally")
+	}
 
 	extra, _ := NewPeerID([]byte{0xc3})
-	if err := transportA.directory.Remember(Peer{ID: extra, Route: "extra"}); !errors.Is(err, ErrPeerLimit) {
+	if err := nodeA.Authenticated(extra, "extra"); !errors.Is(err, ErrPeerLimit) {
 		t.Fatalf("directory bound error=%v, want ErrPeerLimit", err)
 	}
 	if _, err := nodeB.Subscribe("second.event", func(context.Context, ReceivedEvent) error { return nil }); !errors.Is(err, ErrSubscriptionLimit) {
@@ -194,15 +229,21 @@ func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 func TestNodeRejectsUnknownPeersAndClosesComposition(t *testing.T) {
 	network := newMemoryNetwork()
 	var transport *memoryNodeTransport
-	node, err := NewNode(NodeConfig{Transport: network.factory(1, DirectoryConfig{}, &transport)})
+	node, err := NewNode(NodeConfig{Transport: network.factory(1, &transport)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+	unknown, _ := NewPeerID([]byte{2})
+	if err := node.Send(ctx, unknown, []byte("payload")); !errors.Is(err, ErrNodeNotStarted) {
+		t.Fatalf("Send() before start error=%v", err)
+	}
 	if err := node.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	unknown, _ := NewPeerID([]byte{2})
+	if err := node.Start(ctx); !errors.Is(err, ErrNodeAlreadyStarted) {
+		t.Fatalf("second Start() error=%v", err)
+	}
 	if err := node.Send(ctx, unknown, []byte("payload")); !errors.Is(err, ErrUnknownPeer) {
 		t.Fatalf("unknown peer error=%v", err)
 	}
@@ -227,9 +268,46 @@ func TestNodeValidatesComposition(t *testing.T) {
 	network := newMemoryNetwork()
 	var transport *memoryNodeTransport
 	if _, err := NewNode(NodeConfig{
-		Transport: network.factory(1, DirectoryConfig{}, &transport),
+		Transport: network.factory(1, &transport),
 		Bus:       BusConfig{Sender: &recordingSender{}},
 	}); !errors.Is(err, ErrInvalidNode) {
 		t.Fatalf("caller-supplied bus sender error=%v", err)
+	}
+}
+
+func TestNodeExpiresStaleCandidatesAndAuthenticatedPeers(t *testing.T) {
+	var nowUnix atomic.Int64
+	nowUnix.Store(1_700_000_000)
+	network := newMemoryNetwork()
+	var transport *memoryNodeTransport
+	node, err := NewNode(NodeConfig{
+		Transport: network.factory(1, &transport),
+		Directory: DirectoryConfig{now: func() time.Time { return time.Unix(nowUnix.Load(), 0) }},
+		PeerTTL:   10 * time.Millisecond, SweepInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node.Close()
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	peer, _ := NewPeerID([]byte{2})
+	if err := node.Discovered(Peer{ID: peer, Route: "candidate"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := node.Authenticated(peer, "candidate"); err != nil {
+		t.Fatal(err)
+	}
+	if len(node.Peers()) != 1 {
+		t.Fatal("authenticated peer was not recorded")
+	}
+	nowUnix.Add(1)
+	deadline := time.Now().Add(time.Second)
+	for len(node.Peers()) != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(node.Peers()) != 0 {
+		t.Fatalf("stale authenticated peers = %+v", node.Peers())
 	}
 }

@@ -48,9 +48,8 @@ for:
 
 Define a small bounded meshbus presence descriptor for new meshbus applications. It should contain
 only generic information needed for realm discovery. Do not put pub/sub events into announces; do
-not advertise subscriptions; RNS announces remain presence/discovery only. Keep the existing r1s
-announce wire format working through a compatibility layer; do not silently break existing r1s
-discovery interoperability.
+not advertise subscriptions; RNS announces remain presence/discovery only. The initial extraction
+allowed custom compatibility codecs; the final cutover moved r1s itself to the generic format.
 
 ## Constraints
 
@@ -89,31 +88,26 @@ The adapter exposes meshbus primitives rather than r1s envelopes:
   realm session.
 - Inbound bytes reach a `meshbus.Handler` as `meshbus.ReceivedMessage`, whose sender always comes
   from the authenticated Link (never from serialized payload).
-- `Endpoint.Peers()` / `Routes()` return the bounded copy-safe peer and route snapshots that feed
-  `meshbus.Bus` fan-out.
-- `Endpoint.Directory()` exposes the underlying `meshbus.PeerDirectory`; `OnDiscover` hands raw
-  validated announce `app_data` to an application that needs a richer catalog above the generic
-  directory.
+- `Endpoint.DiscoveredPeers()` / `DiscoveredRoutes()` expose bounded advisory announce candidates
+  for low-level users.
+- `SetPeerObserver` reports discovery separately from successful realm authentication. `Node` owns
+  the authoritative peer directory and uses only authenticated peers for `Bus` fan-out.
 
 ### Presence wire format
 
-The announce wire format is owned by a pluggable [`PresenceCodec`](../../meshbus/rns/presence.go):
-`Build(realmID, identityHash)` produces the app_data this endpoint announces and
-`Parse(appData, expectedRealmID)` validates an inbound announce against the adapter's own realm
-identifier. Realm verification runs inside the adapter using the real realm ID, so a forged or
-foreign descriptor can never enter the peer directory.
-
-The default `GenericPresenceCodec` speaks the bounded `meshbus.v1` presence descriptor — a JSON
-object naming the protocol version and hex-encoded realm, with optional advisory metadata, capped
-at 256 bytes and 16 keys. Existing applications (for example r1s) keep their established
-announce format by contributing their own codec; no r1s wire bytes are interpreted here.
+The adapter has one bounded `meshbus.v1` presence descriptor — a JSON object naming the protocol
+version and hex-encoded realm, with optional advisory metadata, capped at 256 bytes and 16 keys.
+Realm verification runs inside the adapter using its real realm ID, so forged or foreign presence
+can never enter the peer directory. `Config.PresenceMetadata` supplies application advisory data,
+and `Config.Passive` suppresses local announces for clients. There is no compatibility codec or r1s
+wire-format hook.
 
 ### Deterministic tests
 
 `meshbus/rns` has standalone UDP-loopback contract tests that run without a shared instance and
 without importing r1s: same-realm discovery, foreign-realm rejection on a shared pair, direct
 authenticated byte exchange, send-after-link-loss reconnect, peer-snapshot/route snapshots for Bus
-fan-out, `OnDiscover` raw app_data delivery, codec round-trip, identity-source handling, config
+fan-out, discovery/authentication observer delivery, presence round-trip, identity-source handling, config
 validation, and stack construction.
 
 The Python RNS reference interop test stays in `internal/transport/rns` because it exchanges r1s

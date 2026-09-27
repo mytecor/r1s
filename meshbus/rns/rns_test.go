@@ -72,15 +72,11 @@ func newTestEndpoint(t *testing.T, storage string, listenPort, targetPort int, k
 	if handler == nil {
 		handler = func(context.Context, meshbus.ReceivedMessage) error { return nil }
 	}
-	var codec PresenceCodec = GenericPresenceCodec{}
-	if !advertise {
-		codec = passiveCodec{}
-	}
 	endpoint, err := New(Config{
 		Reticulum:      standaloneConfig(storage, listenPort, targetPort),
 		IdentitySource: filepath.Join(storage, "identity"),
 		RealmKey:       key,
-		Codec:          codec,
+		Passive:        !advertise,
 		NetworkWait:    8 * time.Second,
 		Handler:        handler,
 	})
@@ -111,16 +107,6 @@ func newPair(t *testing.T, key []byte) (*Endpoint, *Endpoint, chan meshbus.Recei
 	return advertiser, passive, received
 }
 
-// passiveCodec carries no app data, keeping an endpoint passive: it presents
-// as a discoverable realm member but never announces itself as a service.
-type passiveCodec struct{ GenericPresenceCodec }
-
-func (passiveCodec) Build(realmID, identityHash []byte) ([]byte, error) { return nil, nil }
-
-func (passiveCodec) Parse(appData []byte, expectedRealmID []byte) (map[string]string, error) {
-	return map[string]string{}, nil
-}
-
 // startPair starts the passive (`second`) endpoint before the advertiser
 // (`first`). The advertiser announces once at Start and only re-announces on
 // the (long) periodic interval, so the passive peer must already be listening
@@ -142,14 +128,14 @@ func waitForPeer(t *testing.T, endpoint *Endpoint, wantIdentity string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		for _, peer := range endpoint.Peers() {
+		for _, peer := range endpoint.DiscoveredPeers() {
 			if peer.ID.String() == wantIdentity {
 				return
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("peer %s was not discovered within 5s (peers=%v)", wantIdentity, endpoint.Peers())
+	t.Fatalf("peer %s was not discovered within 5s (peers=%v)", wantIdentity, endpoint.DiscoveredPeers())
 }
 
 func TestGenericRealmNodesDiscoverEachOther(t *testing.T) {
@@ -158,7 +144,7 @@ func TestGenericRealmNodesDiscoverEachOther(t *testing.T) {
 	defer cancel()
 
 	waitForPeer(t, passive, advertiser.Name())
-	found := passive.Peers()[0]
+	found := passive.DiscoveredPeers()[0]
 	if !bytes.Equal(found.ID.Bytes(), advertiser.identity.Hash()) {
 		t.Fatalf("discovered identity = %x, want advertiser %x", found.ID.Bytes(), advertiser.identity.Hash())
 	}
@@ -189,8 +175,8 @@ func TestForeignRealmIsRejectedOnSharedPair(t *testing.T) {
 	// Neither node may learn the other in its peer directory.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(nodeA.Peers()) > 0 || len(nodeB.Peers()) > 0 {
-			t.Fatalf("cross-realm nodes became peers: A=%+v B=%+v", nodeA.Peers(), nodeB.Peers())
+		if len(nodeA.DiscoveredPeers()) > 0 || len(nodeB.DiscoveredPeers()) > 0 {
+			t.Fatalf("cross-realm nodes became peers: A=%+v B=%+v", nodeA.DiscoveredPeers(), nodeB.DiscoveredPeers())
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -216,7 +202,7 @@ func TestDiscoveredPeerReceivesDirectBytesWithoutR1s(t *testing.T) {
 
 	sendCtx, stop := context.WithTimeout(context.Background(), 8*time.Second)
 	defer stop()
-	route := passive.Peers()[0].Route
+	route := passive.DiscoveredPeers()[0].Route
 	if err := passive.SendMessage(sendCtx, route, []byte("hello-meshbus")); err != nil {
 		t.Fatal(err)
 	}
@@ -241,6 +227,7 @@ func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 	}
 	root := t.TempDir()
 	directB := make(chan meshbus.ReceivedMessage, 1)
+	directContexts := make(chan context.Context, 1)
 	eventsB := make(chan meshbus.ReceivedEvent, 1)
 	nodeA, err := NewNode(NodeConfig{Endpoint: Config{
 		Reticulum: standaloneConfig(filepath.Join(root, "node-a"), portA, portB), EphemeralIdentity: true,
@@ -255,7 +242,8 @@ func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 			Reticulum: standaloneConfig(filepath.Join(root, "node-b"), portB, portA), EphemeralIdentity: true,
 			RealmKey: testRealmKey(), AnnounceInterval: 100 * time.Millisecond, NetworkWait: 8 * time.Second,
 		},
-		DirectHandler: func(_ context.Context, message meshbus.ReceivedMessage) error {
+		DirectHandler: func(ctx context.Context, message meshbus.ReceivedMessage) error {
+			directContexts <- ctx
 			directB <- message
 			return nil
 		},
@@ -280,15 +268,15 @@ func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
-	for (len(nodeA.Peers()) == 0 || len(nodeB.Peers()) == 0) && time.Now().Before(deadline) {
+	for (len(nodeA.DiscoveredPeers()) == 0 || len(nodeB.DiscoveredPeers()) == 0) && time.Now().Before(deadline) {
 		time.Sleep(25 * time.Millisecond)
 	}
-	if len(nodeA.Peers()) != 1 || len(nodeB.Peers()) != 1 {
-		t.Fatalf("RNS Node peers A=%+v B=%+v", nodeA.Peers(), nodeB.Peers())
+	if len(nodeA.DiscoveredPeers()) != 1 || len(nodeB.DiscoveredPeers()) != 1 {
+		t.Fatalf("RNS Node candidates A=%+v B=%+v", nodeA.DiscoveredPeers(), nodeB.DiscoveredPeers())
 	}
-	peerA := nodeB.Peers()[0].ID
+	peerA := nodeB.DiscoveredPeers()[0].ID
 
-	peerB := nodeA.Peers()[0].ID
+	peerB := nodeA.DiscoveredPeers()[0].ID
 	if err := nodeA.Send(ctx, peerB, []byte("node-direct")); err != nil {
 		t.Fatal(err)
 	}
@@ -299,6 +287,13 @@ func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Node direct message was not delivered over RNS")
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for (len(nodeA.Peers()) == 0 || len(nodeB.Peers()) == 0) && time.Now().Before(deadline) {
+		time.Sleep(25 * time.Millisecond)
+	}
+	if len(nodeA.Peers()) != 1 || len(nodeB.Peers()) != 1 {
+		t.Fatalf("authenticated RNS Node peers A=%+v B=%+v", nodeA.Peers(), nodeB.Peers())
 	}
 
 	if _, err := nodeA.Publish(ctx, "rns.node.event", []byte("node-publish"), meshbus.PublishOptions{}); err != nil {
@@ -311,6 +306,13 @@ func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Node event was not delivered over RNS")
+	}
+	handlerContext := <-directContexts
+	cancel()
+	select {
+	case <-handlerContext.Done():
+	case <-time.After(time.Second):
+		t.Fatal("direct handler context was not cancelled with the Node lifetime")
 	}
 }
 
@@ -356,7 +358,7 @@ func TestEndpointsExchangeDirectBytesThroughSharedInstance(t *testing.T) {
 	received := make(chan meshbus.ReceivedMessage, 1)
 	client, err := New(Config{
 		connectShared: connector, EphemeralIdentity: true, RealmKey: testRealmKey(),
-		Codec: passiveCodec{}, Handler: func(context.Context, meshbus.ReceivedMessage) error { return nil }, NetworkWait: 8 * time.Second,
+		Passive: true, Handler: func(context.Context, meshbus.ReceivedMessage) error { return nil }, NetworkWait: 8 * time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -384,7 +386,7 @@ func TestEndpointsExchangeDirectBytesThroughSharedInstance(t *testing.T) {
 	waitForPeer(t, client, allocator.Name())
 	sendContext, stop := context.WithTimeout(context.Background(), 8*time.Second)
 	defer stop()
-	if err := client.SendMessage(sendContext, client.Peers()[0].Route, []byte("shared-instance")); err != nil {
+	if err := client.SendMessage(sendContext, client.DiscoveredPeers()[0].Route, []byte("shared-instance")); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -405,7 +407,7 @@ func TestReconnectAfterLinkLoss(t *testing.T) {
 
 	sendCtx, stop := context.WithTimeout(context.Background(), 8*time.Second)
 	defer stop()
-	route := passive.Peers()[0].Route
+	route := passive.DiscoveredPeers()[0].Route
 	if err := passive.SendMessage(sendCtx, route, []byte("first")); err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +451,7 @@ func TestPeerSnapshotsFeedBusFanout(t *testing.T) {
 	defer cancel()
 	waitForPeer(t, passive, advertiser.Name())
 
-	routes := passive.Routes()
+	routes := passive.DiscoveredRoutes()
 	if len(routes) != 1 {
 		t.Fatalf("routes = %v, want exactly one discovered route", routes)
 	}
@@ -457,7 +459,7 @@ func TestPeerSnapshotsFeedBusFanout(t *testing.T) {
 		t.Fatalf("route = %s, want %s", routes[0], advertiser.Destination())
 	}
 	// A full snapshot returns the bounded peer records.
-	if peers := passive.Peers(); len(peers) != 1 {
+	if peers := passive.DiscoveredPeers(); len(peers) != 1 {
 		t.Fatalf("peers = %v, want exactly one", peers)
 	}
 }
@@ -479,11 +481,19 @@ func TestConfigValidation(t *testing.T) {
 }
 
 type discoveryRecord struct {
-	route   string
-	appData []byte
+	peer meshbus.Peer
 }
 
-func TestOnDiscoverReceivesRawAppData(t *testing.T) {
+type recordingPeerObserver struct{ discovered chan discoveryRecord }
+
+func (o recordingPeerObserver) Discovered(peer meshbus.Peer) error {
+	o.discovered <- discoveryRecord{peer: peer}
+	return nil
+}
+
+func (recordingPeerObserver) Authenticated(meshbus.PeerID, string) error { return nil }
+
+func TestPeerObserverReceivesParsedPresence(t *testing.T) {
 	portA := freeUDPPort(t)
 	portB := freeUDPPort(t)
 	for portB == portA {
@@ -491,13 +501,12 @@ func TestOnDiscoverReceivesRawAppData(t *testing.T) {
 	}
 	root := t.TempDir()
 	discovered := make(chan discoveryRecord, 1)
-	codec := GenericPresenceCodec{}
 	nop := func(context.Context, meshbus.ReceivedMessage) error { return nil }
 	advertiser, err := New(Config{
 		Reticulum:         standaloneConfig(filepath.Join(root, "a"), portA, portB),
 		EphemeralIdentity: true,
 		RealmKey:          testRealmKey(),
-		Codec:             codec,
+		PresenceMetadata:  map[string]string{"service": "example"},
 		Handler:           nop,
 		NetworkWait:       8 * time.Second,
 	})
@@ -508,17 +517,14 @@ func TestOnDiscoverReceivesRawAppData(t *testing.T) {
 		Reticulum:         standaloneConfig(filepath.Join(root, "b"), portB, portA),
 		EphemeralIdentity: true,
 		RealmKey:          testRealmKey(),
-		Codec:             codec,
+		Passive:           true,
 		Handler:           nop,
-		OnDiscover: func(peer meshbus.PeerID, route string, hops uint8, metadata map[string]string, appData []byte) {
-			select {
-			case discovered <- discoveryRecord{route: route, appData: appData}:
-			default:
-			}
-		},
-		NetworkWait: 8 * time.Second,
+		NetworkWait:       8 * time.Second,
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := passive.SetPeerObserver(recordingPeerObserver{discovered: discovered}); err != nil {
 		t.Fatal(err)
 	}
 	cancel := startPair(t, advertiser, passive)
@@ -526,18 +532,11 @@ func TestOnDiscoverReceivesRawAppData(t *testing.T) {
 
 	select {
 	case record := <-discovered:
-		if record.route != advertiser.Destination() {
-			t.Fatalf("onDiscover route = %s, want %s", record.route, advertiser.Destination())
+		if record.peer.Route != advertiser.Destination() {
+			t.Fatalf("discovered route = %s, want %s", record.peer.Route, advertiser.Destination())
 		}
-		presence, realmID, err := parsePresence(record.appData)
-		if err != nil {
-			t.Fatalf("parse presence: %v", err)
-		}
-		if !bytes.Equal(realmID, advertiser.RealmID()) {
-			t.Fatalf("presence realm = %x, want %x", realmID, advertiser.RealmID())
-		}
-		if presence.Protocol != "meshbus.v1" {
-			t.Fatalf("presence protocol = %q", presence.Protocol)
+		if record.peer.Metadata["service"] != "example" {
+			t.Fatalf("presence metadata = %v", record.peer.Metadata)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("onDiscover was not called")

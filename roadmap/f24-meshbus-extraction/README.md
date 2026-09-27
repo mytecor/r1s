@@ -11,13 +11,13 @@ peer discovery and sessions, authenticated direct messages, and best-effort pub/
 allocator, execution, placement, lease, log, tunnel, and application-authorization semantics.
 
 At the r1s boundary, `cluster` means a named and locally managed meshbus realm plus r1s policy. The
-user-facing `r1s cluster` commands and credential format do not change merely because the primitive
-moves down a layer.
+user-facing `r1s cluster` commands remain, but the completed cutover intentionally adopts standard
+meshbus realm IDs, proofs, and `meshbus.v1` presence instead of retaining the old wire profile.
 
 ## Scope
 
 - Extract public realm ID and mutual proof primitives without importing Reticulum-Go or r1s types.
-- Preserve existing r1s cluster IDs and link proofs through explicit compatibility domains.
+- Move r1s cluster membership onto the standard meshbus realm ID and proof domains.
 - Separate raw authenticated peer delivery from the r1s Protobuf envelope and validator.
 - Keep RNS announces limited to bounded presence/discovery descriptors.
 - Add direct messaging whose received sender is supplied only by the authenticated session.

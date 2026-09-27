@@ -13,7 +13,7 @@ remaining layer mixing.
 Refactor the current `internal/transport/rns` package. Move generic transport/session/discovery
 behavior to `meshbus/rns` (F24-05). Keep r1s-specific behavior above it:
 
-- existing r1s allocator descriptor;
+- r1s allocator discovery metadata;
 - Capacity;
 - OS / Arch / Runtime placement summary;
 - tunnel advertisement;
@@ -21,14 +21,10 @@ behavior to `meshbus/rns` (F24-05). Keep r1s-specific behavior above it:
 - r1s protocol validation;
 - allocator discovery semantics.
 
-Preserve existing cluster compatibility domains:
-
-- `r1s-cluster-id-v1`;
-- `r1s-auth-v1`.
-
-Preserve existing credential and cluster behavior. The existing r1s descriptor wire format should
-remain compatible unless an explicit migration is required. Incoming r1s envelopes must continue
-to have `Envelope.sender` replaced by the authenticated meshbus sender before validation.
+The final cutover intentionally drops the r1s compatibility domains and descriptor wire format.
+r1s uses the standard meshbus realm profile and `meshbus.v1` presence with compact application
+metadata. Incoming r1s envelopes must continue to have `Envelope.sender` replaced by the
+authenticated meshbus sender before validation.
 
 ### Desired result
 
@@ -70,8 +66,8 @@ allocator catalog
 ## Implementation notes
 
 The r1s [`internal/transport/rns`](../../internal/transport/rns) package is now a thin application
-adapter over the public [`meshbus/rns`](../../meshbus/rns) endpoint. It retains only the established
-`r1s.v1` allocator descriptor, placement/capacity/tunnel projection, Protobuf envelope
+adapter over the public [`meshbus/rns`](../../meshbus/rns) endpoint. It retains only the r1s
+placement/capacity/tunnel metadata projection, Protobuf envelope
 encoding/validation, and the allocator discovery channel used by the client and authority broker.
 
 The duplicated RNS stack, identity loader, announces, path lookup, Links, Channels, realm
@@ -79,10 +75,11 @@ challenge-response, pre-authentication buffers, connection registry, reconnect b
 direct-message delivery were removed from the internal package. Identity helpers used by `r1sd`
 delegate to `meshbus/rns` rather than maintaining a second implementation.
 
-r1s configures the public adapter with the existing `r1s-cluster-id-v1` and `r1s-auth-v1`
-compatibility domains and supplies a `PresenceCodec` for the existing descriptor bytes. The codec
-rejects foreign cluster IDs before discovery, while the envelope handler always replaces the
-serialized sender with the authenticated `meshbus.ReceivedMessage` sender before validation.
+r1s uses the standard meshbus realm profile and the single meshbus presence format. Allocators put
+compact capacity, placement, and tunnel fields into bounded `meshbus.v1` metadata; passive clients
+announce nothing. The presence parser rejects foreign realms before discovery, while the envelope handler
+always replaces the serialized sender with the authenticated `meshbus.ReceivedMessage` sender
+before validation.
 
 Deterministic tests cover r1s descriptor discovery and authenticated envelope exchange through the
 public adapter, forged-sender replacement, foreign-realm rejection, generic reconnect behavior,

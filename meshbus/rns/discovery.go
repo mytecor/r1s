@@ -36,8 +36,8 @@ func (h *announceHandler) ReceivedAnnounce(destinationHash []byte, announced any
 	for _, waiter := range h.endpoint.connections.takeWaiters(key) {
 		close(waiter)
 	}
-	// The codec decides whether this announce is usable and confirms the realm.
-	// Forged or foreign descriptors never reach the peer directory.
+	// The single presence parser confirms the realm before the peer becomes
+	// visible. Forged or foreign presence never reaches the directory.
 	metadata, err := h.endpoint.codec.Parse(appData, h.endpoint.realmID)
 	if err != nil {
 		return nil
@@ -50,18 +50,22 @@ func (h *announceHandler) ReceivedAnnounce(destinationHash []byte, announced any
 	if err != nil {
 		return nil
 	}
-	seen := h.endpoint.directory.Remember(meshbus.Peer{
+	peer := meshbus.Peer{
 		ID:       peerID,
 		Route:    key,
 		Metadata: metadata,
 		Hops:     hops,
-	})
+	}
+	seen := h.endpoint.directory.Remember(peer)
 	if seen != nil {
 		return nil
 	}
-	h.endpoint.connections.rememberDestination(announcedIdentity.Hash(), destinationHash)
-	if h.endpoint.onDiscover != nil {
-		h.endpoint.onDiscover(peerID, key, hops, metadata, appData)
+	h.endpoint.mu.Lock()
+	observer := h.endpoint.observer
+	h.endpoint.mu.Unlock()
+	if observer != nil {
+		_ = observer.Discovered(peer)
 	}
+	h.endpoint.connections.rememberDestination(announcedIdentity.Hash(), destinationHash)
 	return nil
 }

@@ -271,9 +271,6 @@ func TestPythonReferenceDiscovery(t *testing.T) {
 		if service.Destination != py.hash {
 			t.Fatalf("discovered destination = %s, want %s", service.Destination, py.hash)
 		}
-		if service.Descriptor.Protocol != "r1s.v1" {
-			t.Fatalf("descriptor protocol = %q, want r1s.v1", service.Descriptor.Protocol)
-		}
 		if got := service.Descriptor.Capacity["default"]; got != 2 {
 			t.Fatalf("descriptor capacity[default] = %d, want 2", got)
 		}

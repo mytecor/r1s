@@ -11,7 +11,8 @@ a security boundary**, whereas the directory is only the observable state of the
 
 A discovered [`Peer`](../../meshbus/peer.go) carries:
 
-- an authenticated/public `PeerID` established by the transport;
+- a public `PeerID` established by the authenticated transport identity (realm membership is
+  proven separately);
 - an opaque `Route` used to reach the peer (never an authenticated sender identity);
 - optional bounded `Metadata` (advisory application hints such as os/arch);
 - an optional advisory `Hops` path metric such as hop count; and

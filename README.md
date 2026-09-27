@@ -147,12 +147,16 @@ r1sd \
   <cluster-id-or-unique-prefix>
 ```
 
-Both binaries store credentials in `~/.config/r1s/clusters/<cluster-id>`, with each secret indexed
+Both binaries store credentials in `~/.config/r1s/realms/<cluster-id>`, with each secret indexed
 by its full derived public ID. List the available non-secret IDs with either binary:
 
 ```sh
 r1s cluster list
 ```
+
+The meshbus cutover intentionally does not import the former
+`~/.config/r1s/clusters/` store: realm IDs and authentication domains changed. Rejoin with the
+original token to write the credential under its new realm-derived ID.
 
 `r1s cluster use` accepts a full ID or a unique hexadecimal prefix, starts the per-user local
 authority broker in the foreground, and blocks until interrupted or stopped with `cluster unset`

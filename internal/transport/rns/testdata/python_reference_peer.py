@@ -2,8 +2,8 @@
 """Python-reference RNS peer for the r1s live interoperability harness.
 
 Runs one RNS node using the upstream Python reference implementation (the
-`RNS` module) that announces an r1s allocator-aspect destination with a bounded
-capability descriptor — the same announce the Go r1sd Endpoint publishes — and
+`RNS` module) that announces an r1s allocator-aspect destination with bounded
+`meshbus.v1` presence metadata — the same announce the Go r1sd Endpoint publishes — and
 accepts incoming links.
 
 It is the reference counterpart to `internal/transport/rns/endpoint.go` and is
@@ -39,6 +39,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 
 # Allow `RETICULUM_PATH` to point at an RNS install, mirroring the reference
 # Reticulum-Go interop scripts.
@@ -51,12 +52,12 @@ from RNS.Channel import MessageBase as ChannelMessageBase  # noqa: E402
 
 APP_NAME = "r1s"
 ASPECT = "allocator"
-PROTOCOL = "r1s.v1"
-MAX_DESCRIPTOR = 256  # must match descriptor.maxDescriptorBytes
+PROTOCOL = "meshbus.v1"
+MAX_DESCRIPTOR = 256  # meshbus presence app-data bound
 ENVELOPE_MSGTYPE = 0x0101  # must match meshbus/rns/wire.go
 AUTH_MSGTYPE = 0x0100
-AUTH_DOMAIN = b"r1s-auth-v1"
-CLUSTER_ID_DOMAIN = b"r1s-cluster-id-v1"
+AUTH_DOMAIN = b"meshbus-realm-auth-v1"
+REALM_ID_DOMAIN = b"meshbus-realm-id-v1"
 AUTH_CHALLENGE = 1
 AUTH_RESPONSE = 2
 
@@ -126,17 +127,19 @@ class Peer:
         self.destination.accepts_links(True)
         if no_ratchet:
             self.destination.ratchets = None
-        descriptor = json.dumps(
+        presence = json.dumps(
             {
-                "protocol": PROTOCOL,
-                "cluster_id": hashlib.sha256(CLUSTER_ID_DOMAIN + cluster_key).hexdigest(),
-                "capacity": capacity,
+                "p": PROTOCOL,
+                "realm": hashlib.sha256(REALM_ID_DOMAIN + cluster_key).hexdigest(),
+                "meta": {
+                    "c": urllib.parse.urlencode(sorted(capacity.items())),
+                },
             },
             separators=(",", ":"),
         ).encode("utf-8")
-        if len(descriptor) > MAX_DESCRIPTOR:
-            raise ValueError("descriptor exceeds the %d-byte bound" % MAX_DESCRIPTOR)
-        self.destination.set_default_app_data(descriptor)
+        if len(presence) > MAX_DESCRIPTOR:
+            raise ValueError("presence exceeds the %d-byte bound" % MAX_DESCRIPTOR)
+        self.destination.set_default_app_data(presence)
         self.announce = announce
         self.channel = channel
         self.dump = dump

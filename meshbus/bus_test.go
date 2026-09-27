@@ -61,11 +61,11 @@ func TestPublishFansOutOnceToUniquePeerSnapshot(t *testing.T) {
 		config.FanoutConcurrency = 2
 	})
 
-	id, err := bus.Publish(context.Background(), "git.ref.updated", []byte("payload"), PublishOptions{
+	result, err := bus.Publish(context.Background(), "git.ref.updated", []byte("payload"), PublishOptions{
 		TTL: time.Minute, ContentType: "application/octet-stream",
 	})
-	if err == nil || id.String() != "42424242424242424242424242424242" {
-		t.Fatalf("Publish() id=%s error=%v", id, err)
+	if err == nil || result.ID.String() != "42424242424242424242424242424242" || result.Attempted != 2 || result.Delivered != 1 || len(result.Failed) != 1 {
+		t.Fatalf("Publish() result=%+v error=%v", result, err)
 	}
 	messages := sender.snapshot()
 	if len(messages) != 2 {
@@ -75,7 +75,7 @@ func TestPublishFansOutOnceToUniquePeerSnapshot(t *testing.T) {
 	for _, message := range messages {
 		destinations[message.destination] = true
 		event, decodeErr := decodeEvent(message.payload, defaultMaxEventPayload, defaultMaxEventTTL)
-		if decodeErr != nil || event.ID != id || event.Topic != "git.ref.updated" || string(event.Payload) != "payload" {
+		if decodeErr != nil || event.ID != result.ID || event.Topic != "git.ref.updated" || string(event.Payload) != "payload" {
 			t.Fatalf("wire event=%+v error=%v", event, decodeErr)
 		}
 	}

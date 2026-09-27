@@ -19,12 +19,10 @@ import (
 )
 
 const (
-	KeySize                   = realm.KeySize
-	tokenPrefix               = "r1s1:"
-	stateVersion              = 1
-	RealmIDDomain             = "r1s-cluster-id-v1"
-	RealmAuthenticationDomain = "r1s-auth-v1"
-	DefaultRelPath            = ".config/r1s/clusters"
+	KeySize        = realm.KeySize
+	tokenPrefix    = "r1s1:"
+	stateVersion   = 1
+	DefaultRelPath = ".config/r1s/realms"
 )
 
 var (
@@ -60,18 +58,14 @@ func ID(key []byte) ([]byte, error) {
 	return opened.ID(), nil
 }
 
-// OpenRealm adapts the generic meshbus membership primitive to the existing
-// r1s cluster wire domains. Keeping these domains stable preserves cluster IDs
-// and link authentication across the extraction.
+// OpenRealm uses the standard meshbus realm profile. r1s keeps cluster as its
+// product-facing name, but no longer maintains separate ID or authentication
+// domains below that API.
 func OpenRealm(key []byte) (*realm.Realm, error) {
 	if len(key) != KeySize {
 		return nil, fmt.Errorf("%w: expected %d bytes", ErrInvalidKey, KeySize)
 	}
-	opened, err := realm.Open(realm.Config{
-		Key:                  key,
-		IDDomain:             RealmIDDomain,
-		AuthenticationDomain: RealmAuthenticationDomain,
-	})
+	opened, err := realm.Open(realm.Config{Key: key})
 	if err != nil {
 		return nil, fmt.Errorf("open cluster realm: %w", err)
 	}

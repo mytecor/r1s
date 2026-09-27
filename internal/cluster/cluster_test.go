@@ -2,24 +2,27 @@ package cluster
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mytecor/r1s/meshbus/realm"
 )
 
-func TestRealmCompatibilityDomainsPreserveClusterWireValues(t *testing.T) {
+func TestClusterUsesStandardMeshbusRealmProfile(t *testing.T) {
 	key := bytes.Repeat([]byte{0x42}, KeySize)
 	opened, err := OpenRealm(key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantID := sha256.Sum256(append([]byte("r1s-cluster-id-v1"), key...))
-	if !bytes.Equal(opened.ID(), wantID[:]) {
-		t.Fatalf("realm ID = %x, want legacy r1s ID %x", opened.ID(), wantID)
+	standard, err := realm.Open(realm.Config{Key: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(opened.ID(), standard.ID()) {
+		t.Fatalf("realm ID = %x, want standard meshbus ID %x", opened.ID(), standard.ID())
 	}
 
 	nonce := bytes.Repeat([]byte{1}, 32)
@@ -29,13 +32,12 @@ func TestRealmCompatibilityDomainsPreserveClusterWireValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write([]byte("r1s-auth-v1"))
-	_, _ = mac.Write(nonce)
-	_, _ = mac.Write(challenger)
-	_, _ = mac.Write(responder)
-	if !bytes.Equal(proof, mac.Sum(nil)) {
-		t.Fatal("realm proof does not preserve the r1s authentication wire value")
+	wantProof, err := standard.Proof(nonce, challenger, responder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(proof, wantProof) {
+		t.Fatal("cluster proof differs from the standard meshbus realm proof")
 	}
 }
 

@@ -165,25 +165,25 @@ func (b *Bus) Subscribe(topic string, handler EventHandler) (*Subscription, erro
 
 // Publish creates one event and fans it out once to the current unique peer
 // snapshot. All peers are attempted; partial failures are joined in the result.
-func (b *Bus) Publish(ctx context.Context, topic string, payload []byte, options PublishOptions) (EventID, error) {
+func (b *Bus) Publish(ctx context.Context, topic string, payload []byte, options PublishOptions) (PublishResult, error) {
 	if err := ctx.Err(); err != nil {
-		return EventID{}, err
+		return PublishResult{}, err
 	}
 	if err := validateTopic(topic); err != nil {
-		return EventID{}, err
+		return PublishResult{}, err
 	}
 	b.mu.RLock()
 	closed := b.closed
 	b.mu.RUnlock()
 	if closed {
-		return EventID{}, ErrBusClosed
+		return PublishResult{}, ErrBusClosed
 	}
 	if options.TTL == 0 {
 		options.TTL = b.config.DefaultTTL
 	}
 	var id EventID
 	if _, err := io.ReadFull(b.config.idSource, id[:]); err != nil {
-		return EventID{}, fmt.Errorf("generate event ID: %w", err)
+		return PublishResult{}, fmt.Errorf("generate event ID: %w", err)
 	}
 	event := Event{
 		ID: id, Topic: topic, PublishedAt: b.config.clock().UTC(), TTL: options.TTL,
@@ -191,18 +191,36 @@ func (b *Bus) Publish(ctx context.Context, topic string, payload []byte, options
 	}
 	wire, err := encodeEvent(event, b.config.MaxPayloadBytes, b.config.MaxTTL)
 	if err != nil {
-		return EventID{}, err
+		return PublishResult{}, err
+	}
+	result := PublishResult{ID: id, Failed: make(map[string]error)}
+	var failures []error
+	if !options.localSender.IsZero() {
+		receivedAt := b.config.clock().UTC()
+		b.duplicate(id, event.PublishedAt.Add(event.TTL), receivedAt)
+		local := ReceivedEvent{Event: cloneEvent(event), Sender: options.localSender, ReceivedAt: receivedAt}
+		if localErr := b.dispatch(local); localErr != nil {
+			result.Failed["local"] = localErr
+			failures = append(failures, localErr)
+		} else {
+			result.LocalDelivered = true
+		}
 	}
 	destinations, err := b.destinations()
 	if err != nil {
-		return EventID{}, err
+		return result, err
 	}
+	result.Attempted = len(destinations)
 	if len(destinations) == 0 {
-		return id, nil
+		return result, errors.Join(failures...)
 	}
 
 	jobs := make(chan string, len(destinations))
-	results := make(chan error, len(destinations))
+	type sendResult struct {
+		destination string
+		err         error
+	}
+	results := make(chan sendResult, len(destinations))
 	for _, destination := range destinations {
 		jobs <- destination
 	}
@@ -215,18 +233,24 @@ func (b *Bus) Publish(ctx context.Context, topic string, payload []byte, options
 			defer wg.Done()
 			for destination := range jobs {
 				if sendErr := b.sender.SendMessage(ctx, destination, bytes.Clone(wire)); sendErr != nil {
-					results <- fmt.Errorf("publish event to %q: %w", destination, sendErr)
+					results <- sendResult{destination: destination, err: fmt.Errorf("publish event to %q: %w", destination, sendErr)}
+				} else {
+					results <- sendResult{destination: destination}
 				}
 			}
 		}()
 	}
 	wg.Wait()
 	close(results)
-	var failures []error
-	for failure := range results {
-		failures = append(failures, failure)
+	for delivery := range results {
+		if delivery.err != nil {
+			result.Failed[delivery.destination] = delivery.err
+			failures = append(failures, delivery.err)
+		} else {
+			result.Delivered++
+		}
 	}
-	return id, errors.Join(failures...)
+	return result, errors.Join(failures...)
 }
 
 // HandleMessage consumes meshbus event frames and leaves other direct messages

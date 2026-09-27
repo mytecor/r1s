@@ -77,9 +77,11 @@ The reusable messaging layer is named `meshbus`. Its `realm` package derives a p
 creates mutual membership proofs from a shared key. Its direct-message contract carries only an
 opaque payload paired with an immutable transport-authenticated `PeerID`. Both remain independent
 of Reticulum-Go, the r1s Protobuf schema, allocators, workloads, and leases.
-The r1s `cluster` remains the product-facing concept and supplies its existing domain labels to the
-generic realm primitive, so stored credentials, public cluster IDs, join tokens, and link proofs
-remain wire-compatible.
+The r1s `cluster` remains the product-facing name for a meshbus realm plus r1s policy. It uses the
+standard meshbus realm ID and authentication domains without an r1s compatibility profile. The
+cutover intentionally changes public IDs and link proofs; old credential filenames and old nodes
+are not wire-compatible. Join tokens still carry the same shared key and can be joined again into
+the new realm credential store.
 
 The intended boundary is:
 
@@ -118,14 +120,15 @@ because the realm is a security boundary while the directory is only observable 
 F24-05 extracts the reusable public `meshbus/rns` adapter
 (it owns the generic RNS machinery — identity, destinations, announces, Links, realm
 authentication, Channels, direct delivery, session reuse, peer routes, pre-auth buffering,
-PeerDirectory integration — behind a pluggable `PresenceCodec` whose default is the bounded
-`meshbus.v1` presence descriptor, exposing `SendMessage`/`ReceivedMessage`/`Peers`/`Routes`
-without importing r1s),
+PeerDirectory integration, and the single bounded `meshbus.v1` presence format, exposing
+`SendMessage`/`ReceivedMessage`/`Peers`/`Routes` without importing r1s),
 F24-06 moved r1s onto that adapter (only r1s-specific adaptation stays in `internal/transport/rns`),
-and F24-07 added the cohesive application-facing `Node` API. `Node` composes transport lifecycle,
-authenticated direct messages, the transport-owned peer directory, and `Bus`; publishing reads the
-current bounded route snapshot without application wiring. `meshbus/rns.NewNode` supplies the
-Reticulum-backed constructor. Meshbus is complete as a small brokerless primitive.
+and F24-07 added the cohesive application-facing `Node` API. `Node` owns bounded candidate and
+authenticated peer directories, transport lifecycle, stale-peer expiry, direct messages, and
+`Bus`. An RNS announce creates only a candidate; successful realm proof promotes it into `Peers`
+and pub/sub fan-out. Publishing delivers locally by default and returns attempted/delivered/failed
+counts for remote best-effort sends. `meshbus/rns.NewNode` supplies the Reticulum-backed
+constructor. Meshbus remains a small brokerless primitive.
 
 ## Commands
 
@@ -209,23 +212,24 @@ must not be allowed to assert an arbitrary sender by serializing different bytes
 
 Cluster membership is a separate transport-boundary authorization step implemented through the
 transport-independent [`meshbus/realm`](./meshbus/realm) primitive. A participant loads a
-random 256-bit `ClusterKey` from `~/.config/r1s/clusters/<cluster-id>` and derives the public
-identifier as `SHA-256("r1s-cluster-id-v1" || ClusterKey)`. `cluster init` and `cluster join` write
+random 256-bit `ClusterKey` from `~/.config/r1s/realms/<cluster-id>` and derives the public
+identifier as `SHA-256("meshbus-realm-id-v1" || ClusterKey)`. `cluster init` and `cluster join` write
 credentials atomically with owner-only permissions; `cluster list` exposes only their public IDs.
 Allocator runtime selection and `r1s cluster use` require a full ID or unique hexadecimal prefix
 and never accept a join token.
 The legacy single credential file is not an implicit default or migration source.
 
-Allocators publish only the selected `ClusterID` in announce app data, and clients ignore
-descriptors for other cluster IDs. The key and join token are never announced or placed in
-protobuf envelopes. One allocator process and one local authority broker select exactly one
-cluster; cluster ID and key remain outside workload data and `ExecutionRequest`. Each broker
+Allocators publish bounded `meshbus.v1` presence containing the public realm ID and compact r1s
+capacity/placement/tunnel metadata. The meshbus adapter rejects foreign realm presence before the
+r1s discovery projection runs. The key and join token are never announced or placed in protobuf
+envelopes. One allocator process and one local authority broker select exactly one cluster; realm
+ID and key remain outside workload data and `ExecutionRequest`. Each broker
 connection creates one fresh ephemeral RNS identity. Its calling run process owns the corresponding
 controller lifecycle, while the key remains confined to the broker.
 
 After an RNS Link authenticates the peer identities, both sides exchange fresh nonces and prove
 knowledge of the cluster key with
-`HMAC-SHA256(ClusterKey, "r1s-auth-v1" || nonce || challenger_identity || responder_identity)`.
+`HMAC-SHA256(ClusterKey, "meshbus-realm-auth-v1" || nonce || challenger_identity || responder_identity)`.
 No control envelope is delivered until the peer's proof succeeds. This makes the verified RNS
 sender authoritative for identity and the cluster proof authoritative for baseline membership.
 Allocator-local admission and quotas may further restrict individual identities; they never replace
@@ -360,9 +364,9 @@ simulation of routing, cryptography, or link behavior.
 
 Allocator RNS endpoints announce capacity. Client endpoints are passive: they discover those
 announces and establish authenticated Links without advertising fake allocator capacity.
-Allocator descriptors also carry the public cluster ID. Foreign-cluster descriptors are ignored,
-and direct links still require mutual cluster-key proof before their Channels can carry protobuf
-control envelopes.
+Allocator presence carries the public realm ID plus bounded r1s advisory metadata. Foreign-realm
+presence is ignored, and direct links still require mutual realm-key proof before their Channels
+can carry protobuf control envelopes.
 
 An endpoint identity may come from an existing or newly created 64-byte RNS identity file, or from
 private identity bytes encoded as hex, Base32, or Base64 and imported through Reticulum-Go's

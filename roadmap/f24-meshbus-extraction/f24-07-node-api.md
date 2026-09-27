@@ -53,14 +53,16 @@ remain enforced. `make check` passes.
 ## Implementation notes
 
 [`meshbus.Node`](../../meshbus/node.go) composes a transport through the small `NodeTransport`
-interface: authenticated direct send, lifecycle, and a bounded `PeerDirectory`. A
-`TransportFactory` receives the already-composed inbound handler, which lets Node join pub/sub and
-ordinary direct delivery without requiring callers to manually wire `Bus.Handler` into a transport.
+interface. A `TransportFactory` receives the already-composed inbound handler, while a
+`PeerObserver` reports advisory discovery and successful realm authentication separately. Node owns
+bounded candidate and authenticated directories; only authenticated peers enter pub/sub fan-out.
 
 The application-facing surface provides `Start`, peer-addressed `Send`, `Subscribe`, `Publish`,
-`Peers`, and idempotent `Close`. `Publish` always reads the current route snapshot from the
-transport's directory. The existing `BusConfig` limits remain configurable, while its `Sender` and
-`Peers` fields are owned by Node and cannot be replaced by callers.
+`DiscoveredPeers`, authenticated `Peers`, and idempotent `Close`. Lifecycle transitions are explicit:
+send/publish before `Start`, repeated `Start`, and use after `Close` return distinct errors. Node
+automatically expires stale candidates and peers. `Publish` reads the authenticated route snapshot,
+delivers to local subscriptions unless `RemoteOnly` is set, and reports attempted, delivered, and
+failed remote sends. Existing `BusConfig` and `DirectoryConfig` bounds remain configurable.
 
 [`meshbus/rns.NewNode`](../../meshbus/rns/node.go) is the Reticulum-backed constructor. Applications
 provide realm, identity, and presence settings in the endpoint config; the constructor installs the

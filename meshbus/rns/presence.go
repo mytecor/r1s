@@ -88,44 +88,29 @@ func parsePresence(data []byte) (Presence, []byte, error) {
 	return presence, realmID, nil
 }
 
-// PresenceCodec owns the announce wire format for one application family. New
-// meshbus applications use GenericPresenceCodec; an existing application (for
-// example r1s) contributes a codec that preserves its established descriptor
-// format so discovery stays wire-compatible. The adapter itself never
-// interprets application descriptor bytes: it only verifies the announcing
-// peer's realm, then hands validated app_data to the codec.
-type PresenceCodec interface {
-	// Build returns the app_data this endpoint announces, or an error to refuse
-	// advertising. realmID is the endpoint's own realm identifier and
-	// identityHash its local identity. The result must stay within the announce
-	// app-data budget.
-	Build(realmID, identityHash []byte) ([]byte, error)
-	// Parse validates inbound announce app_data against the expected realm
-	// identifier (the adapter's own realm) and returns the advisory presence
-	// metadata. An error ignores the announce — for example an unknown
-	// descriptor or a descriptor naming a foreign realm. The adapter passes its
-	// real realm identifier, so a forged or mismatched announce cannot enter
-	// the peer directory.
-	Parse(appData []byte, expectedRealmID []byte) (map[string]string, error)
+// genericPresenceCodec is the single meshbus.v1 announce format.
+type genericPresenceCodec struct {
+	metadata map[string]string
+	passive  bool
 }
-
-// GenericPresenceCodec speaks the meshbus.v1 presence wire format. It is the
-// default for new meshbus applications.
-type GenericPresenceCodec struct{}
 
 // Build encodes a generic presence descriptor announcing realmID with the
 // given advisory metadata.
-func (GenericPresenceCodec) Build(realmID, identityHash []byte) ([]byte, error) {
+func (c genericPresenceCodec) Build(realmID, identityHash []byte) ([]byte, error) {
+	if c.passive {
+		return nil, nil
+	}
 	presence := Presence{
 		Protocol: genericProtocolVersion,
 		Realm:    hex.EncodeToString(realmID),
+		Metadata: clonePresenceMetadata(c.metadata),
 	}
 	return presence.marshal()
 }
 
 // Parse decodes a generic presence descriptor and verifies it names the same
 // realm the adapter is bound to. A mismatch is rejected before any delivery.
-func (GenericPresenceCodec) Parse(appData []byte, expectedRealmID []byte) (map[string]string, error) {
+func (genericPresenceCodec) Parse(appData []byte, expectedRealmID []byte) (map[string]string, error) {
 	presence, realmID, err := parsePresence(appData)
 	if err != nil {
 		return nil, err
@@ -133,5 +118,16 @@ func (GenericPresenceCodec) Parse(appData []byte, expectedRealmID []byte) (map[s
 	if !bytes.Equal(realmID, expectedRealmID) {
 		return nil, fmt.Errorf("%w: announced %s", ErrRealmMismatch, presence.Realm)
 	}
-	return presence.Metadata, nil
+	return clonePresenceMetadata(presence.Metadata), nil
+}
+
+func clonePresenceMetadata(metadata map[string]string) map[string]string {
+	if metadata == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(metadata))
+	for key, value := range metadata {
+		cloned[key] = value
+	}
+	return cloned
 }

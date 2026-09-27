@@ -2,7 +2,6 @@ package rns
 
 import (
 	"bytes"
-	"context"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/channel"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
@@ -98,5 +97,5 @@ func (e *Endpoint) deliver(active *session, data []byte) {
 	if err != nil {
 		return
 	}
-	_ = e.handler(context.Background(), message)
+	_ = e.handler(e.handlerContext(), message)
 }

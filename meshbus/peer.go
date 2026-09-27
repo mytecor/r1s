@@ -2,10 +2,10 @@
 //
 // The entity here is a PeerDirectory, not a Cluster: the realm is a security
 // boundary, whereas the directory is only the observable state of the network.
-// A discovered peer carries an authenticated public PeerID plus an opaque
-// transport route and bounded advisory metadata. Discovery is advisory only —
-// presence never grants application authorization, and a route learned through
-// discovery is never an authenticated sender identity.
+// A discovered peer carries a transport-authenticated public identity plus an
+// opaque route and bounded advisory metadata. Discovery is advisory only: an
+// announce does not prove realm-key possession. Node promotes a candidate only
+// after the transport reports successful realm authentication.
 package meshbus
 
 import (
@@ -51,6 +51,14 @@ type Peer struct {
 	Hops uint8
 	// LastSeen is the local time the peer was last (re)discovered.
 	LastSeen time.Time
+}
+
+// PeerObserver receives transport discovery and successful realm
+// authentication separately. Discovery is advisory; only Authenticated proves
+// that a transport identity holds the realm key.
+type PeerObserver interface {
+	Discovered(Peer) error
+	Authenticated(PeerID, string) error
 }
 
 // isValid reports whether the peer carries a valid authenticated identity.

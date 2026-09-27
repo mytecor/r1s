@@ -1,62 +1,53 @@
-// Package rns adapts r1s descriptors and envelopes to meshbus transports.
+// Package rns adapts r1s discovery metadata and envelopes to meshbus.
 package rns
 
 import (
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 )
 
 const (
-	protocolVersion    = "r1s.v1"
-	maxDescriptorBytes = 256
+	metadataCapacity          = "c"
+	metadataOS                = "o"
+	metadataArch              = "a"
+	metadataRuntime           = "r"
+	metadataTunnelHost        = "h"
+	metadataTunnelPort        = "p"
+	metadataTunnelDestination = "d"
 )
 
-var ErrInvalidDescriptor = errors.New("invalid RNS service descriptor")
+var ErrInvalidDescriptor = errors.New("invalid r1s presence metadata")
 
-// Descriptor is the small allocator capability record carried in announce app_data.
-// It must stay within maxDescriptorBytes (the announce app-data budget); the
-// full NodeCapabilities rides allocator offers instead, so the descriptor keeps
-// only the coarse placement summary that fits: os, arch, and runtime. When the
-// allocator runs a tunnel edge (F21-02), it also advertises the minimum needed
-// to create a private tunnel RNS transport: the Backbone/TCP listener as host
-// (Ygg IPv6) + port, and the tunnel RNS destination hash. No Ygg public key is
-// ever advertised.
+// Descriptor is the r1s allocator projection decoded from bounded meshbus.v1
+// presence metadata. Realm identity and protocol version belong to meshbus and
+// are deliberately absent from this application-level value.
 type Descriptor struct {
-	Protocol  string            `json:"protocol"`
-	ClusterID string            `json:"cluster_id"`
-	Capacity  map[string]uint32 `json:"capacity"`
-	OS        string            `json:"os,omitempty"`
-	Arch      string            `json:"arch,omitempty"`
-	Runtime   string            `json:"runtime,omitempty"`
-	// TunnelHost is the allocator's tunnel Backbone/TCP listener host (its Ygg
-	// IPv6 address), TunnelPort the tunnel listener port, and TunnelDestination
-	// the hex-encoded tunnel RNS destination hash. All three are absent when no
-	// tunnel edge is enabled.
-	TunnelHost        string `json:"tunnel_host,omitempty"`
-	TunnelPort        int    `json:"tunnel_port,omitempty"`
-	TunnelDestination string `json:"tunnel_destination,omitempty"`
+	Capacity map[string]uint32
+	OS       string
+	Arch     string
+	Runtime  string
+
+	TunnelHost        string
+	TunnelPort        int
+	TunnelDestination string
 }
 
-// TunnelAdvertisement wraps the allocator tunnel edge fields for newDescriptor.
+// TunnelAdvertisement is the allocator tunnel edge projected into presence
+// metadata when enabled.
 type TunnelAdvertisement struct {
-	// Host is the allocator's Ygg IPv6 address for the Backbone/TCP listener.
-	Host string
-	// Port is the tunnel Backbone/TCP listener port. Positive when enabled.
-	Port int
-	// DestinationHash is the hex-encoded tunnel RNS destination hash.
+	Host            string
+	Port            int
 	DestinationHash string
 }
 
-func newDescriptor(clusterID []byte, capacity map[string]uint32, node *r1sv1.NodeCapabilities, tunnel *TunnelAdvertisement) (Descriptor, error) {
-	if len(clusterID) != 32 {
-		return Descriptor{}, fmt.Errorf("%w: cluster ID must be 32 bytes", ErrInvalidDescriptor)
-	}
-	descriptor := Descriptor{Protocol: protocolVersion, ClusterID: hex.EncodeToString(clusterID), Capacity: make(map[string]uint32, len(capacity))}
+func newDescriptor(capacity map[string]uint32, node *r1sv1.NodeCapabilities, tunnel *TunnelAdvertisement) (Descriptor, error) {
+	descriptor := Descriptor{Capacity: make(map[string]uint32, len(capacity))}
 	for class, slots := range capacity {
 		if strings.TrimSpace(class) == "" || slots == 0 {
 			return Descriptor{}, fmt.Errorf("%w: capacity entries must have a class and non-zero slots", ErrInvalidDescriptor)
@@ -66,56 +57,77 @@ func newDescriptor(clusterID []byte, capacity map[string]uint32, node *r1sv1.Nod
 	if len(descriptor.Capacity) == 0 {
 		return Descriptor{}, fmt.Errorf("%w: capacity is required", ErrInvalidDescriptor)
 	}
-	// The announce summary is a bounded subset of the node advertisement. Only
-	// normalized values are copied; anything else is rejected by the descriptor
-	// size check below, so a malformed node cannot be advertised.
 	if node != nil {
 		descriptor.OS = node.GetOs()
 		descriptor.Arch = node.GetArch()
 		descriptor.Runtime = node.GetRuntime()
 	}
-	if tunnel != nil && tunnel.Port > 0 {
-		if strings.TrimSpace(tunnel.Host) == "" {
-			return Descriptor{}, fmt.Errorf("%w: tunnel host is required when a tunnel port is advertised", ErrInvalidDescriptor)
+	if tunnel != nil && tunnel.Port != 0 {
+		if tunnel.Port < 1 || tunnel.Port > 65535 || strings.TrimSpace(tunnel.Host) == "" {
+			return Descriptor{}, fmt.Errorf("%w: tunnel host and valid port are required", ErrInvalidDescriptor)
 		}
 		descriptor.TunnelHost = tunnel.Host
+		if parsed := net.ParseIP(tunnel.Host); parsed != nil {
+			descriptor.TunnelHost = parsed.String()
+		}
 		descriptor.TunnelPort = tunnel.Port
 		descriptor.TunnelDestination = tunnel.DestinationHash
 	}
 	return descriptor, nil
 }
 
-func (d Descriptor) marshal() ([]byte, error) {
-	data, err := json.Marshal(d)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidDescriptor, err)
+func (d Descriptor) metadata() map[string]string {
+	capacity := make(url.Values, len(d.Capacity))
+	for class, slots := range d.Capacity {
+		capacity.Set(class, strconv.FormatUint(uint64(slots), 10))
 	}
-	if len(data) > maxDescriptorBytes {
-		return nil, fmt.Errorf("%w: encoded size %d exceeds %d bytes", ErrInvalidDescriptor, len(data), maxDescriptorBytes)
+	metadata := map[string]string{metadataCapacity: capacity.Encode()}
+	for key, value := range map[string]string{
+		metadataOS: d.OS, metadataArch: d.Arch, metadataRuntime: d.Runtime,
+		metadataTunnelHost: d.TunnelHost, metadataTunnelDestination: d.TunnelDestination,
+	} {
+		if value != "" {
+			metadata[key] = value
+		}
 	}
-	return data, nil
+	if d.TunnelPort > 0 {
+		metadata[metadataTunnelPort] = strconv.Itoa(d.TunnelPort)
+	}
+	return metadata
 }
 
-func parseDescriptor(data []byte) (Descriptor, error) {
-	if len(data) == 0 || len(data) > maxDescriptorBytes {
-		return Descriptor{}, fmt.Errorf("%w: encoded size must be between 1 and %d bytes", ErrInvalidDescriptor, maxDescriptorBytes)
+func parseDescriptorMetadata(metadata map[string]string) (Descriptor, error) {
+	encodedCapacity := metadata[metadataCapacity]
+	values, err := url.ParseQuery(encodedCapacity)
+	if err != nil || encodedCapacity == "" {
+		return Descriptor{}, fmt.Errorf("%w: capacity metadata is required", ErrInvalidDescriptor)
 	}
-	var descriptor Descriptor
-	if err := json.Unmarshal(data, &descriptor); err != nil {
-		return Descriptor{}, fmt.Errorf("%w: %v", ErrInvalidDescriptor, err)
+	capacity := make(map[string]uint32, len(values))
+	for class, entries := range values {
+		if len(entries) != 1 {
+			return Descriptor{}, fmt.Errorf("%w: duplicate capacity class %q", ErrInvalidDescriptor, class)
+		}
+		slots, parseErr := strconv.ParseUint(entries[0], 10, 32)
+		if parseErr != nil || slots == 0 {
+			return Descriptor{}, fmt.Errorf("%w: invalid capacity for class %q", ErrInvalidDescriptor, class)
+		}
+		capacity[class] = uint32(slots)
 	}
-	if descriptor.Protocol != protocolVersion {
-		return Descriptor{}, fmt.Errorf("%w: unsupported protocol %q", ErrInvalidDescriptor, descriptor.Protocol)
+
+	var tunnel *TunnelAdvertisement
+	if portText := metadata[metadataTunnelPort]; portText != "" {
+		port, parseErr := strconv.Atoi(portText)
+		if parseErr != nil {
+			return Descriptor{}, fmt.Errorf("%w: invalid tunnel port", ErrInvalidDescriptor)
+		}
+		tunnel = &TunnelAdvertisement{
+			Host: metadata[metadataTunnelHost], Port: port, DestinationHash: metadata[metadataTunnelDestination],
+		}
+	} else if metadata[metadataTunnelHost] != "" || metadata[metadataTunnelDestination] != "" {
+		return Descriptor{}, fmt.Errorf("%w: incomplete tunnel metadata", ErrInvalidDescriptor)
 	}
-	clusterID, err := hex.DecodeString(descriptor.ClusterID)
-	if err != nil {
-		return Descriptor{}, fmt.Errorf("%w: cluster ID must be hexadecimal", ErrInvalidDescriptor)
-	}
-	result, err := newDescriptor(clusterID, descriptor.Capacity, nil, nil)
-	if err != nil {
-		return Descriptor{}, err
-	}
-	result.OS, result.Arch, result.Runtime = descriptor.OS, descriptor.Arch, descriptor.Runtime
-	result.TunnelHost, result.TunnelPort, result.TunnelDestination = descriptor.TunnelHost, descriptor.TunnelPort, descriptor.TunnelDestination
-	return result, nil
+
+	return newDescriptor(capacity, &r1sv1.NodeCapabilities{
+		Os: metadata[metadataOS], Arch: metadata[metadataArch], Runtime: metadata[metadataRuntime],
+	}, tunnel)
 }

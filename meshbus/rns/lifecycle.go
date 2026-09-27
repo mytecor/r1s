@@ -49,6 +49,7 @@ func (e *Endpoint) Start(ctx context.Context) error {
 	announceContext, cancel := context.WithCancel(ctx)
 	e.mu.Lock()
 	e.stopAnnounce = cancel
+	e.runContext = announceContext
 	e.mu.Unlock()
 	if e.advertises {
 		go e.announceLoop(announceContext)

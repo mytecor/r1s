@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/channel"
+	"github.com/mytecor/r1s/meshbus"
 )
 
 var ErrRealmAuthentication = errors.New("realm authentication failed")
@@ -95,11 +96,32 @@ func (e *Endpoint) completeAuthentication(active *session, err error) {
 		active.mu.Unlock()
 		close(active.authDone)
 		if err == nil {
+			e.notifyAuthenticated(active)
 			for _, data := range pending {
 				go e.deliver(active, data)
 			}
 		}
 	})
+}
+
+func (e *Endpoint) notifyAuthenticated(active *session) {
+	active.mu.RLock()
+	sender := bytes.Clone(active.sender)
+	active.mu.RUnlock()
+	peer, err := meshbus.NewPeerID(sender)
+	if err != nil {
+		return
+	}
+	route, ok := e.DestinationForIdentity(peer.String())
+	if !ok {
+		route = peer.String()
+	}
+	e.mu.Lock()
+	observer := e.observer
+	e.mu.Unlock()
+	if observer != nil {
+		_ = observer.Authenticated(peer, route)
+	}
 }
 
 func (e *Endpoint) waitAuthenticated(ctx context.Context, active *session) error {

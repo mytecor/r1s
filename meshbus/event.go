@@ -55,6 +55,21 @@ type EventHandler func(context.Context, ReceivedEvent) error
 type PublishOptions struct {
 	TTL         time.Duration
 	ContentType string
+	// RemoteOnly suppresses delivery to local subscriptions when publishing
+	// through Node. Direct Bus users have no local identity and remain remote-only.
+	RemoteOnly bool
+
+	localSender PeerID
+}
+
+// PublishResult reports best-effort delivery without claiming remote
+// acknowledgement or exactly-once semantics.
+type PublishResult struct {
+	ID             EventID
+	Attempted      int
+	Delivered      int
+	Failed         map[string]error
+	LocalDelivered bool
 }
 
 func validateTopic(topic string) error {

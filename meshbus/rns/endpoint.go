@@ -4,11 +4,10 @@
 // delivery, connection/session reuse, peer route lookup, bounded
 // pre-authentication buffering, and generic peer discovery integration.
 //
-// The adapter is application-agnostic: it exposes meshbus primitives (opaque
-// SendMessage, authenticated ReceivedMessage, PeerDirectory discovery, peer
-// listing for Bus fan-out) and never interprets application payloads or
-// envelopes. The announce wire format is owned by a PresenceCodec so existing
-// applications can keep their established descriptor format.
+// The adapter is application-agnostic: it exposes opaque direct delivery and
+// reports advisory discovery separately from completed realm authentication.
+// Node owns authoritative peer state and pub/sub fan-out. Announces always use
+// the bounded meshbus.v1 presence format.
 package rns
 
 import (
@@ -55,15 +54,7 @@ type Config struct {
 	EphemeralIdentity bool
 	// RealmKey is the shared 256-bit membership secret. It is used only for
 	// realm ID derivation and link challenge-response, and is never announced.
-	RealmKey []byte
-	// RealmIDDomain overrides the realm identifier domain. Empty uses the
-	// meshbus default. Applications migrating an existing wire protocol set
-	// explicit domains to preserve their identifiers and proofs.
-	RealmIDDomain string
-	// RealmAuthDomain overrides the realm authentication domain. Empty uses the
-	// meshbus default.
-	RealmAuthDomain string
-
+	RealmKey         []byte
 	AppName          string
 	Aspect           string
 	AnnounceInterval time.Duration
@@ -72,15 +63,12 @@ type Config struct {
 	// construction. Tests use this to inject wrapped interfaces (for example
 	// packet-loss capture) while keeping the transport machinery intact.
 	Interfaces []interfaces.Interface
-	// Codec owns the announce wire format. Nil uses the generic meshbus.v1
-	// presence descriptor for new meshbus applications.
-	Codec PresenceCodec
+	// PresenceMetadata is bounded advisory data carried by meshbus.v1 presence.
+	PresenceMetadata map[string]string
+	// Passive suppresses local announces while retaining peer discovery.
+	Passive bool
 	// DirectoryConfig bounds the peer directory. Zero uses the package default.
 	DirectoryConfig DirectoryConfig
-	// OnDiscover, when non-nil, receives every realm-matched discovery with the
-	// raw announce app_data. It is the hook an application uses to build its own
-	// discovery catalog above the generic peer directory.
-	OnDiscover func(peer meshbus.PeerID, route string, hops uint8, metadata map[string]string, appData []byte)
 	// Handler receives authenticated direct messages as meshbus primitives.
 	Handler meshbus.Handler
 }
@@ -106,9 +94,10 @@ type Endpoint struct {
 	advertises  bool
 	realm       *realm.Realm
 	realmID     []byte
-	codec       PresenceCodec
+	codec       genericPresenceCodec
 	directory   *meshbus.PeerDirectory
-	onDiscover  func(peer meshbus.PeerID, route string, hops uint8, metadata map[string]string, appData []byte)
+	observer    meshbus.PeerObserver
+	runContext  context.Context
 
 	started      bool
 	closed       bool
@@ -117,8 +106,7 @@ type Endpoint struct {
 }
 
 // New constructs an adapter endpoint without starting network interfaces. It
-// validates realm membership and the presence codec (when the endpoint
-// advertises) before returning.
+// validates realm membership and bounded presence metadata before returning.
 func New(config Config) (*Endpoint, error) {
 	if config.Handler == nil {
 		return nil, fmt.Errorf("%w: handler is required", ErrInvalidConfig)
@@ -126,20 +114,13 @@ func New(config Config) (*Endpoint, error) {
 	if config.EphemeralIdentity == (strings.TrimSpace(config.IdentitySource) != "") {
 		return nil, fmt.Errorf("%w: exactly one of identity source or ephemeral identity is required", ErrInvalidConfig)
 	}
-	openedRealm, err := realm.Open(realm.Config{
-		Key:                  config.RealmKey,
-		IDDomain:             config.RealmIDDomain,
-		AuthenticationDomain: config.RealmAuthDomain,
-	})
+	openedRealm, err := realm.Open(realm.Config{Key: config.RealmKey})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 	realmID := openedRealm.ID()
 
-	codec := config.Codec
-	if codec == nil {
-		codec = GenericPresenceCodec{}
-	}
+	codec := genericPresenceCodec{metadata: config.PresenceMetadata, passive: config.Passive}
 	if config.AppName == "" {
 		config.AppName = defaultRealmAppName
 	}
@@ -188,9 +169,8 @@ func New(config Config) (*Endpoint, error) {
 	}
 	localDestination.AcceptsLinks(true)
 
-	// Build the announcement presence once. Advertising is enabled only when
-	// the codec produces app_data (for example an empty result disables
-	// advertising for a passive client).
+	// Build announcement presence once. Passive endpoints produce no app_data
+	// and do not advertise.
 	advertiseData, err := codec.Build(realmID, localIdentity.Hash())
 	if err != nil {
 		return nil, fmt.Errorf("%w: build presence: %v", ErrInvalidConfig, err)
@@ -201,7 +181,7 @@ func New(config Config) (*Endpoint, error) {
 		stack: rnsStack, identity: localIdentity, destination: localDestination,
 		handler: config.Handler, interval: config.AnnounceInterval, networkWait: config.NetworkWait,
 		name: hex.EncodeToString(localIdentity.Hash()), realm: openedRealm, realmID: realmID,
-		codec: codec, onDiscover: config.OnDiscover, advertises: len(advertiseData) > 0,
+		codec: codec, advertises: len(advertiseData) > 0,
 		connections: newConnectionRegistry(),
 		directory: meshbus.NewPeerDirectory(meshbus.DirectoryConfig{
 			MaxPeers:         config.DirectoryConfig.MaxPeers,
@@ -220,18 +200,50 @@ func (e *Endpoint) Name() string { return e.name }
 // Destination is the hex-encoded destination hash clients use for their first connection.
 func (e *Endpoint) Destination() string { return hex.EncodeToString(e.destination.GetHash()) }
 
+// Identity returns the local transport-authenticated peer identity.
+func (e *Endpoint) Identity() meshbus.PeerID {
+	peer, _ := meshbus.NewPeerID(e.identity.Hash())
+	return peer
+}
+
 // RealmID returns a copy of the adapter's public realm identifier.
 func (e *Endpoint) RealmID() []byte { return bytes.Clone(e.realmID) }
 
-// Peers returns the copy-safe snapshot of discovered realm peers, ordered by
-// identity. It feeds pub/sub fan-out directly.
-func (e *Endpoint) Peers() []meshbus.Peer { return e.directory.Peers() }
+// DiscoveredPeers returns advisory announce candidates. Realm authentication
+// has not necessarily completed; Node promotes candidates after proof.
+func (e *Endpoint) DiscoveredPeers() []meshbus.Peer { return e.directory.Peers() }
 
-// Routes returns the bounded route snapshot for Bus fan-out.
-func (e *Endpoint) Routes() []string { return e.directory.Routes() }
+// DiscoveredRoutes returns advisory routes learned from presence.
+func (e *Endpoint) DiscoveredRoutes() []string { return e.directory.Routes() }
 
-// Directory exposes the underlying peer directory for direct management.
-func (e *Endpoint) Directory() *meshbus.PeerDirectory { return e.directory }
+// DiscoveryDirectory exposes the bounded candidate directory.
+func (e *Endpoint) DiscoveryDirectory() *meshbus.PeerDirectory { return e.directory }
+
+// SetPeerObserver binds discovery and realm-authentication events before Start.
+func (e *Endpoint) SetPeerObserver(observer meshbus.PeerObserver) error {
+	if observer == nil {
+		return fmt.Errorf("%w: peer observer is required", ErrInvalidConfig)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return ErrClosed
+	}
+	if e.started {
+		return fmt.Errorf("%w: peer observer must be set before Start", ErrInvalidConfig)
+	}
+	e.observer = observer
+	return nil
+}
+
+func (e *Endpoint) handlerContext() context.Context {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.runContext != nil {
+		return e.runContext
+	}
+	return context.Background()
+}
 
 // DestinationForIdentity returns the last authenticated destination learned
 // through an announce or an outbound session.
