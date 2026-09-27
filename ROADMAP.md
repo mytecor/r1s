@@ -298,8 +298,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > allocator, execution, placement, lease, or authorization policy into the library.
 
 - **Status:** 🚧 in progress — F24-01 extracts realm membership, F24-02 separates authenticated
-  direct messages, and F24-03 adds bounded one-hop pub/sub. Generic realm presence discovery and a
-  reusable RNS adapter remain.
+  direct messages, and F24-03 adds bounded one-hop pub/sub. F24-04 introduces generic peer
+  discovery (`PeerDirectory`), F24-05 extracts a reusable `meshbus/rns` adapter, F24-06 moves
+  r1s onto that public adapter, and F24-07 adds a cohesive application-facing Node API.
 - **Done when:** r1s composes its control protocol over a reusable meshbus direct-message boundary;
   authenticated realm peers can publish best-effort, TTL-bounded, deduplicated events by fan-out;
   announces carry discovery only; and the sender exposed to applications always comes from the
@@ -313,8 +314,13 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   and bounded pub/sub boundaries. r1s keeps the `cluster` CLI, token format, credential store,
   established ID/authentication domains, and its Protobuf control semantics. Pub/sub is one-hop
   fan-out with exact local topics, TTL, bounded deduplication and backpressure; r1s does not recast
-  execution messages as events. Generic realm presence discovery and the reusable public RNS
-  adapter remain the next vertical.
+  execution messages as events. The remaining extraction is split into four tasks: F24-04 fixes a
+  transport-independent peer discovery contract (`PeerDirectory`), F24-05 physically extracts a
+  reusable `meshbus/rns` adapter, F24-06 moves r1s onto that adapter so only r1s-specific
+  adaptation stays in `internal/transport/rns`, and F24-07 adds a cohesive Node API so
+  applications do not hand-wire `Realm + RNS adapter + PeerDirectory + Bus`. After F24-07, F24
+  closes without subscription gossip, multi-hop routing, persistence or ACK — meshbus stays a
+  small brokerless primitive.
 
 - [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
   explicitly renewed client-held lease instead of a request-time deadline. Under F22 the lease is

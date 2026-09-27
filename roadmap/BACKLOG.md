@@ -19,13 +19,14 @@ This file records unresolved choices so they do not remain implicit in implement
 
 4. **meshbus packaging and RNS discovery boundary** — [F24](./f24-meshbus-extraction/README.md)
    starts in-tree so r1s can establish and test the dependency direction before repository or Go
-   module separation. Decide the eventual standalone module boundary and versioning after generic
-   realm presence discovery and the RNS adapter no longer depend on r1s descriptors. F24-03 settles
-   the first event contract: `MBE` v1, exact validated topics, random 128-bit IDs, receive-bounded
-   TTL, bounded deduplication, bounded per-subscription queues, fixed handler/fan-out concurrency,
-   and one publisher-to-known-peer hop with no forwarding. The authenticated direct-message peer is
-   the only sender authority. Subscription advertisement/routing, persistence, replay, consumer
-   groups, offsets, and exactly-once delivery remain out of scope.
+   module separation. Decide the eventual standalone module boundary and versioning once the
+   extraction settles: F24-04 fixes a transport-independent peer discovery contract
+   (`PeerDirectory`), F24-05 extracts a reusable public `meshbus/rns` adapter free of r1s
+   descriptors, and F24-06 moves r1s onto that adapter; after F24-06 the generic layer no longer
+   depends on r1s and the boundary decision can be made. F24-03 settles the first event contract
+   (`MBE` v1), and F24-07 adds the cohesive application-facing Node API. Subscription
+   advertisement/routing, persistence, replay, consumer groups, offsets, and exactly-once
+   delivery remain out of scope.
 
 5. **History retention and replay horizon defaults** — pinned with [F11](./f11-state-retention/README.md)
    completion: command replay horizon `CommandHorizon` = 7 days, default result retention = 24 hours

@@ -46,8 +46,9 @@ transport may impose a smaller payload limit; the current RNS Channel MDU does s
 
 r1s does not instantiate `meshbus.Bus`. Execution request/offer/assign, leases, logs, and tunnel
 authorization remain direct r1s protocol messages. The existing r1s Channel message type and bytes
-are unchanged. F24-04 will extract generic realm presence discovery and a reusable RNS adapter so
-other applications can supply the authenticated peer snapshot without importing r1s descriptors.
+are unchanged. F24-04 will extract a transport-independent peer discovery contract
+(`PeerDirectory`), and F24-05 a reusable `meshbus/rns` adapter, so other applications can supply
+an authenticated peer snapshot without importing r1s descriptors.
 
 ## Acceptance
 

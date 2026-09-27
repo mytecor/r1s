@@ -110,8 +110,10 @@ The generic event wire form is versioned independently with the `MBE` v1 marker.
 ID, topic, publication time, TTL, content type, and opaque payload, but never a sender. On receive,
 the sender is taken exclusively from the enclosing authenticated direct message. r1s does not
 instantiate the event bus, so the existing r1s Protobuf wire protocol and behavior are unchanged.
-Generic realm presence discovery and a reusable public RNS adapter remain the next extraction
-vertical before meshbus is considered complete.
+The remaining extraction completes in four steps: F24-04 fixes the transport-independent peer
+discovery contract (`PeerDirectory`), F24-05 extracts the reusable public `meshbus/rns` adapter,
+F24-06 moves r1s onto that adapter (only r1s-specific adaptation stays in `internal/transport/rns`), and F24-07 adds a cohesive application-facing Node API. After F24-07,
+meshbus is complete as a small brokerless primitive.
 
 ## Commands
 

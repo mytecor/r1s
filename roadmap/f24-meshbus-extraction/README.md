@@ -53,7 +53,10 @@ advertisement and multi-hop gossip are deferred until scale requires them.
 - [F24-01 — Extract the secure realm primitive](./f24-01-realm-primitive.md)
 - [F24-02 — Extract authenticated direct messages](./f24-02-direct-messages.md)
 - [F24-03 — Add bounded pub/sub fan-out](./f24-03-pubsub.md)
-- F24-04 — Extract generic realm discovery and the public RNS adapter (planned)
+- [F24-04 — Extract generic peer discovery](./f24-04-peer-directory.md)
+- [F24-05 — Extract reusable Reticulum meshbus adapter](./f24-05-rns-adapter.md)
+- [F24-06 — Move r1s onto the public meshbus transport](./f24-06-r1s-on-meshbus.md)
+- [F24-07 — Add the cohesive meshbus Node API](./f24-07-node-api.md)
 
 ## Completion criteria
 
@@ -61,4 +64,6 @@ advertisement and multi-hop gossip are deferred until scale requires them.
 - r1s control messages continue to pass the same authenticated-sender and cluster-membership tests.
 - Foreign realms are rejected before application delivery.
 - Pub/sub bounds and duplicate-delivery behavior have deterministic contract tests.
+- Generic peer discovery and a reusable public RNS adapter exist; r1s composes over them instead of owning the transport machinery.
+- A cohesive application-facing Node API composes realm, transport, discovery, direct messages and pub/sub.
 - `make check` passes.
