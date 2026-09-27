@@ -27,7 +27,7 @@ func (e *workloadExitError) Error() string {
 func (e *workloadExitError) ExitStatus() int { return e.status }
 
 func (a *application) runExecution(arguments []string, stderr io.Writer) error {
-	flags := newFlagSet("r1s run <cluster> [options] '<ExecutionRequest JSON>'", stderr)
+	flags := newFlagSet("r1s run [options] '<ExecutionRequest JSON>'", stderr)
 	offerWait := flags.Duration("offer-wait", defaultOfferWait, "time to discover allocators and collect offers")
 	detach := flags.Bool("d", false, "detach: hand the run to a background process and return")
 	detachLong := flags.Bool("detach", false, "detach: hand the run to a background process and return")
@@ -38,7 +38,6 @@ func (a *application) runExecution(arguments []string, stderr io.Writer) error {
 	// Internal child flags are set only when the detached parent re-executes
 	// this binary as the lease-holding child. They are invisible to users.
 	childFlag := flags.Bool("r1s-child", false, "internal: run as the detached lease-holding child")
-	handshakeFD := flags.Int("r1s-fd", detachHandshakeFD, "internal: handshake pipe file descriptor")
 	childLogFile := flags.String("r1s-log-file", "", "internal: resolved detached output file")
 	childPublish := flags.String("r1s-publish", "", "internal: comma-separated host:container publish list")
 	if err := flags.Parse(arguments); err != nil {
@@ -60,13 +59,13 @@ func (a *application) runExecution(arguments []string, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return a.runDetachedChild(flags.Arg(0), *offerWait, *handshakeFD, *childLogFile, childPublishes)
+		return a.runDetachedChild(flags.Arg(0), *offerWait, *childLogFile, childPublishes)
 	}
 	if detached {
 		// The parent never owns the run: it spawns a child and waits for the
 		// ownership handshake so it reports a live run only after the child has
 		// safely taken over (and the state paths exist with owner-only perms).
-		return a.launchDetached(a.clusterSelector, flags.Arg(0), *offerWait, *logFile, publishes.mappings, stderr)
+		return a.launchDetached(flags.Arg(0), *offerWait, *logFile, publishes.mappings, stderr)
 	}
 	return a.runForeground(flags.Arg(0), *offerWait, publishes.mappings, stderr)
 }

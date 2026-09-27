@@ -8,42 +8,16 @@ import (
 	"testing"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
-	"github.com/mytecor/r1s/internal/cluster"
 )
 
-func TestRunCommandUsesPositionalClusterWithoutPersistentIdentity(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	directory, err := cluster.DefaultDirectory()
+func TestRunCommandUsesCurrentClusterWithoutOperand(t *testing.T) {
+	request := `{"workload":{"image":"example.test/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`
+	options, err := parseCommandLine([]string{"run", "--offer-wait", "1s", request}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := cluster.SaveCredential(directory, bytes.Repeat([]byte{0x71}, cluster.KeySize))
-	if err != nil {
-		t.Fatal(err)
-	}
-	options, err := parseCommandLine([]string{"run", id[:12], "--offer-wait", "1s", `{"workload":{"image":"example.test/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`}, &bytes.Buffer{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if options.clusterSelector != id[:12] || options.command != "run" {
+	if options.command != "run" || len(options.arguments) != 3 || options.arguments[2] != request {
 		t.Fatalf("run options = %+v", options)
-	}
-	first, err := openRunApplication(context.Background(), options, &bytes.Buffer{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer first.close()
-	second, err := openRunApplication(context.Background(), options, &bytes.Buffer{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer second.close()
-	if first.controller == nil || second.controller == nil {
-		t.Fatalf("run application has no public run controller")
-	}
-	if bytes.Equal(first.identity, second.identity) {
-		t.Fatalf("separate runs reused ephemeral identity %x", first.identity)
 	}
 }
 
@@ -61,7 +35,7 @@ func TestRunRejectsLegacyClusterFlag(t *testing.T) {
 }
 
 func TestRunHelpWorksWithOrWithoutCluster(t *testing.T) {
-	for _, arguments := range [][]string{{"run", "--help"}, {"run", "abcd", "--help"}} {
+	for _, arguments := range [][]string{{"run", "--help"}} {
 		var output bytes.Buffer
 		if err := run(context.Background(), arguments, &bytes.Buffer{}, &output); !errors.Is(err, flag.ErrHelp) {
 			t.Fatalf("run(%v) error = %v, want help", arguments, err)
@@ -102,24 +76,11 @@ func TestWorkloadStatus(t *testing.T) {
 }
 
 func TestRunAcceptsDetachFlagsAndKeepsJSON(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	directory, err := cluster.DefaultDirectory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, err := cluster.SaveCredential(directory, bytes.Repeat([]byte{0x42}, cluster.KeySize))
-	if err != nil {
-		t.Fatal(err)
-	}
 	json := `{"workload":{"image":"example.test/i@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`
 	for _, flag := range []string{"-d", "--detach"} {
-		options, err := parseCommandLine([]string{"run", id[:12], flag, "--offer-wait", "1s", json}, &bytes.Buffer{})
+		options, err := parseCommandLine([]string{"run", flag, "--offer-wait", "1s", json}, &bytes.Buffer{})
 		if err != nil {
 			t.Fatalf("parseCommandLine(%s) error: %v", flag, err)
-		}
-		if options.clusterSelector != id[:12] {
-			t.Fatalf("cluster selector = %q", options.clusterSelector)
 		}
 		found := false
 		for _, argument := range options.arguments {

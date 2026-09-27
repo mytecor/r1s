@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunDirectoryUnderHomeState(t *testing.T) {
@@ -145,10 +146,33 @@ func TestLaunchDetachedRunExitBeforeHandshakeNeverReportsLiveRun(t *testing.T) {
 	}
 }
 
+func TestLaunchDetachedProcessRejectsCommandSpecificHandshake(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "wrong-readiness.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf 'wrong\\n'\nwhile :; do :; done\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	err := launchDetachedProcess(context.Background(), script, nil, detachedProcess{
+		label: "test detach", timeout: time.Second,
+		validate: func(line string) error {
+			if line != "ready" {
+				return fmt.Errorf("unexpected readiness %q", line)
+			}
+			return nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid readiness handshake") {
+		t.Fatalf("invalid handshake error = %v", err)
+	}
+	if time.Since(started) > 2*time.Second {
+		t.Fatalf("invalid handshake did not terminate child promptly: %s", time.Since(started))
+	}
+}
+
 // TestLaunchDetachedRunSuccessHandshake drives the parent orchestration against
 // a scripted child that, like the real child, creates the run directory with
 // owner-only perms, writes its own PID marker, creates the output log, and only
-// then writes the machine-ready handshake line to the inherited fd 3. The
+// then writes the machine-ready handshake line to stdout. The
 // parent must print the run ID, PID, and log path and report no error.
 func TestLaunchDetachedRunSuccessHandshake(t *testing.T) {
 	base := t.TempDir()
@@ -159,7 +183,7 @@ func TestLaunchDetachedRunSuccessHandshake(t *testing.T) {
 		"mkdir -p \"$1\" && chmod 700 \"$1\"\n" +
 		"echo \"$$\" > \"$1/pid\" && chmod 600 \"$1/pid\"\n" +
 		": > \"$1/output.log\" && chmod 600 \"$1/output.log\"\n" +
-		"printf 'run-success\\t%s\\t%s\\t%s\\n' \"$$\" \"$1/output.log\" \"$1\" >&3\n" +
+		"printf 'run-success\\t%s\\t%s\\t%s\\n' \"$$\" \"$1/output.log\" \"$1\"\n" +
 		"exit 0\n"
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)

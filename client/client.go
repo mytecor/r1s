@@ -1,9 +1,10 @@
 // Package client provides the public, run-oriented r1s client API.
 //
 // A Client is an ephemeral RNS participant and controls one logical run in its
-// lifetime. It does not start a local API server or persist requests, identities,
-// or lease intent. The authenticated RNS identity owned by the Client is the
-// authority for every execution attempt it creates.
+// lifetime. It does not persist requests, identities, or lease intent. The
+// authenticated RNS identity owned by the Client is the authority for every
+// execution attempt it creates. A caller may either open joined credentials
+// directly or use the local cluster-authority broker selected by `cluster use`.
 package client
 
 import (
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/broker"
 	coreclient "github.com/mytecor/r1s/internal/client"
 	"github.com/mytecor/r1s/internal/cluster"
 	"github.com/mytecor/r1s/internal/transport/rns"
@@ -35,12 +37,16 @@ var (
 
 // Config configures an ephemeral run controller.
 type Config struct {
-	// ClusterKey is the 32-byte cluster membership secret. It is used for RNS
-	// link authentication and is never included in workload or protocol data.
+	// ClusterKey is the 32-byte cluster membership secret used by New. It is
+	// used for RNS link authentication and is never included in workload or
+	// protocol data. OpenCurrent ignores it because the broker retains the key.
 	ClusterKey []byte
 	// NetworkWait bounds RNS path discovery, link establishment, and sends.
 	// Zero uses 30 seconds.
 	NetworkWait time.Duration
+	// BrokerAddress overrides the local cluster-authority endpoint used by
+	// OpenCurrent. Empty uses the platform default (or R1S_SOCKET).
+	BrokerAddress string
 }
 
 // Open resolves a locally joined cluster ID (or unique prefix) and constructs
@@ -56,6 +62,33 @@ func Open(selector string, config Config) (*Client, error) {
 	}
 	config.ClusterKey = key
 	return New(config)
+}
+
+// OpenCurrent constructs a Client through the authority broker selected by
+// `r1s cluster use`. The broker retains the cluster key and creates a fresh RNS
+// identity for this Client; run state and lifecycle remain in this process.
+func OpenCurrent(config Config) (*Client, error) {
+	if err := normalizeConfig(&config); err != nil {
+		return nil, err
+	}
+	address := config.BrokerAddress
+	if address == "" {
+		var err error
+		address, err = broker.DefaultAddress()
+		if err != nil {
+			return nil, err
+		}
+	}
+	c := newClientState()
+	endpoint, err := broker.OpenEndpoint(address, config.NetworkWait, c.handleEnvelope)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.installEndpoint(endpoint, endpoint.Name()); err != nil {
+		_ = endpoint.Close()
+		return nil, err
+	}
+	return c, nil
 }
 
 // Client is an ephemeral RNS run controller. It is safe for concurrent log
@@ -93,13 +126,10 @@ type controllerEndpoint interface {
 
 // New constructs an ephemeral client without starting its RNS endpoint.
 func New(config Config) (*Client, error) {
-	if config.NetworkWait == 0 {
-		config.NetworkWait = defaultNetworkWait
+	if err := normalizeConfig(&config); err != nil {
+		return nil, err
 	}
-	if config.NetworkWait < 0 {
-		return nil, errors.New("client: network wait must be positive")
-	}
-	c := &Client{waiters: make(map[string][]chan *r1sv1.Envelope), stateChanged: make(chan struct{}, 1)}
+	c := newClientState()
 	endpoint, err := rns.New(rns.Config{
 		EphemeralIdentity: true,
 		ClusterKey:        bytes.Clone(config.ClusterKey),
@@ -108,19 +138,39 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.endpoint = endpoint
-	identityHash, err := hex.DecodeString(endpoint.Name())
-	if err != nil {
-		_ = endpoint.Close()
-		return nil, fmt.Errorf("decode ephemeral identity: %w", err)
-	}
-	c.identity = identityHash
-	c.core, err = coreclient.New(coreclient.Config{Identity: identityHash})
-	if err != nil {
+	if err := c.installEndpoint(endpoint, endpoint.Name()); err != nil {
 		_ = endpoint.Close()
 		return nil, err
 	}
 	return c, nil
+}
+
+func normalizeConfig(config *Config) error {
+	if config.NetworkWait == 0 {
+		config.NetworkWait = defaultNetworkWait
+	}
+	if config.NetworkWait < 0 {
+		return errors.New("client: network wait must be positive")
+	}
+	return nil
+}
+
+func newClientState() *Client {
+	return &Client{waiters: make(map[string][]chan *r1sv1.Envelope), stateChanged: make(chan struct{}, 1)}
+}
+
+func (c *Client) installEndpoint(endpoint controllerEndpoint, identity string) error {
+	identityHash, err := hex.DecodeString(identity)
+	if err != nil {
+		return fmt.Errorf("decode ephemeral identity: %w", err)
+	}
+	c.endpoint = endpoint
+	c.identity = identityHash
+	c.core, err = coreclient.New(coreclient.Config{Identity: identityHash})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Identity returns the authenticated RNS identity hash used as execution
@@ -131,8 +181,8 @@ func (c *Client) Identity() []byte {
 	return bytes.Clone(c.identity)
 }
 
-// Start attaches the ephemeral endpoint to the platform RNS shared instance.
-// The supplied context bounds the complete lifetime of the client.
+// Start activates the ephemeral endpoint, directly or through the current
+// authority broker. The supplied context bounds the complete client lifetime.
 func (c *Client) Start(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("client: context is required")

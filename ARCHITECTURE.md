@@ -27,6 +27,7 @@ hierarchies. Those are workloads or protocols layered on top.
 flowchart LR
     Protocol[Versioned Protobuf protocol]
     Client[Public Run Controller API]
+    Broker[Local cluster authority broker]
     Fabric[RNS control plane<br/>announce + Link/Channel]
     Allocator[Allocator core]
     Runtime[OCI runtime]
@@ -34,6 +35,8 @@ flowchart LR
 
     Protocol -. defines messages .-> Client
     Protocol -. defines messages .-> Allocator
+    Client <--> Broker
+    Broker <--> Fabric
     Client <--> Fabric
     Fabric <--> Allocator
     Allocator --> Runtime
@@ -45,6 +48,7 @@ The source boundaries are:
 ```text
 api/proto/r1s/v1/       versioned wire schema
 client/                  public ephemeral Run Controller API
+internal/broker/         local credential isolation and per-run transport endpoints
 internal/protocol/      message validation and compatibility
 internal/client/         in-memory request state, offer selection, and observed execution state
 internal/cluster/        cluster key, public ID, join token, and local state
@@ -53,7 +57,8 @@ internal/transport/     transport boundary and RNS adapter
 internal/runtime/       runtime boundary and containerd adapter
 ```
 
-The public client composes the protocol-neutral in-memory client core with the RNS adapter. The
+The public client composes the protocol-neutral in-memory client core with either the RNS adapter
+directly or a broker-backed endpoint. The
 protocol, allocator, transport contract and in-memory adapter, runtime contract, RNS adapter,
 and containerd adapter are present. Python-reference RNS discovery interoperability and reliable
 Channel envelope delivery (including recovery from injected packet loss) are proven via a gated live
@@ -73,10 +78,13 @@ transport, runtime, and client behavior remains in reusable packages.
 | `r1s` | `cmd/r1s/` | Client `run` and cluster bootstrap CLI | F4, F12, F22 |
 
 Since F22-07 removed the legacy client control plane, the `r1s` binary has a single run-oriented
-frontend plus the cluster bootstrap commands. The frontend uses the public
+frontend plus cluster membership and authority-context commands. The frontend uses the public
 [`client`](./client) Run Controller API; it does not contain a second orchestration implementation.
-Each controller creates a fresh RNS identity and an in-memory client engine (no durable state, no
-local socket). It owns discovery, deterministic offer selection, loser release, assignment,
+`r1s cluster use` starts a foreground per-user authority broker that retains one selected cluster
+key; `-d` explicitly detaches it. Each connected controller gets a fresh broker-owned RNS endpoint
+and keeps its own in-memory client engine; the broker owns no request, lease, reschedule, log,
+tunnel, or desired state. The controller owns discovery, deterministic offer selection, loser
+release, assignment,
 authenticated inspection, lease renewal, conclusive-loss rescheduling, and cancellation. CLI log
 tailing and local port binding adapt the controller's explicit `Logs` and `OpenTunnel` operations.
 Terminal-record retention on the allocator is an operator policy, not workload input.
@@ -88,14 +96,17 @@ binaries.
 
 The pre-F22 local client API — the `r1s.v1.LocalClient` gRPC service, `r1s serve`, the Unix-socket
 `--socket` routing, and the `Watch` journal — was removed by F22-07. There is no durable client
-state, watch sequence, or local socket; the client is an ephemeral in-memory process that owns a
-run for its lifetime and keeps nothing across restart. See
+state or watch sequence; the client is an ephemeral in-memory process that owns a run for its
+lifetime and keeps nothing across restart. The later F23 authority socket is not this API: it
+forwards authenticated transport events for one fresh endpoint per connection and exposes no run
+operations or run state. See
 [F22-07](./roadmap/f22-rns-shared-instance/f22-07-client-cleanup.md).
 
 This removal does not mean applications must shell out to the CLI. They import
-[`client`](./client), become an RNS participant themselves, and communicate directly with
-allocators. A service that accepts commands from other applications and forwards them over RNS
-would recreate the removed authority and lifecycle boundary and is deliberately not provided.
+[`client`](./client), become an RNS participant themselves, and communicate with allocators either
+through directly opened credentials or the current authority broker. A service that accepts run
+commands or owns run state for other applications would recreate the removed authority and
+lifecycle boundary and is deliberately not provided.
 
 ## Execution and deployment layers
 
@@ -148,13 +159,16 @@ Cluster membership is a separate transport-boundary authorization step. A partic
 random 256-bit `ClusterKey` from `~/.config/r1s/clusters/<cluster-id>` and derives the public
 identifier as `SHA-256("r1s-cluster-id-v1" || ClusterKey)`. `cluster init` and `cluster join` write
 credentials atomically with owner-only permissions; `cluster list` exposes only their public IDs.
-Runtime selection requires a full ID or unique hexadecimal prefix and never accepts a join token.
+Allocator runtime selection and `r1s cluster use` require a full ID or unique hexadecimal prefix
+and never accept a join token.
 The legacy single credential file is not an implicit default or migration source.
 
 Allocators publish only the selected `ClusterID` in announce app data, and clients ignore
 descriptors for other cluster IDs. The key and join token are never announced or placed in
-protobuf envelopes. One allocator process selects exactly one cluster; cluster ID and key remain
-outside workload data and `ExecutionRequest`.
+protobuf envelopes. One allocator process and one local authority broker select exactly one
+cluster; cluster ID and key remain outside workload data and `ExecutionRequest`. Each broker
+connection creates one fresh ephemeral RNS identity. Its calling run process owns the corresponding
+controller lifecycle, while the key remains confined to the broker.
 
 After an RNS Link authenticates the peer identities, both sides exchange fresh nonces and prove
 knowledge of the cluster key with

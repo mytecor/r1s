@@ -368,12 +368,14 @@ This file records unresolved choices so they do not remain implicit in implement
     returns multiple offers for one request. Allocator load and offer timestamps are excluded:
     neither is a stable, independently trustworthy input. Every later attempt repeats the same
     ordinary policy without pinning to a previous allocator.
-25. **Application integration uses a public Run Controller, not a local client server
-    (2026-09-26)** — [F23](./f23-run-controller-library/README.md) exposes
-    `github.com/mytecor/r1s/client`; an application becomes the authenticated RNS participant and
-    owns one logical run directly. The CLI is an adapter over the same library. Cross-identity
-    handoff, if needed later, must be an explicit signed capability/delegation primitive and must
-    not reintroduce a forwarding daemon.
+25. **Application integration uses a public Run Controller; local cluster context brokers only
+    credentials and transport (2026-09-26, amended 2026-09-27)** —
+    [F23](./f23-run-controller-library/README.md) exposes `github.com/mytecor/r1s/client`; an
+    application owns one logical run directly. The CLI is an adapter over the same library.
+    `r1s cluster use` may retain the selected key and create one ephemeral RNS endpoint per run
+    connection, but it owns no request, lease, reschedule, log, tunnel, or desired state.
+    Allocator-side scoped delegation, if needed later, must be an explicit capability decision and
+    must not turn the authority broker into a run daemon.
 
 ## Deferred
 

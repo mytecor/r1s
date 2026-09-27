@@ -51,9 +51,10 @@ one local output file without introducing a client log database.
   to stderr. A partition, timeout, or expired retention is never rescheduling evidence from the
   tail; offsets stay put, so reconnect drains exactly the gap with no duplicate or missing bytes.
 - `r1s run -d [--log-file path]` detaches: the parent re-executes this binary as the lease-holding
-  child (never building its own RNS node), waits for a short ownership handshake over an inherited
-  pipe, and only then prints `run=... pid=... log=...`. A child that exits before the handshake is
-  reported as a failed detach, never a live run.
+  child (never building its own RNS node), waits for a short ownership handshake over the child's
+  captured stdout, and only then prints `run=... pid=... log=...`. A child that exits before the
+  handshake is reported as a failed detach, never a live run. F23's detached cluster broker uses
+  the same re-exec/readiness launcher with a cluster-specific handshake validator.
 - The child writes its PID marker and opens the output file under `~/.local/state/r1s/runs/<run-id>/`
   (or the `--log-file` override), signals ownership only after those paths exist with owner-only
   permissions, and removes the PID marker on clean exit while retaining the output log.

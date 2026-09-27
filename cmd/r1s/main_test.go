@@ -117,7 +117,7 @@ func TestClusterInitDoesNotRequireNetworkFlags(t *testing.T) {
 	}
 }
 
-func TestAmbiguousClusterFailsBeforeTransportStartup(t *testing.T) {
+func TestClusterUseRejectsAmbiguousSelectionBeforeBrokerStartup(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	directory, err := cluster.DefaultDirectory()
@@ -140,9 +140,7 @@ func TestAmbiguousClusterFailsBeforeTransportStartup(t *testing.T) {
 	if selector == "" {
 		t.Fatal("failed to construct ambiguous cluster prefix")
 	}
-	_, err = openRunApplication(context.Background(), commandLine{
-		clusterSelector: selector,
-	}, &bytes.Buffer{})
+	err = runClusterSession(context.Background(), []string{"use", selector}, &bytes.Buffer{}, &bytes.Buffer{})
 	if !errors.Is(err, cluster.ErrAmbiguous) {
 		t.Fatalf("openRunApplication() error = %v, want ErrAmbiguous", err)
 	}

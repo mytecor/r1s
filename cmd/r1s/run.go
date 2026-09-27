@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/mytecor/r1s/internal/cluster"
@@ -14,14 +13,13 @@ import (
 // commandLine holds the parsed top-level r1s options that survive past
 // parseCommandLine. F22-07 removed the legacy client control plane (local
 // socket, durable identity/state, serve, CRUD commands), so the only command
-// surfaces are version, cluster management, and `run`. run carries the
-// selector and network timeout that openRunApplication needs.
+// surfaces are version, cluster management, and `run`. run carries the network
+// timeout used by the broker-created endpoint.
 type commandLine struct {
-	showVersion     bool
-	clusterSelector string
-	networkWait     time.Duration
-	command         string
-	arguments       []string
+	showVersion bool
+	networkWait time.Duration
+	command     string
+	arguments   []string
 }
 
 func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) error {
@@ -34,20 +32,25 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return nil
 	}
 	if options.command == "cluster" {
+		if len(options.arguments) > 0 && (options.arguments[0] == "use" || options.arguments[0] == "status" || options.arguments[0] == "unset") {
+			return runClusterSession(ctx, options.arguments, stdout, stderr)
+		}
 		directory, err := cluster.DefaultDirectory()
 		if err != nil {
 			return err
 		}
 		return cluster.RunCommand(options.arguments, directory, stdout, stderr)
 	}
-	// `run --help` and `run <cluster> --help` print run help (flag.ErrHelp)
-	// without needing a resolvable cluster or a live transport.
+	if options.command == "__cluster-broker" {
+		return runClusterBroker(ctx, options.arguments, stdout)
+	}
+	// `run --help` prints run help without needing an active broker.
 	if options.command == "run" && containsHelp(options.arguments) {
 		return (&application{}).runExecution(options.arguments, stderr)
 	}
-	// The only remaining workflow is `run`. Its client identity, state, and
-	// RNS transport are ephemeral and in-memory; the cluster selector is
-	// positional. A `-d` parent never owns the run: it only spawns the
+	// The only remaining workflow is `run`. Its client identity and RNS
+	// transport are broker-created and ephemeral; run state remains in this
+	// process. A `-d` parent never owns the run: it only spawns the
 	// lease-holding child and observes its ownership handshake, so it never
 	// builds an RNS overlay node; the child, a fresh process, starts its own
 	// ephemeral transport.
@@ -90,25 +93,18 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	if command == "cluster" {
 		return commandLine{command: command, arguments: argumentsAfterCommand}, nil
 	}
-	// `run` takes the cluster selector positionally, except `run -h/--help`
-	// which must work without selecting a cluster (the run flag set prints its
-	// own help and returns flag.ErrHelp).
-	if len(argumentsAfterCommand) > 0 && (argumentsAfterCommand[0] == "-h" || argumentsAfterCommand[0] == "--help") {
+	if command == "__cluster-broker" {
 		return commandLine{networkWait: *networkWait, command: command, arguments: argumentsAfterCommand}, nil
 	}
-	if len(argumentsAfterCommand) == 0 || strings.TrimSpace(argumentsAfterCommand[0]) == "" {
-		return commandLine{}, errors.New("run: cluster ID or unique prefix is required")
-	}
 	return commandLine{
-		networkWait:     *networkWait,
-		clusterSelector: argumentsAfterCommand[0],
-		command:         command,
-		arguments:       argumentsAfterCommand[1:],
+		networkWait: *networkWait,
+		command:     command,
+		arguments:   argumentsAfterCommand,
 	}, nil
 }
 
 func knownCommand(command string) bool {
-	return command == "run" || command == "cluster"
+	return command == "run" || command == "cluster" || command == "__cluster-broker"
 }
 
 func containsHelp(arguments []string) bool {

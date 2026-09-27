@@ -88,9 +88,10 @@ the same run only after authenticated evidence that the previous execution is go
 
 Applications can participate in r1s directly through the public
 [`client`](./client) package. The library is the run controller; the `r1s run` command is a frontend
-over the same API. No localhost daemon, socket RPC, or intermediary client identity is involved:
-the application process creates one ephemeral RNS identity and that transport-verified identity
-owns every attempt of its logical run.
+over the same API. Applications may open locally joined credentials directly. The CLI instead uses
+the local authority broker selected by `r1s cluster use`: the broker retains the cluster key and
+creates a fresh ephemeral RNS endpoint for each run process, while the run process still owns all
+request, lease, reschedule, log, and tunnel state.
 
 ```go
 controller, err := client.Open(clusterID, client.Config{})
@@ -131,10 +132,12 @@ If an allocator is the first participant instead, run `r1sd cluster init`. Save 
 `init` prints it only once. Do not run `init` independently on other participants, because that
 creates a different cluster.
 
-Join every additional client with the same token to persist membership:
+Join every additional client with the same token to persist membership, then select it for the
+local CLI authority session:
 
 ```sh
 r1s cluster join 'r1s1:<secret>'
+r1s cluster use -d <cluster-id-or-unique-prefix>
 ```
 
 Join every allocator that did not create the cluster to persist membership, then start it:
@@ -154,13 +157,17 @@ by its full derived public ID. List the available non-secret IDs with either bin
 r1s cluster list
 ```
 
-Runtime selection accepts a full ID or a unique hexadecimal prefix. `r1sd` requires exactly one
-positional cluster operand; `r1s run` takes it positionally too. Join tokens are
-accepted only by `cluster join`, never as runtime selectors:
+`r1s cluster use` accepts a full ID or a unique hexadecimal prefix, starts the per-user local
+authority broker in the foreground, and blocks until interrupted or stopped with `cluster unset`
+from another terminal. Add `-d` or `--detach` to run the broker in the background. `cluster status`
+reports the current cluster and `cluster unset` stops its broker. The allocator remains explicit
+and requires exactly one positional cluster operand. Join tokens are accepted only by
+`cluster join`, never as runtime selectors:
 
 ```sh
 r1sd --identity /var/lib/r1s/identity <cluster-id-or-unique-prefix>
-r1s run <cluster-id-or-unique-prefix> '<ExecutionRequest JSON>'
+r1s cluster use -d <cluster-id-or-unique-prefix>
+r1s run '<ExecutionRequest JSON>'
 ```
 
 Successful completion exits zero; a workload status from 1 through 255 is preserved. A terminal
@@ -181,16 +188,17 @@ include each permitted client's RNS identity.
 Submit a digest-pinned OCI image. Allocators are discovered through RNS announces:
 
 ```sh
-r1s run <cluster-id-or-unique-prefix> \
+r1s run \
   '{"workload":{"image":"registry.example/image@sha256:..."},"policy":{},"resourceClass":"default"}'
 ```
 
-The public run controller creates the request and assignment in memory (no client database or local socket),
-holds the execution lease for the run's lifetime, tails allocator-local stdout/stderr to the
-terminal, and re-requests the recorded workload as the next attempt only after authenticated
-evidence that the previous execution is gone. An execution whose lease expires without renewal is
-evicted locally and its workload re-requested. Container logs stay allocator-local and are
-transferred only over the authenticated log stream the run tail opens.
+The public run controller creates the request and assignment in memory, holds the execution lease
+for the run's lifetime, tails allocator-local stdout/stderr to the terminal, and re-requests the
+recorded workload as the next attempt only after authenticated evidence that the previous
+execution is gone. The broker socket carries authenticated discovery and control envelopes but no
+run state; one broker-created endpoint belongs to one run process. An execution whose lease expires
+without renewal is evicted locally and its workload re-requested. Container logs stay
+allocator-local and are transferred only over the authenticated log stream the run tail opens.
 
 Run `r1s --help` or `r1s run --help` for all options.
 
@@ -199,10 +207,11 @@ Run `r1s --help` or `r1s run --help` for all options.
 The pre-F22 local client control plane is removed. There is no `request`, `serve`, `list`,
 `inspect`, `result`, `cancel`, `logs`, or `tunnel` command, no local gRPC/unix-socket client API
 (`--socket`, `--keep-alive`, `--identity`, `--state`, `--allocator`, `--rns-config`), and no
-durable client state or watch journal. The client is an ephemeral in-memory process: it holds a
-lease and keeps nothing across restart. Allocator-local bbolt state remains the sole execution
-database; terminal-record retention is an allocator operator policy (`--retention`), not workload
-input.
+durable client state or watch journal. The `cluster use` socket is only a credential and transport
+broker: it has no run CRUD API and owns no lease, request, or desired state. Each run remains an
+ephemeral in-memory process and keeps nothing across restart. Allocator-local bbolt state remains
+the sole execution database; terminal-record retention is an allocator operator policy
+(`--retention`), not workload input.
 
 ## Documentation
 

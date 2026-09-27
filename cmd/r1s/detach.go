@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,11 +24,6 @@ import (
 // output.log after creation. No cluster secret or secret workload field is
 // copied into this directory.
 const runStateRelPath = ".local/state/r1s/runs"
-
-// detachHandshakeFD is the file descriptor the child inherits (via ExtraFiles)
-// and writes its ready line to. It is the first and only ExtraFile, so it lands
-// at fd 3 after exec.
-const detachHandshakeFD = 3
 
 // childHandshakeTimeout bounds how long the parent waits for the child to take
 // ownership. The child's first request can take up to offer-wait plus RNS
@@ -60,18 +53,18 @@ func runDirectory(runID string) (string, error) {
 // for the child's ownership handshake, and only then prints the run ID, PID,
 // and log path. A child that fails or exits before the handshake is reported
 // as a failed detach, never as a live run.
-func (a *application) launchDetached(clusterID, workloadJSON string, offerWait time.Duration, logFile string, publishes []portMapping, stderr io.Writer) error {
+func (a *application) launchDetached(workloadJSON string, offerWait time.Duration, logFile string, publishes []portMapping, stderr io.Writer) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("detach: resolve executable: %w", err)
 	}
 	// The child is re-invoked with the same run command minus -d. The internal
-	// --r1s-child marker and handshake pipe fd tell it to run as the detached
+	// --r1s-child marker tells it to run as the detached
 	// holder; --r1s-log-file carries the resolved detached output path (which
 	// the child cannot resolve until it knows the run ID and this must be
 	// decided before the handshake reports it). When no --log-file was given,
 	// the child resolves the default under the run state directory itself.
-	childArgs := []string{"run", clusterID, workloadJSON, "--offer-wait", offerWait.String()}
+	childArgs := []string{"run", workloadJSON, "--offer-wait", offerWait.String()}
 	if len(publishes) > 0 {
 		var bits []string
 		for _, m := range publishes {
@@ -94,68 +87,20 @@ func (a *application) launchDetached(clusterID, workloadJSON string, offerWait t
 // after the reported paths exist with owner-only permissions. A child that
 // exits before the handshake returns its exit error instead.
 func launchDetachedRun(ctx context.Context, executable string, childArgs []string, stdout io.Writer) error {
-	readEnd, writeEnd, err := os.Pipe()
-	if err != nil {
-		return fmt.Errorf("detach: create handshake pipe: %w", err)
-	}
-	defer readEnd.Close()
-
-	// The child becomes a session leader (on Unix) so a terminal interrupt
-	// aimed at the foreground parent never reaches the detached run.
-	cmd := exec.Command(executable, childArgs...)
-	cmd.ExtraFiles = []*os.File{writeEnd}
-	cmd.SysProcAttr = detachedSysProcAttr()
-	if err := cmd.Start(); err != nil {
-		writeEnd.Close()
-		return fmt.Errorf("detach: start run child: %w", err)
-	}
-	// The parent's copy of the write end is closed so EOF on the read end means
-	// the child has either finished its handshake or exited.
-	writeEnd.Close()
-
-	reading := make(chan string, 1)
-	go func() {
-		line, _ := bufio.NewReader(readEnd).ReadString('\n')
-		reading <- line
-	}()
-
-	timer := time.NewTimer(childHandshakeTimeout)
-	defer timer.Stop()
-	var line string
-	select {
-	case <-ctx.Done():
-		cmd.Process.Kill()
-		return ctx.Err()
-	case <-timer.C:
-		cmd.Process.Kill()
-		return fmt.Errorf("detach: child did not take ownership within %s", childHandshakeTimeout)
-	case result := <-reading:
-		// A complete line is a valid handshake even if the child closed the pipe
-		// right after writing it (io.EOF accompanies the data). Only an empty
-		// read means the child failed before signaling ownership.
-		line = strings.TrimSpace(result)
-		if line == "" {
-			// The child closed the pipe without a ready line: it failed before
-			// ownership. Reap it and report the failure, never a live run.
-			waitErr := cmd.Wait()
-			if waitErr != nil {
-				return fmt.Errorf("detach: child failed before taking ownership: %w", waitErr)
+	return launchDetachedProcess(ctx, executable, childArgs, detachedProcess{
+		label: "detach run", timeout: childHandshakeTimeout,
+		validate: func(line string) error {
+			runID, pid, logPath, runDir, err := parseReadyLine(line)
+			if err != nil {
+				return err
 			}
-			return fmt.Errorf("detach: child exited before the ownership handshake")
-		}
-	}
-
-	runID, pid, logPath, runDir, err := parseReadyLine(line)
-	if err != nil {
-		return fmt.Errorf("detach: invalid child handshake: %w", err)
-	}
-	// The child reports paths that must already exist with owner-only
-	// permissions; the parent refuses to print a live run otherwise.
-	if err := verifyDetachedPaths(runDir, pid, logPath); err != nil {
-		return fmt.Errorf("detach: child reported unreachable state: %w", err)
-	}
-	fmt.Fprintf(stdout, "run=%s pid=%d log=%s\n", runID, pid, logPath)
-	return nil
+			if err := verifyDetachedPaths(runDir, pid, logPath); err != nil {
+				return fmt.Errorf("reported unreachable state: %w", err)
+			}
+			_, err = fmt.Fprintf(stdout, "run=%s pid=%d log=%s\n", runID, pid, logPath)
+			return err
+		},
+	})
 }
 
 // parseReadyLine parses the child's machine-ready handshake line. The four
@@ -255,7 +200,7 @@ func detachedOutputPath(logFile, runDir string) string {
 // signals ownership to the parent only then, and finally holds the run while a
 // concurrent tail appends every stream and reschedule marker to the same file.
 // On clean exit the PID marker is removed and the output file is retained.
-func (a *application) runDetachedChild(workloadJSON string, offerWait time.Duration, handshakeFD int, logFile string, publishes []portMapping) error {
+func (a *application) runDetachedChild(workloadJSON string, offerWait time.Duration, logFile string, publishes []portMapping) error {
 	request, err := decodeRequestJSON(workloadJSON)
 	if err != nil {
 		return err
@@ -301,7 +246,7 @@ func (a *application) runDetachedChild(workloadJSON string, offerWait time.Durat
 				}
 			}
 			if initErr == nil {
-				initErr = signalDetachReady(handshakeFD, runID, outputPath, runDir)
+				initErr = signalDetachReady(a.stdout, runID, outputPath, runDir)
 			}
 			if initErr != nil {
 				cancel(initErr)
@@ -333,21 +278,12 @@ func (a *application) runDetachedChild(workloadJSON string, offerWait time.Durat
 	return workloadStatus(result.State)
 }
 
-// signalDetachReady writes the machine-ready handshake line to the child's
-// inherited pipe and closes it. The four tab-separated fields are run ID, the
-// child's PID, the output log path, and the run state directory.
-func signalDetachReady(handshakeFD int, runID, outputPath, runDir string) error {
-	pipe := os.NewFile(uintptr(handshakeFD), "r1s-detach-handshake")
-	if pipe == nil {
-		return fmt.Errorf("detached run %s: invalid handshake fd %d", runID, handshakeFD)
-	}
-	_, err := fmt.Fprintf(pipe, "%s\t%d\t%s\t%s\n", runID, os.Getpid(), outputPath, runDir)
-	closeErr := pipe.Close()
+// signalDetachReady writes the common stdout readiness line. The four
+// tab-separated fields are run ID, PID, output log path, and run directory.
+func signalDetachReady(output io.Writer, runID, outputPath, runDir string) error {
+	_, err := fmt.Fprintf(output, "%s\t%d\t%s\t%s\n", runID, os.Getpid(), outputPath, runDir)
 	if err != nil {
 		return fmt.Errorf("detached run %s: write handshake: %w", runID, err)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("detached run %s: close handshake: %w", runID, closeErr)
 	}
 	return nil
 }

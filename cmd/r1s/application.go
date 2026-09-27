@@ -10,12 +10,11 @@ import (
 	"github.com/mytecor/r1s/internal/tunnel/yggdrasil"
 )
 
-// application is the F22 run-oriented client process. Its RNS identity and
-// client engine exist only in memory for this process; allocator state is
-// still durable and authoritative. There is no persistent client database,
-// local gRPC service, Unix command socket, or durable lease intent (F22-07):
-// a restart of the client never resumes a run, and the allocator retains the
-// execution database.
+// application is the run-oriented client process. Its client engine exists
+// only in this process; the authority broker owns the corresponding ephemeral
+// RNS endpoint and cluster credential. There is no persistent client database,
+// run service, or durable lease intent: a restart never resumes a run, and the
+// allocator retains the execution database.
 type application struct {
 	ctx        context.Context
 	stdout     io.Writer
@@ -23,23 +22,17 @@ type application struct {
 	identity   []byte
 
 	tunnelDialer tunnel.Dialer
-
-	// clusterSelector is the resolved cluster ID/prefix from the command line,
-	// retained so the detached parent can re-execute the run child against the
-	// same cluster (the child has its own ephemeral identity).
-	clusterSelector string
 }
 
-// openRunApplication constructs the F22 run-oriented client. Its RNS identity
-// and client engine exist only in memory for this process; allocator state is
-// still durable and authoritative. There is no persistent client store, local
-// API socket, or durable identity: each run is a fresh ephemeral identity.
+// openRunApplication constructs a controller through the current cluster
+// authority context. The broker creates a fresh ephemeral identity, while this
+// process remains the sole owner of run state and lifecycle.
 func openRunApplication(ctx context.Context, options commandLine, stdout io.Writer) (*application, error) {
-	app := &application{ctx: ctx, stdout: stdout, clusterSelector: options.clusterSelector}
+	app := &application{ctx: ctx, stdout: stdout}
 	var err error
-	app.controller, err = r1sclient.Open(options.clusterSelector, r1sclient.Config{NetworkWait: options.networkWait})
+	app.controller, err = r1sclient.OpenCurrent(r1sclient.Config{NetworkWait: options.networkWait})
 	if err != nil {
-		return nil, fmt.Errorf("open run controller (run 'r1s cluster list'): %w", err)
+		return nil, fmt.Errorf("open run controller: %w", err)
 	}
 	app.identity = app.controller.Identity()
 	return app, nil

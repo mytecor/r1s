@@ -264,7 +264,8 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > ephemeral identity, correlates rescheduled execution attempts with a stable run ID, tails logs,
 > and owns published ports. Client persistence and the local command service disappear; allocator
 > persistence remains. The switch is intentionally incompatible: old client state and CLI surfaces
-> are not migrated or supported.
+> are not migrated or supported. F23 later moves cluster selection into a key-isolating authority
+> context without restoring the removed run service.
 
 - **Status:** ✅ complete — F22-01 through F22-07 done
 - **Done when:** `r1s run` owns discovery, deterministic placement, leases, rescheduling, log
@@ -277,16 +278,18 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   [F17](#f17-execution-lease), [F19](#f19-universal-tunnel-rework),
   [F20](#f20-client-managed-tunnel-targets), and F21-06.
 
-## [F23. Public Run Controller library](./roadmap/f23-run-controller-library/README.md)
+## [F23. Public Run Controller library and cluster authority context](./roadmap/f23-run-controller-library/README.md)
 
-> Applications import the same ephemeral run controller used by the CLI and participate directly
-> in RNS, without a local client daemon or a second RPC authority boundary.
+> Applications import the same ephemeral run controller used by the CLI. They may participate
+> directly in RNS or use the local `cluster use` authority broker, which isolates the cluster key
+> and creates one transport endpoint per run without owning run state.
 
 - **Status:** ✅ complete
 - **Done when:** `github.com/mytecor/r1s/client` owns discovery, selection, assignment, lease
   renewal, conclusive-loss rescheduling, explicit log reads, and authenticated tunnel-open control;
-  `r1s run` is a presentation/process-lifecycle adapter over it; and each controller has fresh
-  per-run RNS authority with no durable client state.
+  `r1s run` is a presentation/process-lifecycle adapter over it; foreground `cluster use`, explicit
+  `cluster use -d`, `status`, and `unset` manage a key-isolating authority context; and each
+  controller has fresh per-run RNS authority with no durable client state.
 - **Depends on:** [F22](#f22-shared-instance-rns-and-run-oriented-client).
 
 ## Current implementation order
@@ -355,10 +358,12 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   and spliced to the currently active execution. F22-07 completed the cutover: the legacy client
   DB and local API are gone, retention is allocator-config (`--retention`), and `make check` passes
   green.
-- [F23](#f23-public-run-controller-library) exposes the F22 run engine as the public Go
-  [`client`](./client) package. The CLI now supplies argument parsing, foreground/detached process
-  lifecycle, output routing, and local listener binding around that library instead of owning a
-  private orchestration implementation.
+- [F23](#f23-public-run-controller-library-and-cluster-authority-context) exposes the F22 run engine
+  as the public Go [`client`](./client) package. The CLI now supplies argument parsing,
+  foreground/detached process lifecycle, output routing, and local listener binding around that
+  library instead of owning a private orchestration implementation. `cluster use` keeps the
+  selected key in a local authority broker and gives every run its own broker-backed RNS endpoint;
+  the broker owns no run lifecycle.
 
 The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
 (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live
