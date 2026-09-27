@@ -298,10 +298,10 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > allocator, execution, placement, lease, or authorization policy into the library.
 
 - **Status:** 🚧 in progress — F24-01 extracts realm membership, F24-02 separates authenticated
-  direct messages, F24-03 adds bounded one-hop pub/sub, and F24-04 introduces the generic
-  transport-independent peer discovery contract (`PeerDirectory`). F24-05 extracts a reusable
-  `meshbus/rns` adapter, F24-06 moves r1s onto that public adapter, and F24-07 adds a cohesive
-  application-facing Node API.
+  direct messages, F24-03 adds bounded one-hop pub/sub, F24-04 introduces the generic
+  transport-independent peer discovery contract (`PeerDirectory`), and F24-05 extracts the reusable
+  `meshbus/rns` adapter (complete). F24-06 moves r1s onto that public adapter, and F24-07 adds a
+  cohesive application-facing Node API.
 - **Done when:** r1s composes its control protocol over a reusable meshbus direct-message boundary;
   authenticated realm peers can publish best-effort, TTL-bounded, deduplicated events by fan-out;
   announces carry discovery only; and the sender exposed to applications always comes from the
@@ -321,7 +321,13 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   adaptation stays in `internal/transport/rns`, and F24-07 adds a cohesive Node API so
   applications do not hand-wire `Realm + RNS adapter + PeerDirectory + Bus`. After F24-07, F24
   closes without subscription gossip, multi-hop routing, persistence or ACK — meshbus stays a
-  small brokerless primitive.
+  small brokerless primitive. F24-05 is complete: the public `meshbus/rns` package owns the generic
+  RNS machinery (identity, destinations, announces, Links, realm authentication, Channels, direct
+  delivery, session reuse, peer routes, pre-auth buffering, PeerDirectory integration) behind a
+  pluggable `PresenceCodec` whose default is the bounded `meshbus.v1` presence descriptor, and it
+  exposes `SendMessage`/`ReceivedMessage`/`Peers`/`Routes` without importing r1s. Only the r1s
+  descriptor, the Protobuf envelope, and r1s-specific adaptation remain in
+  `internal/transport/rns` pending F24-06.
 
 - [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
   explicitly renewed client-held lease instead of a request-time deadline. Under F22 the lease is

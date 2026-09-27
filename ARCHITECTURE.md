@@ -52,6 +52,7 @@ api/proto/r1s/v1/       versioned wire schema
 client/                  public ephemeral Run Controller API
 meshbus/                 authenticated direct-message contract
 meshbus/realm/           reusable shared-secret realm membership primitive
+meshbus/rns/             reusable Reticulum adapter (identity, links, realm auth, direct delivery)
 internal/broker/         local credential isolation and per-run transport endpoints
 internal/protocol/      message validation and compatibility
 internal/client/         in-memory request state, offer selection, and observed execution state
@@ -114,7 +115,12 @@ The remaining extraction completes in four steps: F24-04 fixed the transport-ind
 discovery contract (`PeerDirectory`) — a bounded, copy-safe directory of authenticated
 `PeerID`s with opaque routes and advisory metadata, named a directory rather than a cluster
 because the realm is a security boundary while the directory is only observable network state.
-F24-05 extracts the reusable public `meshbus/rns` adapter,
+F24-05 extracts the reusable public `meshbus/rns` adapter
+(it owns the generic RNS machinery — identity, destinations, announces, Links, realm
+authentication, Channels, direct delivery, session reuse, peer routes, pre-auth buffering,
+PeerDirectory integration — behind a pluggable `PresenceCodec` whose default is the bounded
+`meshbus.v1` presence descriptor, exposing `SendMessage`/`ReceivedMessage`/`Peers`/`Routes`
+without importing r1s),
 F24-06 moves r1s onto that adapter (only r1s-specific adaptation stays in `internal/transport/rns`), and F24-07 adds a cohesive application-facing Node API. After F24-07,
 meshbus is complete as a small brokerless primitive.
 

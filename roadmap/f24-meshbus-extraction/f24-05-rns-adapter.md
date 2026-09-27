@@ -1,6 +1,6 @@
 # F24-05 — Extract reusable Reticulum meshbus adapter
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete
 
 ## Outcome
 
@@ -72,6 +72,53 @@ discovery interoperability.
 - RNS Python interoperability tests that are transport-generic remain passing or are moved
   appropriately.
 - `make check` passes.
+
+## Implementation notes
+
+The public [`meshbus/rns`](../../meshbus/rns) package owns the reusable RNS machinery that was
+previously entangled with r1s: identity loading (file or inline encodings, or an ephemeral
+in-memory identity), destination creation, announce registration and the periodic refresh loop,
+Link establishment, mutual realm proof, Channel creation, authenticated direct-message delivery,
+bounded pre-authentication buffering, connection/session reuse, peer route lookup, and peer
+discovery integration. It imports only Reticulum-Go, the meshbus primitives, and the standard
+library — no r1s protocol, allocator, client, runtime, or command packages.
+
+The adapter exposes meshbus primitives rather than r1s envelopes:
+
+- `Endpoint.SendMessage(ctx, route, payload)` sends opaque authenticated bytes over a reused
+  realm session.
+- Inbound bytes reach a `meshbus.Handler` as `meshbus.ReceivedMessage`, whose sender always comes
+  from the authenticated Link (never from serialized payload).
+- `Endpoint.Peers()` / `Routes()` return the bounded copy-safe peer and route snapshots that feed
+  `meshbus.Bus` fan-out.
+- `Endpoint.Directory()` exposes the underlying `meshbus.PeerDirectory`; `OnDiscover` hands raw
+  validated announce `app_data` to an application that needs a richer catalog above the generic
+  directory.
+
+### Presence wire format
+
+The announce wire format is owned by a pluggable [`PresenceCodec`](../../meshbus/rns/presence.go):
+`Build(realmID, identityHash)` produces the app_data this endpoint announces and
+`Parse(appData, expectedRealmID)` validates an inbound announce against the adapter's own realm
+identifier. Realm verification runs inside the adapter using the real realm ID, so a forged or
+foreign descriptor can never enter the peer directory.
+
+The default `GenericPresenceCodec` speaks the bounded `meshbus.v1` presence descriptor — a JSON
+object naming the protocol version and hex-encoded realm, with optional advisory metadata, capped
+at 256 bytes and 16 keys. Existing applications (for example r1s) keep their established
+announce format by contributing their own codec; no r1s wire bytes are interpreted here.
+
+### Deterministic tests
+
+`meshbus/rns` has standalone UDP-loopback contract tests that run without a shared instance and
+without importing r1s: same-realm discovery, foreign-realm rejection on a shared pair, direct
+authenticated byte exchange, send-after-link-loss reconnect, peer-snapshot/route snapshots for Bus
+fan-out, `OnDiscover` raw app_data delivery, codec round-trip, identity-source handling, config
+validation, and stack construction.
+
+The Python RNS reference interop test stays in `internal/transport/rns` because it exchanges r1s
+`Envelope` protobuf across the wire rather than generic meshbus bytes; it is not transport-generic
+and therefore is not moved.
 
 ## Notes
 
