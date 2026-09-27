@@ -92,21 +92,18 @@ Terminal-record retention on the allocator is an operator policy, not workload i
 Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system
 binaries.
 
-## Local client API (removed)
+## Local client API
 
-The pre-F22 local client API — the `r1s.v1.LocalClient` gRPC service, `r1s serve`, the Unix-socket
-`--socket` routing, and the `Watch` journal — was removed by F22-07. There is no durable client
-state or watch sequence; the client is an ephemeral in-memory process that owns a run for its
-lifetime and keeps nothing across restart. The later F23 authority socket is not this API: it
-forwards authenticated transport events for one fresh endpoint per connection and exposes no run
-operations or run state. See
-[F22-07](./roadmap/f22-rns-shared-instance/f22-07-client-cleanup.md).
+There is no local client API service or watch journal; the client is an ephemeral in-memory process
+that owns one run for its lifetime and keeps nothing across restart. The authority broker socket
+(`r1s cluster use`) is not an application API: it forwards authenticated transport events for one
+fresh endpoint per connection and exposes no run operations or run state.
 
-This removal does not mean applications must shell out to the CLI. They import
-[`client`](./client), become an RNS participant themselves, and communicate with allocators either
-through directly opened credentials or the current authority broker. A service that accepts run
-commands or owns run state for other applications would recreate the removed authority and
-lifecycle boundary and is deliberately not provided.
+Applications that need r1s do not shell out to the CLI. They import [`client`](./client), become an
+RNS participant themselves, and communicate with allocators either through directly opened
+credentials or the current authority broker. A service that accepts run commands or owns run state
+for other applications would recreate an authority and lifecycle boundary and is deliberately not
+provided.
 
 ## Execution and deployment layers
 
@@ -115,18 +112,13 @@ run engine owns the lease, observes terminal state, and re-requests the recorded
 next attempt on authenticated evidence of conclusive loss. A single execution is therefore not a
 deployment declaration.
 
-The closest thing to desired state is the run-lifetime lease held by the in-memory run engine
-([F17](./roadmap/f17-execution-lease/README.md)): a lost lease converts into a re-request of the
+The closest thing to desired state is the run-lifetime lease held by the in-memory run engine:
+a lost lease converts into a re-request of the
 recorded workload, so one run heals across restarts of the previous execution without becoming a
-deployment declaration. A manifest-driven
-`r1s deploy` layer — durable deployment names, desired specification hashes, and the mapping to
-execution IDs for one client identity — was planned as
-[F15](./roadmap/f15-deployment-reconciliation/README.md) and is deferred (see
-[BACKLOG.md](./roadmap/BACKLOG.md)). It would have stayed a client-side layer over the same
+deployment declaration. A manifest-driven deployment layer is deferred and would have stayed a
+client-side layer over the same
 execution operations, without deployment messages in the RNS protocol, allocator-owned desired
-state, a global scheduler, or a cluster-wide source of truth. F15's desired state and its
-client-owned record would have been ephemeral in-process state under the F22 model, not a durable
-client database.
+state, a global scheduler, or a cluster-wide source of truth.
 
 This boundary also preserves the lifetime rule below: losing a controller connection never stops
 an assigned execution.
@@ -144,8 +136,7 @@ Conflicts are resolved by narrow authority rather than consensus. Only the authe
 that created a request may assign or cancel its execution. Only the allocator may claim its local
 capacity or report local runtime state.
 
-Placement from [F16](./roadmap/f16-node-placement/README.md) extends the client's side of this
-boundary without creating a scheduler. Allocators advertise bounded capabilities (OS, architecture,
+Placement extends the client's side of this boundary without creating a scheduler. Allocators advertise bounded capabilities (OS, architecture,
 runtime, devices, resource profiles, operator labels) in offers and a compact RNS announce summary;
 clients express exact-match constraints and only compatible allocators receive the request. The
 advertisement is never the authority: incompatible requests are rejected by the allocator before any
@@ -175,8 +166,8 @@ knowledge of the cluster key with
 `HMAC-SHA256(ClusterKey, "r1s-auth-v1" || nonce || challenger_identity || responder_identity)`.
 No control envelope is delivered until the peer's proof succeeds. This makes the verified RNS
 sender authoritative for identity and the cluster proof authoritative for baseline membership.
-Allocator-local admission and quotas from [F10](./roadmap/f10-local-admission/README.md) may further
-restrict individual identities; they never replace transport-authenticated sender authority.
+Allocator-local admission and quotas may further restrict individual identities; they never replace
+transport-authenticated sender authority.
 
 ## Protocol
 
@@ -272,12 +263,11 @@ stable lease-expiry reason that is distinguishable from a client cancellation.
 
 Terminal metadata is durably retained by the allocator so a client can retrieve it after
 reconnecting. The allocator-configured retention deadline, replay-safe tombstones, and bounded
-local log storage are enforced by
-[F11](./roadmap/f11-state-retention/README.md) and [F9](./roadmap/f9-local-logs/README.md).
+local log storage are enforced by the allocator.
 
 Container stdout/stderr belongs in local allocator storage. Logs are transferred only after an
 explicit request from the authenticated execution owner. Completion, failure, cancellation,
-reconnection, `inspect`, and `result` must never automatically send logs or attach log tails to
+reconnection, inspection, and retrieval must never automatically send logs or attach log tails to
 execution state or error details. A failed container changes lifecycle metadata only; the client
 may separately request its logs when needed. A log request bounds the stream, offset, and byte
 count; disconnection ends that transfer without affecting execution. The same explicit-request
@@ -295,14 +285,10 @@ instance at the Reticulum-Go platform default (the Linux abstract Unix socket, o
 default on other platforms). Failure to connect is fatal and never elects r1s as the shared-instance
 server. Explicit standalone transports remain confined to deterministic and live test harnesses.
 
-Execution-tunnel application bytes use the dedicated embedded Yggdrasil adapter from F19/F20. RNS
-authorizes and transports the bounded owner-authenticated open exchange; the resulting
-peer-key-pinned Ygg mesh pair carries the multiplexed TCP streams. F21 evaluated replacing this data
-plane with a separate private RNS `Link`/`Channel`/`Buffer` stack over system Ygg, but the recorded
-F21-05 benchmark was a no-go: the optimized compatible path remained 26.7–39.9× slower in
-representative rows because of the small RNS stream payload, bounded Channel window, per-packet
-signed proofs, IFAC processing, and small Backbone writes. The experimental path is rolled back in
-F21-06; application bytes do not move onto the RNS control plane.
+Execution-tunnel application bytes use the dedicated embedded Yggdrasil adapter. RNS authorizes
+and transports the bounded owner-authenticated open exchange; the resulting peer-key-pinned Ygg
+mesh pair carries the multiplexed TCP streams. Application bytes never move onto the RNS control
+plane.
 
 Application data transfer outside the execution tunnel remains out of scope until separately
 designed.
@@ -367,7 +353,7 @@ mismatched execution/specification label becomes a terminal failure; a persisted
 completed idempotently. Terminal state is committed before containerd metadata is removed so a
 store failure leaves a stopped task available for the next recovery attempt.
 
-Result storage beyond terminal metadata remains open in [BACKLOG.md](./roadmap/BACKLOG.md).
+Result storage beyond terminal metadata remains open.
 
 The client keeps no durable state: it does not persist requests, offers, assignments, or observed
 state anywhere on disk. The run engine holds all of it in memory for the run's lifetime; a client
@@ -378,5 +364,5 @@ metadata from the allocator after a reconnect.
 The gated end-to-end recovery harness runs `r1sd` as a separate process over a loopback RNS UDP
 pair. It disconnects the client, restarts the allocator while the labelled containerd task remains
 running, waits for offline completion, reconnects a fresh ephemeral client, replays its assignment
-against the allocator's durable state, and retrieves terminal metadata with a fresh inspect. A
+against the allocator's durable state, and retrieves terminal metadata with a fresh inspection. A
 second real workload proves repeated request and cancellation envelopes remain idempotent.

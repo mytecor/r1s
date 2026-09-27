@@ -30,9 +30,7 @@ Each `r1s run` is one immutable execution attempt of a logical run. The client h
 in-memory lease for the run's lifetime, tails allocator-local logs to the terminal, and — on
 authenticated evidence that the previous execution is gone — re-requests the recorded workload as
 the next attempt of the same run. A conclusive lease loss re-requests without pinning to the
-previous allocator. A manifest-level `r1s deploy` layer is deferred
-(see [BACKLOG.md](./roadmap/BACKLOG.md)); if built, it would compose the run engine without adding
-deployment state to allocators or the wire protocol.
+previous allocator.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for protocol, authority, lifecycle, persistence, and adapter
 boundaries.
@@ -77,10 +75,9 @@ loopback in a fresh container namespace. Missing permissions fail the stream exp
 normal workload execution does not require enabling tunnels.
 
 RNS remains the discovery, identity, and control plane. Tunnel application bytes use the dedicated
-embedded Yggdrasil adapter; the F21 private-RNS data-plane experiment was rejected by its recorded
-benchmark and is being rolled back without changing the tunnel UX or container-isolation boundary.
+embedded Yggdrasil adapter; RNS never carries application bytes.
 
-The F22 `run` path creates a client identity only in memory, keeps no client database, selects
+The `run` path creates a client identity only in memory, keeps no client database, selects
 compatible offers deterministically, holds the execution lease, and reannounces a higher attempt of
 the same run only after authenticated evidence that the previous execution is gone.
 
@@ -201,17 +198,6 @@ without renewal is evicted locally and its workload re-requested. Container logs
 allocator-local and are transferred only over the authenticated log stream the run tail opens.
 
 Run `r1s --help` or `r1s run --help` for all options.
-
-## Historical surfaces
-
-The pre-F22 local client control plane is removed. There is no `request`, `serve`, `list`,
-`inspect`, `result`, `cancel`, `logs`, or `tunnel` command, no local gRPC/unix-socket client API
-(`--socket`, `--keep-alive`, `--identity`, `--state`, `--allocator`, `--rns-config`), and no
-durable client state or watch journal. The `cluster use` socket is only a credential and transport
-broker: it has no run CRUD API and owns no lease, request, or desired state. Each run remains an
-ephemeral in-memory process and keeps nothing across restart. Allocator-local bbolt state remains
-the sole execution database; terminal-record retention is an allocator operator policy
-(`--retention`), not workload input.
 
 ## Documentation
 
