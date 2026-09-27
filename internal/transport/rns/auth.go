@@ -3,27 +3,14 @@ package rns
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/channel"
 )
 
-const authDomain = "r1s-auth-v1"
-
 var ErrClusterAuthentication = errors.New("cluster authentication failed")
-
-func authProof(key, nonce, challenger, responder []byte) []byte {
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write([]byte(authDomain))
-	_, _ = mac.Write(nonce)
-	_, _ = mac.Write(challenger)
-	_, _ = mac.Write(responder)
-	return mac.Sum(nil)
-}
 
 func (e *Endpoint) beginAuthentication(active *session) {
 	active.mu.Lock()
@@ -66,7 +53,12 @@ func (e *Endpoint) handleAuthentication(active *session, message *authMessage) {
 	}
 	switch message.kind {
 	case authKindChallenge:
-		proof := authProof(e.clusterKey, message.nonce, sender, e.identity.Hash())
+		proof, err := e.realm.Proof(message.nonce, sender, e.identity.Hash())
+		if err != nil {
+			e.completeAuthentication(active, fmt.Errorf("%w: create proof: %v", ErrClusterAuthentication, err))
+			active.link.Teardown()
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), e.networkWait)
 		defer cancel()
 		if err := e.sendChannel(ctx, active, &authMessage{kind: authKindResponse, nonce: message.nonce, proof: proof}); err != nil {
@@ -75,7 +67,7 @@ func (e *Endpoint) handleAuthentication(active *session, message *authMessage) {
 		}
 	case authKindResponse:
 		if len(challenge) != authNonceSize || !bytes.Equal(challenge, message.nonce) ||
-			!hmac.Equal(authProof(e.clusterKey, challenge, e.identity.Hash(), sender), message.proof) {
+			!e.realm.Verify(message.proof, challenge, e.identity.Hash(), sender) {
 			e.completeAuthentication(active, ErrClusterAuthentication)
 			active.link.Teardown()
 			return

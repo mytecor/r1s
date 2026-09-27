@@ -17,29 +17,39 @@ This file records unresolved choices so they do not remain implicit in implement
 3. **Identity storage** — define secure creation, persistence, rotation, backup, and per-service
    identity boundaries.
 
-4. **History retention and replay horizon defaults** — pinned with [F11](./f11-state-retention/README.md)
+4. **meshbus packaging and RNS discovery boundary** — [F24](./f24-meshbus-extraction/README.md)
+   starts in-tree so r1s can establish and test the dependency direction before repository or Go
+   module separation. Decide the eventual standalone module boundary and versioning after generic
+   realm presence discovery and the RNS adapter no longer depend on r1s descriptors. F24-03 settles
+   the first event contract: `MBE` v1, exact validated topics, random 128-bit IDs, receive-bounded
+   TTL, bounded deduplication, bounded per-subscription queues, fixed handler/fan-out concurrency,
+   and one publisher-to-known-peer hop with no forwarding. The authenticated direct-message peer is
+   the only sender authority. Subscription advertisement/routing, persistence, replay, consumer
+   groups, offsets, and exactly-once delivery remain out of scope.
+
+5. **History retention and replay horizon defaults** — pinned with [F11](./f11-state-retention/README.md)
    completion: command replay horizon `CommandHorizon` = 7 days, default result retention = 24 hours
    (`DefaultRetention`, bounded by the horizon), tombstone lifetime = horizon, `defaultReplayTTL` = 10
    minutes, `defaultReplayCapacity` = 4096 commands, durable record budget
    `DefaultMaxRecords` = 10000, and a configurable `--sweep-interval` (default 1 minute) driving
    bounded-history cleanup. Expired results answer an explicit `EXPIRED` error and can never restart
    work. See [F11-01](./f11-state-retention/f11-01-retention-contract.md).
-5. **Admission defaults and device profiles** — live enforcement of allocator-owned resource profiles
+6. **Admission defaults and device profiles** — live enforcement of allocator-owned resource profiles
    and per-identity quotas is verified ([F10](./f10-local-admission/README.md)); trusted-client
    defaults remain open, while advertised device capabilities and placement constraints belong to
    [F16](./f16-node-placement/README.md). GPU ownership and isolation must be defined there before a
    GPU label can authorize device access.
-6. **Live regression environment** — the gated Linux acceptance harness is actively run against
+7. **Live regression environment** — the gated Linux acceptance harness is actively run against
    `mytecor-homelab` (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture),
    most recently 2026-09-15 under `go test -race` for the full live suite. The manual, repeatable
    procedure — including the pinned Python RNS environment, the digest-pinned fixture, and the
    exact per-gate commands — is recorded in [F7-02](./f7-verification/f7-02-live-regression.md).
    `mytecor-homelab` is a development host, not a GitHub Actions self-hosted runner.
-7. **Cluster membership rotation and revocation** — define an authenticated `cluster rotate`
+8. **Cluster membership rotation and revocation** — define an authenticated `cluster rotate`
    workflow, safe distribution of the replacement join token, transition windows for partitioned
    members, and whether individual member revocation warrants moving beyond the shared-key baseline
    established by [F12](./f12-cluster-membership/README.md).
-8. **Execution lease parameters** — the direction landed with
+9. **Execution lease parameters** — the direction landed with
    [F17](./f17-execution-lease/README.md): lifetime moved from the request-time
    `deadline`/`max_runtime` (fields now reserved) to a durable, explicitly renewed client-held
    lease, and unrenewed leases evict locally through the existing runtime stop boundary. Chosen
@@ -50,7 +60,7 @@ This file records unresolved choices so they do not remain implicit in implement
    client-supplied cancellation reason. Still open: clock semantics across allocator restart
    (wall-clock persisted expiry versus monotonic accounting) and whether a strict eviction grace
    period after one missed renewal is worth adding over the lazy sweep.
-9. **Tunnel server-side target** — where the F14 direct-access tunnel terminates on the allocator is
+10. **Tunnel server-side target** — where the F14 direct-access tunnel terminates on the allocator is
    settled with [F14-01](./f14-direct-node-access/f14-01-access-grant.md): the `(host, port)` target
    is resolved **at grant time** from allocator-local configuration — a per-resource-class target
    map plus a mandatory default — and bound into the minted grant. It is never a client-supplied
@@ -69,7 +79,7 @@ This file records unresolved choices so they do not remain implicit in implement
    container port `80`. Authorization stays owner-only on
    the grant; peer-key pinning and one-live-session-per-execution remain. Resolved by
    [F20-01](./f20-client-tunnel-targets/f20-01-client-supplied-target-slots.md).
-10. **Tunnel data plane cannot sustain a >10s single-stream transfer (F21-05)** — found by the
+11. **Tunnel data plane cannot sustain a >10s single-stream transfer (F21-05)** — found by the
     F21-05 old-vs-new benchmark on 2026-09-23 (macOS loopback, Reticulum-Go v1.2.0): a sustained
     10 MiB single-stream transfer over the private tunnel RNS transport fails with `link not
     ready` at exactly ~10.0s, with the client Link flipping ACTIVE → STALE at that instant while

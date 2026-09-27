@@ -28,6 +28,7 @@ flowchart LR
     Protocol[Versioned Protobuf protocol]
     Client[Public Run Controller API]
     Broker[Local cluster authority broker]
+    Realm[meshbus realm membership]
     Fabric[RNS control plane<br/>announce + Link/Channel]
     Allocator[Allocator core]
     Runtime[OCI runtime]
@@ -38,6 +39,7 @@ flowchart LR
     Client <--> Broker
     Broker <--> Fabric
     Client <--> Fabric
+    Fabric --> Realm
     Fabric <--> Allocator
     Allocator --> Runtime
     Runtime --> Containerd
@@ -48,10 +50,12 @@ The source boundaries are:
 ```text
 api/proto/r1s/v1/       versioned wire schema
 client/                  public ephemeral Run Controller API
+meshbus/                 authenticated direct-message contract
+meshbus/realm/           reusable shared-secret realm membership primitive
 internal/broker/         local credential isolation and per-run transport endpoints
 internal/protocol/      message validation and compatibility
 internal/client/         in-memory request state, offer selection, and observed execution state
-internal/cluster/        cluster key, public ID, join token, and local state
+internal/cluster/        r1s cluster naming, join token, credential store, and realm compatibility profile
 internal/allocator/     offers, capacity, assignment, authorization
 internal/transport/     transport boundary and RNS adapter
 internal/runtime/       runtime boundary and containerd adapter
@@ -65,6 +69,49 @@ Channel envelope delivery (including recovery from injected packet loss) are pro
 harness. Durable allocator state, restart reconciliation, and the complete partition
 recovery acceptance harness are implemented. The live recovery harness remains gated for a Linux
 host with containerd and has passed on the project test host.
+
+## Messaging and realm boundary
+
+The reusable messaging layer is named `meshbus`. Its `realm` package derives a public realm ID and
+creates mutual membership proofs from a shared key. Its direct-message contract carries only an
+opaque payload paired with an immutable transport-authenticated `PeerID`. Both remain independent
+of Reticulum-Go, the r1s Protobuf schema, allocators, workloads, and leases.
+The r1s `cluster` remains the product-facing concept and supplies its existing domain labels to the
+generic realm primitive, so stored credentials, public cluster IDs, join tokens, and link proofs
+remain wire-compatible.
+
+The intended boundary is:
+
+```text
+Reticulum-Go adapter
+        ↓
+meshbus: realm + discovery + peer sessions + direct messaging + pub/sub
+        ↓
+r1s: allocator discovery + execution protocol + placement + leases
+```
+
+Broadcast is not a separate application primitive. `meshbus.Bus.Publish` creates a bounded event
+and fans it out once to a snapshot of authenticated peer destinations. The bus uses exact local
+topic subscriptions, 128-bit event IDs, receive-bounded TTL, bounded duplicate suppression,
+bounded per-subscription queues, a subscription cap, a peer cap, and fixed fan-out concurrency. It
+has no forwarding, persistence, replay, consumer groups, offsets, or exactly-once claim. Announces
+remain presence/discovery only. r1s request/offer/assign messages keep their protocol semantics and
+use generic direct messaging without becoming pub/sub events. The staged extraction is tracked in
+[F24](./roadmap/f24-meshbus-extraction/README.md).
+
+The RNS session path performs Link identity and realm authentication, then emits a meshbus
+`ReceivedMessage`. A separate r1s adapter unmarshals and validates the Protobuf envelope and always
+replaces its serialized sender with `ReceivedMessage.Sender`; malformed r1s payloads never reach the
+allocator or client handler. Outbound r1s envelopes are encoded above the same opaque
+`SendMessage` boundary. This keeps peer authority below protocol semantics without changing the
+existing Channel message type or bytes.
+
+The generic event wire form is versioned independently with the `MBE` v1 marker. It carries event
+ID, topic, publication time, TTL, content type, and opaque payload, but never a sender. On receive,
+the sender is taken exclusively from the enclosing authenticated direct message. r1s does not
+instantiate the event bus, so the existing r1s Protobuf wire protocol and behavior are unchanged.
+Generic realm presence discovery and a reusable public RNS adapter remain the next extraction
+vertical before meshbus is considered complete.
 
 ## Commands
 
@@ -146,7 +193,8 @@ false advertisement yields an explicit `INCOMPATIBLE` rejection, never an invali
 The RNS adapter must populate `Envelope.sender` from the authenticated link identity. A remote peer
 must not be allowed to assert an arbitrary sender by serializing different bytes in the envelope.
 
-Cluster membership is a separate transport-boundary authorization step. A participant loads a
+Cluster membership is a separate transport-boundary authorization step implemented through the
+transport-independent [`meshbus/realm`](./meshbus/realm) primitive. A participant loads a
 random 256-bit `ClusterKey` from `~/.config/r1s/clusters/<cluster-id>` and derives the public
 identifier as `SHA-256("r1s-cluster-id-v1" || ClusterKey)`. `cluster init` and `cluster join` write
 credentials atomically with owner-only permissions; `cluster list` exposes only their public IDs.

@@ -1,14 +1,18 @@
 package rns
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/mytecor/r1s/meshbus/realm"
+)
 
 const (
-	authMessageType     uint16 = 0x0100
-	envelopeMessageType uint16 = 0x0101
-	authNonceSize              = 32
-	authProofSize              = 32
-	authKindChallenge   byte   = 1
-	authKindResponse    byte   = 2
+	authMessageType   uint16 = 0x0100
+	directMessageType uint16 = 0x0101
+	authNonceSize            = realm.NonceSize
+	authProofSize            = realm.ProofSize
+	authKindChallenge byte   = 1
+	authKindResponse  byte   = 2
 )
 
 type authMessage struct {
@@ -53,19 +57,19 @@ func (m *authMessage) Unpack(data []byte) error {
 
 func (m *authMessage) GetType() uint16 { return authMessageType }
 
-type envelopeMessage struct {
+type directMessage struct {
 	data []byte
 }
 
-func (m *envelopeMessage) Pack() ([]byte, error) {
+func (m *directMessage) Pack() ([]byte, error) {
 	return m.data, nil
 }
 
-func (m *envelopeMessage) Unpack(data []byte) error {
+func (m *directMessage) Unpack(data []byte) error {
 	m.data = append(m.data[:0], data...)
 	return nil
 }
 
-func (m *envelopeMessage) GetType() uint16 {
-	return envelopeMessageType
+func (m *directMessage) GetType() uint16 {
+	return directMessageType
 }

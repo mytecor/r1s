@@ -16,6 +16,7 @@ import (
 	"github.com/Quad4-Software/Reticulum-Go/pkg/sharedinstance"
 	rnstransport "github.com/Quad4-Software/Reticulum-Go/pkg/transport"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/meshbus"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -23,10 +24,10 @@ import (
 func TestDeliverReplacesForgedSenderBeforeValidation(t *testing.T) {
 	authenticated := bytes.Repeat([]byte{0x42}, 16)
 	received := make(chan *r1sv1.Envelope, 1)
-	endpoint := &Endpoint{handler: func(_ context.Context, envelope *r1sv1.Envelope) error {
+	endpoint := &Endpoint{handler: envelopeHandler(func(_ context.Context, envelope *r1sv1.Envelope) error {
 		received <- envelope
 		return nil
-	}}
+	})}
 	envelope := validEnvelope()
 	envelope.Sender = []byte("forged")
 	data, err := proto.Marshal(envelope)
@@ -47,10 +48,10 @@ func TestDeliverReplacesForgedSenderBeforeValidation(t *testing.T) {
 
 func TestDeliverRejectsUnauthenticatedAndInvalidEnvelopes(t *testing.T) {
 	called := make(chan struct{}, 1)
-	endpoint := &Endpoint{handler: func(context.Context, *r1sv1.Envelope) error {
+	endpoint := &Endpoint{handler: envelopeHandler(func(context.Context, *r1sv1.Envelope) error {
 		called <- struct{}{}
 		return nil
-	}}
+	})}
 	validData, err := proto.Marshal(validEnvelope())
 	if err != nil {
 		t.Fatal(err)
@@ -61,6 +62,26 @@ func TestDeliverRejectsUnauthenticatedAndInvalidEnvelopes(t *testing.T) {
 	case <-called:
 		t.Fatal("handler called for unauthenticated or invalid data")
 	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+func TestDeliverExposesOpaquePayloadOnlyWithAuthenticatedPeer(t *testing.T) {
+	authenticated := bytes.Repeat([]byte{0x33}, 16)
+	received := make(chan meshbus.ReceivedMessage, 1)
+	endpoint := &Endpoint{handler: func(_ context.Context, message meshbus.ReceivedMessage) error {
+		received <- message
+		return nil
+	}}
+	endpoint.deliver(&session{}, []byte("unauthenticated"))
+	endpoint.deliver(&session{sender: authenticated, authenticated: true}, []byte("opaque"))
+
+	select {
+	case delivered := <-received:
+		if !bytes.Equal(delivered.Sender().Bytes(), authenticated) || string(delivered.Payload()) != "opaque" {
+			t.Fatalf("direct message sender=%x payload=%q", delivered.Sender().Bytes(), delivered.Payload())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("authenticated direct message was not delivered")
 	}
 }
 

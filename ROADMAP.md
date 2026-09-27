@@ -292,7 +292,29 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   controller has fresh per-run RNS authority with no durable client state.
 - **Depends on:** [F22](#f22-shared-instance-rns-and-run-oriented-client).
 
+## [F24. Brokerless meshbus extraction](./roadmap/f24-meshbus-extraction/README.md)
+
+> Extract the reusable secure-realm, peer messaging, and pub/sub mechanics below r1s without moving
+> allocator, execution, placement, lease, or authorization policy into the library.
+
+- **Status:** 🚧 in progress — F24-01 extracts realm membership, F24-02 separates authenticated
+  direct messages, and F24-03 adds bounded one-hop pub/sub. Generic realm presence discovery and a
+  reusable RNS adapter remain.
+- **Done when:** r1s composes its control protocol over a reusable meshbus direct-message boundary;
+  authenticated realm peers can publish best-effort, TTL-bounded, deduplicated events by fan-out;
+  announces carry discovery only; and the sender exposed to applications always comes from the
+  authenticated transport session.
+- **Depends on:** [F2](#f2-rns-transport), [F12](#f12-shared-secret-cluster-membership),
+  [F23](#f23-public-run-controller-library-and-cluster-authority-context).
+
 ## Current implementation order
+
+- [F24](#f24-brokerless-meshbus-extraction) now has generic realm, authenticated direct-message,
+  and bounded pub/sub boundaries. r1s keeps the `cluster` CLI, token format, credential store,
+  established ID/authentication domains, and its Protobuf control semantics. Pub/sub is one-hop
+  fan-out with exact local topics, TTL, bounded deduplication and backpressure; r1s does not recast
+  execution messages as events. Generic realm presence discovery and the reusable public RNS
+  adapter remain the next vertical.
 
 - [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
   explicitly renewed client-held lease instead of a request-time deadline. Under F22 the lease is

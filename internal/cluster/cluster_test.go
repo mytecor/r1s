@@ -2,12 +2,42 @@ package cluster
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestRealmCompatibilityDomainsPreserveClusterWireValues(t *testing.T) {
+	key := bytes.Repeat([]byte{0x42}, KeySize)
+	opened, err := OpenRealm(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantID := sha256.Sum256(append([]byte("r1s-cluster-id-v1"), key...))
+	if !bytes.Equal(opened.ID(), wantID[:]) {
+		t.Fatalf("realm ID = %x, want legacy r1s ID %x", opened.ID(), wantID)
+	}
+
+	nonce := bytes.Repeat([]byte{1}, 32)
+	challenger := bytes.Repeat([]byte{2}, 16)
+	responder := bytes.Repeat([]byte{3}, 16)
+	proof, err := opened.Proof(nonce, challenger, responder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte("r1s-auth-v1"))
+	_, _ = mac.Write(nonce)
+	_, _ = mac.Write(challenger)
+	_, _ = mac.Write(responder)
+	if !bytes.Equal(proof, mac.Sum(nil)) {
+		t.Fatal("realm proof does not preserve the r1s authentication wire value")
+	}
+}
 
 func TestTokenIDAndStateRoundTrip(t *testing.T) {
 	key := bytes.Repeat([]byte{0x42}, KeySize)

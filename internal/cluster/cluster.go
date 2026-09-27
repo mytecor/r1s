@@ -3,7 +3,6 @@ package cluster
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -15,13 +14,16 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/mytecor/r1s/meshbus/realm"
 )
 
 const (
-	KeySize        = 32
+	KeySize        = realm.KeySize
 	tokenPrefix    = "r1s1:"
 	stateVersion   = 1
 	idDomain       = "r1s-cluster-id-v1"
+	authDomain     = "r1s-auth-v1"
 	DefaultRelPath = ".config/r1s/clusters"
 )
 
@@ -40,8 +42,8 @@ type State struct {
 }
 
 func Generate() ([]byte, error) {
-	key := make([]byte, KeySize)
-	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+	key, err := realm.GenerateKey()
+	if err != nil {
 		return nil, fmt.Errorf("generate cluster key: %w", err)
 	}
 	return key, nil
@@ -51,10 +53,29 @@ func ID(key []byte) ([]byte, error) {
 	if len(key) != KeySize {
 		return nil, fmt.Errorf("%w: expected %d bytes", ErrInvalidKey, KeySize)
 	}
-	digest := sha256.New()
-	_, _ = digest.Write([]byte(idDomain))
-	_, _ = digest.Write(key)
-	return digest.Sum(nil), nil
+	opened, err := OpenRealm(key)
+	if err != nil {
+		return nil, err
+	}
+	return opened.ID(), nil
+}
+
+// OpenRealm adapts the generic meshbus membership primitive to the existing
+// r1s cluster wire domains. Keeping these domains stable preserves cluster IDs
+// and link authentication across the extraction.
+func OpenRealm(key []byte) (*realm.Realm, error) {
+	if len(key) != KeySize {
+		return nil, fmt.Errorf("%w: expected %d bytes", ErrInvalidKey, KeySize)
+	}
+	opened, err := realm.Open(realm.Config{
+		Key:                  key,
+		IDDomain:             idDomain,
+		AuthenticationDomain: authDomain,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("open cluster realm: %w", err)
+	}
+	return opened, nil
 }
 
 func Token(key []byte) (string, error) {

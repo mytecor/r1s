@@ -7,9 +7,7 @@ import (
 	"github.com/Quad4-Software/Reticulum-Go/pkg/channel"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/link"
-	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
-	"github.com/mytecor/r1s/internal/protocol"
-	"google.golang.org/protobuf/proto"
+	"github.com/mytecor/r1s/meshbus"
 )
 
 func (e *Endpoint) acceptLink(value any) {
@@ -54,7 +52,7 @@ func (e *Endpoint) newSession(rnsLink *link.Link, sender, destinationHash []byte
 	if err := rnsChannel.RegisterMessageType(authMessageType, func() channel.MessageBase { return &authMessage{} }); err != nil {
 		return nil, err
 	}
-	if err := rnsChannel.RegisterMessageType(envelopeMessageType, func() channel.MessageBase { return &envelopeMessage{} }); err != nil {
+	if err := rnsChannel.RegisterMessageType(directMessageType, func() channel.MessageBase { return &directMessage{} }); err != nil {
 		return nil, err
 	}
 	active := &session{
@@ -66,7 +64,7 @@ func (e *Endpoint) newSession(rnsLink *link.Link, sender, destinationHash []byte
 			go e.handleAuthentication(active, authentication)
 			return true
 		}
-		wire, ok := message.(*envelopeMessage)
+		wire, ok := message.(*directMessage)
 		if !ok {
 			return false
 		}
@@ -96,14 +94,9 @@ func (e *Endpoint) deliver(active *session, data []byte) {
 		return
 	}
 	active.mu.Unlock()
-	var envelope r1sv1.Envelope
-	if err := proto.Unmarshal(data, &envelope); err != nil {
+	message, err := meshbus.NewReceivedMessage(sender, data)
+	if err != nil {
 		return
 	}
-	// Authenticated link identity is authoritative; payload identity is ignored.
-	envelope.Sender = sender
-	if err := protocol.ValidateEnvelope(&envelope); err != nil {
-		return
-	}
-	_ = e.handler(context.Background(), &envelope)
+	_ = e.handler(context.Background(), message)
 }

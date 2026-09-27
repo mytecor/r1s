@@ -1,7 +1,6 @@
 package rns
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -14,11 +13,11 @@ import (
 	"github.com/Quad4-Software/Reticulum-Go/pkg/destination"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
-	"github.com/Quad4-Software/Reticulum-Go/pkg/link"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/cluster"
 	coretransport "github.com/mytecor/r1s/internal/transport"
-	"google.golang.org/protobuf/proto"
+	"github.com/mytecor/r1s/meshbus"
+	"github.com/mytecor/r1s/meshbus/realm"
 )
 
 const (
@@ -94,19 +93,19 @@ func (s Service) TunnelEndpoint() (host string, port int, destination string, ok
 	return s.Descriptor.TunnelHost, s.Descriptor.TunnelPort, s.Descriptor.TunnelDestination, true
 }
 
-// Endpoint is the public transport facade. Link establishment and Channel
-// delivery live behind it so callers only see discovery and envelope exchange.
+// Endpoint is the r1s transport facade over authenticated meshbus direct
+// messages. Link establishment and Channel delivery remain behind it.
 type Endpoint struct {
 	mu          sync.Mutex
 	stack       *stack
 	identity    *identity.Identity
 	destination *destination.Destination
-	handler     coretransport.Handler
+	handler     meshbus.Handler
 	interval    time.Duration
 	networkWait time.Duration
 	name        string
 	advertises  bool
-	clusterKey  []byte
+	realm       *realm.Realm
 	clusterID   []byte
 
 	started      bool
@@ -120,13 +119,21 @@ var _ coretransport.Endpoint = (*Endpoint)(nil)
 
 // New constructs an endpoint without starting network interfaces.
 func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
+	if handler == nil {
+		return nil, fmt.Errorf("%w: handler is required", ErrInvalidConfig)
+	}
+	return newEndpoint(config, envelopeHandler(handler))
+}
+
+func newEndpoint(config Config, handler meshbus.Handler) (*Endpoint, error) {
 	if handler == nil || (config.EphemeralIdentity == (strings.TrimSpace(config.IdentitySource) != "")) {
 		return nil, fmt.Errorf("%w: exactly one of identity source or ephemeral identity is required, along with a handler", ErrInvalidConfig)
 	}
-	clusterID, err := cluster.ID(config.ClusterKey)
+	clusterRealm, err := cluster.OpenRealm(config.ClusterKey)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
+	clusterID := clusterRealm.ID()
 	var descriptorData []byte
 	if len(config.Capacity) > 0 {
 		descriptor, err := newDescriptor(clusterID, config.Capacity, config.Node, config.Tunnel)
@@ -189,8 +196,7 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	endpoint := &Endpoint{
 		stack: rnsStack, identity: localIdentity, destination: localDestination,
 		handler: handler, interval: config.AnnounceInterval, networkWait: config.NetworkWait,
-		name:       hex.EncodeToString(localIdentity.Hash()),
-		clusterKey: bytes.Clone(config.ClusterKey), clusterID: clusterID,
+		name: hex.EncodeToString(localIdentity.Hash()), realm: clusterRealm, clusterID: clusterID,
 		advertises:  len(descriptorData) > 0,
 		connections: newConnectionRegistry(), discovered: make(chan Service, 32),
 	}
@@ -217,55 +223,6 @@ func (e *Endpoint) DestinationForIdentity(identityHash string) (string, bool) {
 		return "", false
 	}
 	return hex.EncodeToString(destinationHash), true
-}
-
-// Send serializes an envelope onto an authenticated RNS Channel.
-func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Envelope) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if envelope == nil {
-		return fmt.Errorf("%w: envelope is required", coretransport.ErrInvalidEndpoint)
-	}
-	destinationHash, key, err := parseDestination(target)
-	if err != nil {
-		return err
-	}
-
-	e.mu.Lock()
-	if e.closed {
-		e.mu.Unlock()
-		return coretransport.ErrEndpointClosed
-	}
-	if !e.started {
-		e.mu.Unlock()
-		return ErrNotStarted
-	}
-	e.mu.Unlock()
-	destinationHash, key, active := e.connections.resolve(destinationHash, key)
-	if active == nil || active.link.GetStatus() != link.StatusActive {
-		active, err = e.connect(ctx, destinationHash, key)
-		if err != nil {
-			return err
-		}
-	}
-	if err := e.waitAuthenticated(ctx, active); err != nil {
-		return fmt.Errorf("authenticate RNS session: %w", err)
-	}
-
-	cloned := proto.Clone(envelope).(*r1sv1.Envelope)
-	cloned.Sender = bytes.Clone(e.identity.Hash())
-	data, err := proto.Marshal(cloned)
-	if err != nil {
-		return fmt.Errorf("marshal envelope: %w", err)
-	}
-	if len(data) > active.channel.MDU() {
-		return fmt.Errorf("marshal envelope: %d bytes exceed RNS Channel MDU %d", len(data), active.channel.MDU())
-	}
-	if err := e.sendChannel(ctx, active, &envelopeMessage{data: data}); err != nil {
-		return fmt.Errorf("send RNS Channel message: %w", err)
-	}
-	return nil
 }
 
 func parseDestination(value string) ([]byte, string, error) {
