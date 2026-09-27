@@ -2,7 +2,7 @@
 
 Corresponds to [F24 in the roadmap](../../ROADMAP.md#f24-brokerless-meshbus-extraction).
 
-**Status:** 🚧 In progress
+**Status:** ✅ Complete
 
 ## Outcome
 

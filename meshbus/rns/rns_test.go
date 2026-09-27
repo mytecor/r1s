@@ -233,6 +233,87 @@ func TestDiscoveredPeerReceivesDirectBytesWithoutR1s(t *testing.T) {
 	}
 }
 
+func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
+	portA := freeUDPPort(t)
+	portB := freeUDPPort(t)
+	for portB == portA {
+		portB = freeUDPPort(t)
+	}
+	root := t.TempDir()
+	directB := make(chan meshbus.ReceivedMessage, 1)
+	eventsB := make(chan meshbus.ReceivedEvent, 1)
+	nodeA, err := NewNode(NodeConfig{Endpoint: Config{
+		Reticulum: standaloneConfig(filepath.Join(root, "node-a"), portA, portB), EphemeralIdentity: true,
+		RealmKey: testRealmKey(), AnnounceInterval: 100 * time.Millisecond, NetworkWait: 8 * time.Second,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nodeA.Close()
+	nodeB, err := NewNode(NodeConfig{
+		Endpoint: Config{
+			Reticulum: standaloneConfig(filepath.Join(root, "node-b"), portB, portA), EphemeralIdentity: true,
+			RealmKey: testRealmKey(), AnnounceInterval: 100 * time.Millisecond, NetworkWait: 8 * time.Second,
+		},
+		DirectHandler: func(_ context.Context, message meshbus.ReceivedMessage) error {
+			directB <- message
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nodeB.Close()
+	if _, err := nodeB.Subscribe("rns.node.event", func(_ context.Context, event meshbus.ReceivedEvent) error {
+		eventsB <- event
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := nodeA.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := nodeB.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for (len(nodeA.Peers()) == 0 || len(nodeB.Peers()) == 0) && time.Now().Before(deadline) {
+		time.Sleep(25 * time.Millisecond)
+	}
+	if len(nodeA.Peers()) != 1 || len(nodeB.Peers()) != 1 {
+		t.Fatalf("RNS Node peers A=%+v B=%+v", nodeA.Peers(), nodeB.Peers())
+	}
+	peerA := nodeB.Peers()[0].ID
+
+	peerB := nodeA.Peers()[0].ID
+	if err := nodeA.Send(ctx, peerB, []byte("node-direct")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case message := <-directB:
+		if message.Sender() != peerA || string(message.Payload()) != "node-direct" {
+			t.Fatalf("direct sender=%s payload=%q", message.Sender().String(), message.Payload())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Node direct message was not delivered over RNS")
+	}
+
+	if _, err := nodeA.Publish(ctx, "rns.node.event", []byte("node-publish"), meshbus.PublishOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-eventsB:
+		if event.Sender != peerA || string(event.Payload) != "node-publish" {
+			t.Fatalf("event sender=%s payload=%q", event.Sender.String(), event.Payload)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Node event was not delivered over RNS")
+	}
+}
+
 func TestEndpointsExchangeDirectBytesThroughSharedInstance(t *testing.T) {
 	port := freeTCPPort(t)
 	serverConfig := common.NewReticulumConfig()

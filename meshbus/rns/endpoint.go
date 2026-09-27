@@ -288,6 +288,7 @@ func (e *Endpoint) SendMessage(ctx context.Context, target string, payload []byt
 }
 
 var _ meshbus.Sender = (*Endpoint)(nil)
+var _ meshbus.NodeTransport = (*Endpoint)(nil)
 
 func parseDestination(value string) ([]byte, string, error) {
 	value = strings.ToLower(strings.TrimSpace(value))

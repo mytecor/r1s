@@ -50,7 +50,7 @@ The source boundaries are:
 ```text
 api/proto/r1s/v1/       versioned wire schema
 client/                  public ephemeral Run Controller API
-meshbus/                 authenticated direct-message contract
+meshbus/                 direct messages, peer directory, bounded pub/sub, and cohesive Node API
 meshbus/realm/           reusable shared-secret realm membership primitive
 meshbus/rns/             reusable Reticulum adapter (identity, links, realm auth, direct delivery)
 internal/broker/         local credential isolation and per-run transport endpoints
@@ -121,8 +121,11 @@ authentication, Channels, direct delivery, session reuse, peer routes, pre-auth 
 PeerDirectory integration — behind a pluggable `PresenceCodec` whose default is the bounded
 `meshbus.v1` presence descriptor, exposing `SendMessage`/`ReceivedMessage`/`Peers`/`Routes`
 without importing r1s),
-F24-06 moved r1s onto that adapter (only r1s-specific adaptation stays in `internal/transport/rns`), and F24-07 adds a cohesive application-facing Node API. After F24-07,
-meshbus is complete as a small brokerless primitive.
+F24-06 moved r1s onto that adapter (only r1s-specific adaptation stays in `internal/transport/rns`),
+and F24-07 added the cohesive application-facing `Node` API. `Node` composes transport lifecycle,
+authenticated direct messages, the transport-owned peer directory, and `Bus`; publishing reads the
+current bounded route snapshot without application wiring. `meshbus/rns.NewNode` supplies the
+Reticulum-backed constructor. Meshbus is complete as a small brokerless primitive.
 
 ## Commands
 

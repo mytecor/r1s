@@ -1,6 +1,6 @@
 # F24-07 — Add the cohesive meshbus Node API
 
-**Status:** ⏳ Planned
+**Status:** ✅ Complete
 
 ## Outcome
 
@@ -49,3 +49,25 @@ A test application can create two `Node`s using an in-memory fake transport and:
 
 The same API can be backed by `meshbus/rns`. All resource bounds from Bus and `PeerDirectory`
 remain enforced. `make check` passes.
+
+## Implementation notes
+
+[`meshbus.Node`](../../meshbus/node.go) composes a transport through the small `NodeTransport`
+interface: authenticated direct send, lifecycle, and a bounded `PeerDirectory`. A
+`TransportFactory` receives the already-composed inbound handler, which lets Node join pub/sub and
+ordinary direct delivery without requiring callers to manually wire `Bus.Handler` into a transport.
+
+The application-facing surface provides `Start`, peer-addressed `Send`, `Subscribe`, `Publish`,
+`Peers`, and idempotent `Close`. `Publish` always reads the current route snapshot from the
+transport's directory. The existing `BusConfig` limits remain configurable, while its `Sender` and
+`Peers` fields are owned by Node and cannot be replaced by callers.
+
+[`meshbus/rns.NewNode`](../../meshbus/rns/node.go) is the Reticulum-backed constructor. Applications
+provide realm, identity, and presence settings in the endpoint config; the constructor installs the
+composed inbound handler and directory wiring itself.
+
+Deterministic in-memory tests create two Nodes, discover them in both directions, exchange an
+authenticated direct message, and publish an event without supplying peers. They also prove that
+the configured directory and subscription bounds remain active. A UDP-loopback integration test
+constructs the same API with `meshbus/rns.Endpoint` and exercises RNS discovery, direct delivery,
+and pub/sub with the authenticated sender.
