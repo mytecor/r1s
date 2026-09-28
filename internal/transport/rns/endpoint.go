@@ -11,10 +11,10 @@ import (
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
+	"github.com/mytecor/meshbus"
+	meshrns "github.com/mytecor/meshbus/rns"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	coretransport "github.com/mytecor/r1s/internal/transport"
-	"github.com/mytecor/r1s/meshbus"
-	meshrns "github.com/mytecor/r1s/meshbus/rns"
 )
 
 const (
@@ -96,6 +96,12 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 		presenceMetadata = descriptor.metadata()
 	}
 	transport, err := meshrns.New(meshrns.Config{
+		StackMode: func() meshrns.StackMode {
+			if config.Reticulum != nil {
+				return meshrns.StackStandalone
+			}
+			return meshrns.StackSharedClient
+		}(),
 		Reticulum:         config.Reticulum,
 		IdentitySource:    config.IdentitySource,
 		EphemeralIdentity: config.EphemeralIdentity,
@@ -112,7 +118,10 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := transport.SetPeerObserver(serviceObserver{discovered: discovered}); err != nil {
+	if err := transport.SetPeerObserver(serviceObserver{
+		discovered: discovered,
+		resolve:    transport.DestinationForIdentity,
+	}); err != nil {
 		_ = transport.Close()
 		return nil, err
 	}
@@ -124,14 +133,21 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 	return &Endpoint{transport: transport, identity: identityHash, discovered: discovered}, nil
 }
 
-type serviceObserver struct{ discovered chan<- Service }
+type serviceObserver struct {
+	discovered chan<- Service
+	resolve    func(string) (string, bool)
+}
 
 func (o serviceObserver) Discovered(peer meshbus.Peer) error {
 	descriptor, err := parseDescriptorMetadata(peer.Metadata)
 	if err != nil {
 		return err
 	}
-	service := Service{Destination: peer.Route, Identity: peer.ID.String(), Descriptor: descriptor, Hops: peer.Hops}
+	destination, ok := o.resolve(peer.ID.String())
+	if !ok {
+		return fmt.Errorf("resolve RNS destination for discovered identity %s", peer.ID)
+	}
+	service := Service{Destination: destination, Identity: peer.ID.String(), Descriptor: descriptor, Hops: peer.Hops}
 	select {
 	case o.discovered <- service:
 	default:
@@ -139,7 +155,7 @@ func (o serviceObserver) Discovered(peer meshbus.Peer) error {
 	return nil
 }
 
-func (serviceObserver) Authenticated(meshbus.PeerID, string) error { return nil }
+func (serviceObserver) Authenticated(meshbus.PeerID) error { return nil }
 
 func (e *Endpoint) Name() string                { return e.transport.Name() }
 func (e *Endpoint) Destination() string         { return e.transport.Destination() }

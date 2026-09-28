@@ -68,8 +68,9 @@ type PublishResult struct {
 	ID             EventID
 	Attempted      int
 	Delivered      int
-	Failed         map[string]error
+	Failed         map[PeerID]error
 	LocalDelivered bool
+	LocalError     error
 }
 
 func validateTopic(topic string) error {

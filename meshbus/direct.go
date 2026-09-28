@@ -14,6 +14,10 @@ var (
 	ErrInvalidMessage = errors.New("invalid direct message")
 )
 
+// MaxPeerIDBytes bounds identity material retained by the generic layer.
+// Individual transports may impose a smaller bound.
+const MaxPeerIDBytes = 256
+
 // PeerID is an opaque identity established by the transport. Its binary form
 // is kept immutable so application payloads cannot replace sender authority.
 type PeerID struct {
@@ -22,7 +26,7 @@ type PeerID struct {
 
 // NewPeerID copies a non-empty transport-authenticated identity.
 func NewPeerID(value []byte) (PeerID, error) {
-	if len(value) == 0 {
+	if len(value) == 0 || len(value) > MaxPeerIDBytes {
 		return PeerID{}, ErrInvalidPeerID
 	}
 	return PeerID{value: string(bytes.Clone(value))}, nil
@@ -66,7 +70,8 @@ func (m ReceivedMessage) Payload() []byte { return bytes.Clone(m.payload) }
 // Handler receives an authenticated direct message.
 type Handler func(context.Context, ReceivedMessage) error
 
-// Sender sends opaque application bytes to a transport-specific destination.
+// Sender sends opaque application bytes to an authenticated peer. Transport
+// route resolution stays behind this boundary.
 type Sender interface {
-	SendMessage(context.Context, string, []byte) error
+	SendMessage(context.Context, PeerID, []byte) error
 }

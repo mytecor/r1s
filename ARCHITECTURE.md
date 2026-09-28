@@ -56,7 +56,7 @@ meshbus/rns/             reusable Reticulum adapter (identity, links, realm auth
 internal/broker/         local credential isolation and per-run transport endpoints
 internal/protocol/      message validation and compatibility
 internal/client/         in-memory request state, offer selection, and observed execution state
-internal/cluster/        r1s cluster naming, join token, credential store, and realm compatibility profile
+internal/cluster/        r1s cluster naming, join token, credential store, and realm selection
 internal/allocator/     offers, capacity, assignment, authorization
 internal/transport/     transport boundary and r1s-specific meshbus adaptation
 internal/runtime/       runtime boundary and containerd adapter
@@ -113,17 +113,19 @@ The generic event wire form is versioned independently with the `MBE` v1 marker.
 ID, topic, publication time, TTL, content type, and opaque payload, but never a sender. On receive,
 the sender is taken exclusively from the enclosing authenticated direct message. r1s does not
 instantiate the event bus, so the existing r1s Protobuf wire protocol and behavior are unchanged.
-The staged extraction uses four final steps: F24-04 fixed the transport-independent peer
+The staged extraction fixed the transport-independent peer
 discovery contract (`PeerDirectory`) — a bounded, copy-safe directory of authenticated
-`PeerID`s with opaque routes and advisory metadata, named a directory rather than a cluster
+`PeerID`s with advisory metadata, named a directory rather than a cluster
 because the realm is a security boundary while the directory is only observable network state.
 F24-05 extracts the reusable public `meshbus/rns` adapter
 (it owns the generic RNS machinery — identity, destinations, announces, Links, realm
 authentication, Channels, direct delivery, session reuse, peer routes, pre-auth buffering,
 PeerDirectory integration, and the single bounded `meshbus.v1` presence format, exposing
-`SendMessage`/`ReceivedMessage`/`Peers`/`Routes` without importing r1s),
+peer-addressed `SendMessage`, `ReceivedMessage`, and peer snapshots without importing r1s),
 F24-06 moved r1s onto that adapter (only r1s-specific adaptation stays in `internal/transport/rns`),
-and F24-07 added the cohesive application-facing `Node` API. `Node` owns bounded candidate and
+F24-07 added the cohesive application-facing `Node` API, and F24-08 through F24-12 made routes
+adapter-private, established `github.com/mytecor/meshbus` as an independent nested module, and
+added wire compatibility and external-consumer tests. `Node` owns bounded candidate and
 authenticated peer directories, transport lifecycle, stale-peer expiry, direct messages, and
 `Bus`. An RNS announce creates only a candidate; successful realm proof promotes it into `Peers`
 and pub/sub fan-out. Publishing delivers locally by default and returns attempted/delivered/failed

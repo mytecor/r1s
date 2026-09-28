@@ -34,7 +34,7 @@ func TestLoadOrCreateIdentityAcceptsRNSPrivateKeyEncodings(t *testing.T) {
 	}
 	for name, source := range sources {
 		t.Run(name, func(t *testing.T) {
-			if !IsInlineIdentitySource(source) {
+			if !isInlineIdentitySource(source) {
 				t.Fatal("encoded private identity was classified as a path")
 			}
 			loaded, err := loadOrCreateIdentity(source)
@@ -57,7 +57,7 @@ func TestLoadOrCreateIdentityPreservesFileBehavior(t *testing.T) {
 	}
 	wantHash := bytes.Clone(created.Hash())
 	created.Close()
-	if IsInlineIdentitySource(path) {
+	if isInlineIdentitySource(path) {
 		t.Fatal("identity file was classified as inline data")
 	}
 	info, err := os.Stat(path)
@@ -80,7 +80,7 @@ func TestLoadOrCreateIdentityPreservesFileBehavior(t *testing.T) {
 
 func TestLongNonIdentityValueRemainsAFilePath(t *testing.T) {
 	source := filepath.Join(t.TempDir(), strings.Repeat("z", privateIdentitySize*2))
-	if IsInlineIdentitySource(source) {
+	if isInlineIdentitySource(source) {
 		t.Fatal("long path was classified as an encoded private identity")
 	}
 	loaded, err := loadOrCreateIdentity(source)

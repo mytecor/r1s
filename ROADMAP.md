@@ -299,7 +299,10 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 
 - **Status:** ✅ complete — F24-01 through F24-07 provide realm membership, authenticated direct
   messages, bounded one-hop pub/sub, `PeerDirectory`, the reusable `meshbus/rns` adapter, the r1s
-  application adapter over that transport, and a cohesive application-facing `Node` API.
+  application adapter over that transport, and a cohesive application-facing `Node` API. F24-08
+  through F24-12 now harden the peer-routing boundary, remove remaining r1s policy, establish an
+  independent Go module, stabilize wire contracts, and prove black-box consumption before the
+  repository is physically split.
 - **Done when:** r1s composes its control protocol over a reusable meshbus direct-message boundary;
   authenticated realm peers can publish best-effort, TTL-bounded, deduplicated events by fan-out;
   announces carry discovery only; and the sender exposed to applications always comes from the
@@ -318,13 +321,16 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   (`PeerDirectory`), F24-05 physically extracted a reusable `meshbus/rns` adapter, and F24-06 moved
   r1s onto that adapter so only r1s-specific adaptation stays in `internal/transport/rns`. F24-07
   added a cohesive Node API so
-  applications do not hand-wire `Realm + RNS adapter + PeerDirectory + Bus`. F24 closes without
+  applications do not hand-wire `Realm + RNS adapter + PeerDirectory + Bus`. F24-08 through
+  F24-12 make the core peer-addressed, move r1s identity policy above the adapter, establish the
+  independent `github.com/mytecor/meshbus` module, document and test the wire contracts, and add
+  black-box consumer coverage. F24 closes without
   subscription gossip, multi-hop routing, persistence or ACK — meshbus stays a small brokerless
   primitive. F24-05 is complete: the public `meshbus/rns` package owns the generic
   RNS machinery (identity, destinations, announces, Links, realm authentication, Channels, direct
-  delivery, session reuse, peer routes, pre-auth buffering, PeerDirectory integration) with the
+  delivery, session reuse, private peer routes, pre-auth buffering, PeerDirectory integration) with the
   single bounded `meshbus.v1` presence descriptor, and it
-  exposes `SendMessage`/`ReceivedMessage`/`Peers`/`Routes` without importing r1s. F24-06 is complete:
+  exposes peer-addressed `SendMessage`, `ReceivedMessage`, and peer snapshots without importing r1s. F24-06 is complete:
   the duplicated internal RNS machinery and old compatibility profile are removed. Only the r1s
   metadata projection, Protobuf envelope, and allocator discovery projection remain in
   `internal/transport/rns`. The final `meshbus.Node` owns candidate/authenticated peer directories,

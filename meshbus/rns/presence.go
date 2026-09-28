@@ -10,7 +10,7 @@ import (
 )
 
 // Presence wire constants. The generic presence descriptor is versioned
-// independently from any application protocol (F24-05): it carries only what
+// independently from any application protocol: it carries only what
 // realm discovery needs, never events, subscriptions or application logic.
 const (
 	genericProtocolVersion = "meshbus.v1"
@@ -46,6 +46,13 @@ func (p Presence) marshal() ([]byte, error) {
 	if strings.TrimSpace(p.Protocol) == "" {
 		p.Protocol = genericProtocolVersion
 	}
+	if p.Protocol != genericProtocolVersion {
+		return nil, fmt.Errorf("%w: unsupported protocol %q", ErrInvalidPresence, p.Protocol)
+	}
+	realmID, err := hex.DecodeString(p.Realm)
+	if err != nil || len(realmID) != 32 || p.Realm != strings.ToLower(p.Realm) {
+		return nil, fmt.Errorf("%w: realm must be 32 lowercase hexadecimal bytes", ErrInvalidPresence)
+	}
 	if p.Metadata == nil {
 		p.Metadata = map[string]string{}
 	}
@@ -61,6 +68,9 @@ func (p Presence) marshal() ([]byte, error) {
 	}
 	return data, nil
 }
+
+// MarshalBinary encodes a bounded meshbus.v1 presence descriptor.
+func (p Presence) MarshalBinary() ([]byte, error) { return p.marshal() }
 
 // parsePresence decodes and validates an inbound generic presence descriptor.
 // It returns the presence together with its decoded realm id.
@@ -82,10 +92,17 @@ func parsePresence(data []byte) (Presence, []byte, error) {
 		presence.Metadata = map[string]string{}
 	}
 	realmID, err := hex.DecodeString(presence.Realm)
-	if err != nil {
-		return Presence{}, nil, fmt.Errorf("%w: realm must be hexadecimal", ErrInvalidPresence)
+	if err != nil || len(realmID) != 32 || presence.Realm != strings.ToLower(presence.Realm) {
+		return Presence{}, nil, fmt.Errorf("%w: realm must be 32 lowercase hexadecimal bytes", ErrInvalidPresence)
 	}
 	return presence, realmID, nil
+}
+
+// ParsePresence validates and decodes a bounded meshbus.v1 presence
+// descriptor. Realm matching remains the endpoint's responsibility.
+func ParsePresence(data []byte) (Presence, error) {
+	presence, _, err := parsePresence(data)
+	return presence, err
 }
 
 // genericPresenceCodec is the single meshbus.v1 announce format.

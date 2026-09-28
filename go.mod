@@ -4,20 +4,22 @@ go 1.27.1
 
 require (
 	github.com/Arceliar/ironwood v0.0.0-20260613025018-d50055b11f5e
+	github.com/Microsoft/go-winio v0.6.3-0.20251027160822-ad3df93bed29
 	github.com/Quad4-Software/Reticulum-Go v1.2.0
 	github.com/containerd/containerd/v2 v2.3.5
 	github.com/containerd/errdefs v1.0.0
 	github.com/gologme/log v1.3.0
+	github.com/mytecor/meshbus v0.0.0
 	github.com/yggdrasil-network/yggdrasil-go v0.5.14
 	go.etcd.io/bbolt v1.4.3
 	golang.org/x/sys v0.48.0
-	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 )
 
+replace github.com/mytecor/meshbus => ./meshbus
+
 require (
 	github.com/Arceliar/phony v0.0.0-20220903101357-530938a4b13d // indirect
-	github.com/Microsoft/go-winio v0.6.3-0.20251027160822-ad3df93bed29 // indirect
 	github.com/Microsoft/hcsshim v0.15.0-rc.1 // indirect
 	github.com/Quad4-Software/bzip2 v1.0.1 // indirect
 	github.com/Quad4-Software/msgpack/v5 v5.9.1 // indirect
@@ -77,5 +79,6 @@ require (
 	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260406210006-6f92a3bedf2d // indirect
+	google.golang.org/grpc v1.80.0 // indirect
 	kernel.org/pub/linux/libs/security/libcap/psx v1.2.77 // indirect
 )

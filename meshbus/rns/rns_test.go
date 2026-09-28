@@ -13,7 +13,7 @@ import (
 	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/sharedinstance"
 	rnstransport "github.com/Quad4-Software/Reticulum-Go/pkg/transport"
-	"github.com/mytecor/r1s/meshbus"
+	"github.com/mytecor/meshbus"
 )
 
 // testRealmKey is a fixed realm key shared by same-realm test endpoints.
@@ -73,6 +73,7 @@ func newTestEndpoint(t *testing.T, storage string, listenPort, targetPort int, k
 		handler = func(context.Context, meshbus.ReceivedMessage) error { return nil }
 	}
 	endpoint, err := New(Config{
+		StackMode:      StackStandalone,
 		Reticulum:      standaloneConfig(storage, listenPort, targetPort),
 		IdentitySource: filepath.Join(storage, "identity"),
 		RealmKey:       key,
@@ -148,9 +149,6 @@ func TestGenericRealmNodesDiscoverEachOther(t *testing.T) {
 	if !bytes.Equal(found.ID.Bytes(), advertiser.identity.Hash()) {
 		t.Fatalf("discovered identity = %x, want advertiser %x", found.ID.Bytes(), advertiser.identity.Hash())
 	}
-	if found.Route != advertiser.Destination() {
-		t.Fatalf("discovered route = %s, want %s", found.Route, advertiser.Destination())
-	}
 }
 
 func TestForeignRealmIsRejectedOnSharedPair(t *testing.T) {
@@ -184,7 +182,7 @@ func TestForeignRealmIsRejectedOnSharedPair(t *testing.T) {
 	// A direct send across realms must fail authentication and never be handled.
 	sendCtx, stop := context.WithTimeout(context.Background(), 6*time.Second)
 	defer stop()
-	if err := nodeA.SendMessage(sendCtx, nodeB.Destination(), []byte("foreign")); fmt.Sprint(err) == "" {
+	if err := nodeA.SendToDestination(sendCtx, nodeB.Destination(), []byte("foreign")); fmt.Sprint(err) == "" {
 		// If Send did not error synchronously, prove no delivery reached nodeB.
 		select {
 		case <-receivedB:
@@ -202,8 +200,8 @@ func TestDiscoveredPeerReceivesDirectBytesWithoutR1s(t *testing.T) {
 
 	sendCtx, stop := context.WithTimeout(context.Background(), 8*time.Second)
 	defer stop()
-	route := passive.DiscoveredPeers()[0].Route
-	if err := passive.SendMessage(sendCtx, route, []byte("hello-meshbus")); err != nil {
+	peer := passive.DiscoveredPeers()[0].ID
+	if err := passive.SendMessage(sendCtx, peer, []byte("hello-meshbus")); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -230,7 +228,7 @@ func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 	directContexts := make(chan context.Context, 1)
 	eventsB := make(chan meshbus.ReceivedEvent, 1)
 	nodeA, err := NewNode(NodeConfig{Endpoint: Config{
-		Reticulum: standaloneConfig(filepath.Join(root, "node-a"), portA, portB), EphemeralIdentity: true,
+		StackMode: StackStandalone, Reticulum: standaloneConfig(filepath.Join(root, "node-a"), portA, portB), EphemeralIdentity: true,
 		RealmKey: testRealmKey(), AnnounceInterval: 100 * time.Millisecond, NetworkWait: 8 * time.Second,
 	}})
 	if err != nil {
@@ -239,7 +237,7 @@ func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 	defer nodeA.Close()
 	nodeB, err := NewNode(NodeConfig{
 		Endpoint: Config{
-			Reticulum: standaloneConfig(filepath.Join(root, "node-b"), portB, portA), EphemeralIdentity: true,
+			StackMode: StackStandalone, Reticulum: standaloneConfig(filepath.Join(root, "node-b"), portB, portA), EphemeralIdentity: true,
 			RealmKey: testRealmKey(), AnnounceInterval: 100 * time.Millisecond, NetworkWait: 8 * time.Second,
 		},
 		DirectHandler: func(ctx context.Context, message meshbus.ReceivedMessage) error {
@@ -386,7 +384,7 @@ func TestEndpointsExchangeDirectBytesThroughSharedInstance(t *testing.T) {
 	waitForPeer(t, client, allocator.Name())
 	sendContext, stop := context.WithTimeout(context.Background(), 8*time.Second)
 	defer stop()
-	if err := client.SendMessage(sendContext, client.DiscoveredPeers()[0].Route, []byte("shared-instance")); err != nil {
+	if err := client.SendMessage(sendContext, client.DiscoveredPeers()[0].ID, []byte("shared-instance")); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -407,8 +405,12 @@ func TestReconnectAfterLinkLoss(t *testing.T) {
 
 	sendCtx, stop := context.WithTimeout(context.Background(), 8*time.Second)
 	defer stop()
-	route := passive.DiscoveredPeers()[0].Route
-	if err := passive.SendMessage(sendCtx, route, []byte("first")); err != nil {
+	peer := passive.DiscoveredPeers()[0].ID
+	route, ok := passive.DestinationForIdentity(peer.String())
+	if !ok {
+		t.Fatal("discovered peer has no RNS destination")
+	}
+	if err := passive.SendMessage(sendCtx, peer, []byte("first")); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -432,7 +434,7 @@ func TestReconnectAfterLinkLoss(t *testing.T) {
 	active.link.Teardown()
 	passive.stack.transport.ExpirePath(destinationHash)
 
-	if err := passive.SendMessage(sendCtx, route, []byte("second")); err != nil {
+	if err := passive.SendMessage(sendCtx, peer, []byte("second")); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -451,16 +453,12 @@ func TestPeerSnapshotsFeedBusFanout(t *testing.T) {
 	defer cancel()
 	waitForPeer(t, passive, advertiser.Name())
 
-	routes := passive.DiscoveredRoutes()
-	if len(routes) != 1 {
-		t.Fatalf("routes = %v, want exactly one discovered route", routes)
-	}
-	if routes[0] != advertiser.Destination() {
-		t.Fatalf("route = %s, want %s", routes[0], advertiser.Destination())
-	}
-	// A full snapshot returns the bounded peer records.
-	if peers := passive.DiscoveredPeers(); len(peers) != 1 {
+	peers := passive.DiscoveredPeers()
+	if len(peers) != 1 {
 		t.Fatalf("peers = %v, want exactly one", peers)
+	}
+	if destination, ok := passive.DestinationForIdentity(peers[0].ID.String()); !ok || destination != advertiser.Destination() {
+		t.Fatalf("resolved destination = %s, %v; want %s", destination, ok, advertiser.Destination())
 	}
 }
 
@@ -491,7 +489,7 @@ func (o recordingPeerObserver) Discovered(peer meshbus.Peer) error {
 	return nil
 }
 
-func (recordingPeerObserver) Authenticated(meshbus.PeerID, string) error { return nil }
+func (recordingPeerObserver) Authenticated(meshbus.PeerID) error { return nil }
 
 func TestPeerObserverReceivesParsedPresence(t *testing.T) {
 	portA := freeUDPPort(t)
@@ -503,6 +501,7 @@ func TestPeerObserverReceivesParsedPresence(t *testing.T) {
 	discovered := make(chan discoveryRecord, 1)
 	nop := func(context.Context, meshbus.ReceivedMessage) error { return nil }
 	advertiser, err := New(Config{
+		StackMode:         StackStandalone,
 		Reticulum:         standaloneConfig(filepath.Join(root, "a"), portA, portB),
 		EphemeralIdentity: true,
 		RealmKey:          testRealmKey(),
@@ -514,6 +513,7 @@ func TestPeerObserverReceivesParsedPresence(t *testing.T) {
 		t.Fatal(err)
 	}
 	passive, err := New(Config{
+		StackMode:         StackStandalone,
 		Reticulum:         standaloneConfig(filepath.Join(root, "b"), portB, portA),
 		EphemeralIdentity: true,
 		RealmKey:          testRealmKey(),
@@ -532,9 +532,6 @@ func TestPeerObserverReceivesParsedPresence(t *testing.T) {
 
 	select {
 	case record := <-discovered:
-		if record.peer.Route != advertiser.Destination() {
-			t.Fatalf("discovered route = %s, want %s", record.peer.Route, advertiser.Destination())
-		}
 		if record.peer.Metadata["service"] != "example" {
 			t.Fatalf("presence metadata = %v", record.peer.Metadata)
 		}

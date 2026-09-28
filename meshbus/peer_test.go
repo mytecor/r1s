@@ -7,16 +7,24 @@ import (
 	"time"
 )
 
-func testPeer(id byte, route string) Peer {
+func testPeer(id byte, _ string) Peer {
 	peerID, err := NewPeerID([]byte{id, 0x01, 0x02, 0x03})
 	if err != nil {
 		panic(err)
 	}
-	return Peer{ID: peerID, Route: route, Hops: 1, LastSeen: time.Unix(0, 0)}
+	return Peer{ID: peerID, Hops: 1, LastSeen: time.Unix(0, 0)}
 }
 
-func TestPeerDirectoryRememberAndResolve(t *testing.T) {
-	directory := NewPeerDirectory(DirectoryConfig{})
+func testDirectory(config DirectoryConfig) *PeerDirectory {
+	directory, err := NewPeerDirectory(config)
+	if err != nil {
+		panic(err)
+	}
+	return directory
+}
+
+func TestPeerDirectoryRememberAndGet(t *testing.T) {
+	directory := testDirectory(DirectoryConfig{})
 	peer := testPeer(0xAA, "route-aa")
 	if err := directory.Remember(peer); err != nil {
 		t.Fatal(err)
@@ -24,16 +32,15 @@ func TestPeerDirectoryRememberAndResolve(t *testing.T) {
 	if got := directory.Len(); got != 1 {
 		t.Fatalf("Len() = %d, want 1", got)
 	}
-	route, ok := directory.Resolve(peer.ID)
-	if !ok || route != "route-aa" {
-		t.Fatalf("Resolve = %q, %v, want %q, true", route, ok, "route-aa")
+	if stored, ok := directory.Get(peer.ID); !ok || stored.ID != peer.ID {
+		t.Fatalf("Get = %+v, %v, want peer", stored, ok)
 	}
 }
 
-// F24-04: a duplicate discovery of the same authenticated identity must update
+// A duplicate discovery of the same authenticated identity must update
 // the existing peer instead of creating a second entry.
 func TestPeerDirectoryUpdateDoesNotDuplicate(t *testing.T) {
-	directory := NewPeerDirectory(DirectoryConfig{})
+	directory := testDirectory(DirectoryConfig{})
 	peer := testPeer(0xBB, "route-1")
 	if err := directory.Remember(peer); err != nil {
 		t.Fatal(err)
@@ -46,22 +53,18 @@ func TestPeerDirectoryUpdateDoesNotDuplicate(t *testing.T) {
 	if got := directory.Len(); got != 1 {
 		t.Fatalf("Len() = %d, want 1 (duplicate must update, not add)", got)
 	}
-	route, ok := directory.Resolve(peer.ID)
-	if !ok || route != "route-2" {
-		t.Fatalf("Resolve after update = %q, %v, want %q", route, ok, "route-2")
-	}
 	stored, ok := directory.Get(peer.ID)
 	if !ok || stored.Hops != 5 {
 		t.Fatalf("updated hops = %d, want 5", stored.Hops)
 	}
 }
 
-// F24-04: application metadata must never be used as an authenticated identity.
+// Application metadata must never be used as an authenticated identity.
 // A peer record without a valid identity is rejected regardless of its route.
 func TestPeerDirectoryRequiresAuthenticatedIdentity(t *testing.T) {
-	directory := NewPeerDirectory(DirectoryConfig{})
+	directory := testDirectory(DirectoryConfig{})
 	// A zero PeerID is not authenticated and must be rejected even with a route.
-	if err := directory.Remember(Peer{Route: "untrusted-route"}); !errors.Is(err, ErrInvalidPeer) {
+	if err := directory.Remember(Peer{}); !errors.Is(err, ErrInvalidPeer) {
 		t.Fatalf("Remember without identity error = %v, want ErrInvalidPeer", err)
 	}
 	if got := directory.Len(); got != 0 {
@@ -69,9 +72,9 @@ func TestPeerDirectoryRequiresAuthenticatedIdentity(t *testing.T) {
 	}
 }
 
-// F24-04: bounded application metadata; a peer cannot grow memory unbounded.
+// Application metadata is bounded so a peer cannot grow memory unbounded.
 func TestPeerDirectoryMetadataBounds(t *testing.T) {
-	directory := NewPeerDirectory(DirectoryConfig{MaxMetadataBytes: 16})
+	directory := testDirectory(DirectoryConfig{MaxMetadataBytes: 16})
 	peer := testPeer(0xCC, "route")
 	peer.Metadata = map[string]string{"os": "linux"} // 9 bytes
 	if err := directory.Remember(peer); err != nil {
@@ -87,7 +90,7 @@ func TestPeerDirectoryMetadataBounds(t *testing.T) {
 	}
 
 	// A tiny metadata bound rejects even small metadata.
-	tiny := NewPeerDirectory(DirectoryConfig{MaxMetadataBytes: 1})
+	tiny := testDirectory(DirectoryConfig{MaxMetadataBytes: 1})
 	withMeta := testPeer(0xEE, "route")
 	withMeta.Metadata = map[string]string{"k": "v"}
 	if err := tiny.Remember(withMeta); !errors.Is(err, ErrMetadataLimit) {
@@ -95,10 +98,10 @@ func TestPeerDirectoryMetadataBounds(t *testing.T) {
 	}
 }
 
-// F24-04: explicit peer count bounds; the directory rejects new identities once
+// The directory rejects new identities once
 // at capacity (updates to known identities remain allowed).
 func TestPeerDirectoryPeerLimit(t *testing.T) {
-	directory := NewPeerDirectory(DirectoryConfig{MaxPeers: 2})
+	directory := testDirectory(DirectoryConfig{MaxPeers: 2})
 	for id := byte(0); id < 2; id++ {
 		if err := directory.Remember(testPeer(id, "r")); err != nil {
 			t.Fatalf("Remember %d: %v", id, err)
@@ -118,11 +121,11 @@ func TestPeerDirectoryPeerLimit(t *testing.T) {
 	}
 }
 
-// F24-04: stale peers can be expired deterministically based on LastSeen.
+// Stale peers can be expired deterministically based on LastSeen.
 func TestPeerDirectoryExpireStale(t *testing.T) {
 	base := time.Unix(1000, 0)
 	now := base
-	directory := NewPeerDirectory(DirectoryConfig{now: func() time.Time { return now }})
+	directory := testDirectory(DirectoryConfig{now: func() time.Time { return now }})
 
 	if err := directory.Remember(testPeer(0x01, "r1")); err != nil {
 		t.Fatal(err)
@@ -141,18 +144,18 @@ func TestPeerDirectoryExpireStale(t *testing.T) {
 	if removed != 1 {
 		t.Fatalf("ExpireStale removed %d, want 1", removed)
 	}
-	if _, ok := directory.Resolve(testPeer(0x02, "").ID); ok {
+	if _, ok := directory.Get(testPeer(0x02, "").ID); ok {
 		t.Fatal("stale peer 2 must be expired")
 	}
-	if route, ok := directory.Resolve(testPeer(0x01, "").ID); !ok || route != "r1-refreshed" {
-		t.Fatalf("refreshed peer 1 must survive: %q, %v", route, ok)
+	if _, ok := directory.Get(testPeer(0x01, "").ID); !ok {
+		t.Fatal("refreshed peer 1 must survive")
 	}
 }
 
-// F24-04: peer snapshots are immutable and copy-safe — mutating the returned
+// Peer snapshots are immutable and copy-safe — mutating the returned
 // records or metadata must not affect the directory.
 func TestPeerDirectorySnapshotCopySafety(t *testing.T) {
-	directory := NewPeerDirectory(DirectoryConfig{MaxMetadataBytes: 64})
+	directory := testDirectory(DirectoryConfig{MaxMetadataBytes: 64})
 	peer := testPeer(0x01, "route")
 	peer.Metadata = map[string]string{"os": "linux"}
 	if err := directory.Remember(peer); err != nil {
@@ -164,15 +167,10 @@ func TestPeerDirectorySnapshotCopySafety(t *testing.T) {
 		t.Fatalf("Peers() len = %d, want 1", len(snapshot))
 	}
 	// Mutate the returned record and its metadata.
-	snapshot[0].Route = "hijacked"
 	snapshot[0].Metadata["os"] = "hijacked"
 	snapshot[0].Hops = 99
 
 	// The directory must be unaffected.
-	route, ok := directory.Resolve(peer.ID)
-	if !ok || route != "route" {
-		t.Fatalf("directory route mutated to %q", route)
-	}
 	stored, _ := directory.Get(peer.ID)
 	if stored.Metadata["os"] != "linux" || stored.Hops != 1 {
 		t.Fatalf("directory metadata/hops mutated: %+v", stored)
@@ -190,9 +188,9 @@ func TestPeerDirectorySnapshotCopySafety(t *testing.T) {
 	}
 }
 
-// F24-04: deterministic snapshots — Peers() order is stable across calls.
+// Peers() order is stable across calls.
 func TestPeerDirectoryDeterministicSnapshot(t *testing.T) {
-	directory := NewPeerDirectory(DirectoryConfig{})
+	directory := testDirectory(DirectoryConfig{})
 	for id := byte(0); id < 8; id++ {
 		if err := directory.Remember(testPeer(id, "r")); err != nil {
 			t.Fatal(err)
@@ -210,24 +208,24 @@ func TestPeerDirectoryDeterministicSnapshot(t *testing.T) {
 	}
 }
 
-// F24-04: Routes() feeds the Bus PeerSource fan-out without r1s types.
-func TestPeerDirectoryRoutesFeedBus(t *testing.T) {
-	directory := NewPeerDirectory(DirectoryConfig{})
+// IDs() feeds the Bus PeerSource fan-out without transport routes.
+func TestPeerDirectoryIDsFeedBus(t *testing.T) {
+	directory := testDirectory(DirectoryConfig{})
 	for id, route := range map[byte]string{0x01: "dest-a", 0x02: "dest-b"} {
 		if err := directory.Remember(testPeer(id, route)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	source := PeerSourceFunc(directory.Routes)
+	source := PeerSourceFunc(directory.IDs)
 	got := source.Peers()
 	if len(got) != 2 {
-		t.Fatalf("Routes() len = %d, want 2", len(got))
+		t.Fatalf("IDs() len = %d, want 2", len(got))
 	}
 }
 
-// F24-04: a peer that ages past its record can be removed explicitly.
+// A peer that ages past its record can be removed explicitly.
 func TestPeerDirectoryRemove(t *testing.T) {
-	directory := NewPeerDirectory(DirectoryConfig{})
+	directory := testDirectory(DirectoryConfig{})
 	peer := testPeer(0x01, "route")
 	if err := directory.Remember(peer); err != nil {
 		t.Fatal(err)
@@ -239,5 +237,14 @@ func TestPeerDirectoryRemove(t *testing.T) {
 	directory.Remove(peer.ID) // no-op on unknown peer
 	if got := directory.Len(); got != 0 {
 		t.Fatalf("Len() after double Remove = %d, want 0", got)
+	}
+}
+
+func TestPeerDirectoryRejectsNegativeBounds(t *testing.T) {
+	if _, err := NewPeerDirectory(DirectoryConfig{MaxPeers: -1}); !errors.Is(err, ErrInvalidDirectoryConfig) {
+		t.Fatalf("negative peer bound error = %v, want ErrInvalidDirectoryConfig", err)
+	}
+	if _, err := NewPeerDirectory(DirectoryConfig{MaxMetadataBytes: -1}); !errors.Is(err, ErrInvalidDirectoryConfig) {
+		t.Fatalf("negative metadata bound error = %v, want ErrInvalidDirectoryConfig", err)
 	}
 }

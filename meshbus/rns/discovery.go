@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
-	"github.com/mytecor/r1s/meshbus"
+	"github.com/mytecor/meshbus"
 )
 
 func (e *Endpoint) announceLoop(ctx context.Context) {
@@ -52,7 +52,6 @@ func (h *announceHandler) ReceivedAnnounce(destinationHash []byte, announced any
 	}
 	peer := meshbus.Peer{
 		ID:       peerID,
-		Route:    key,
 		Metadata: metadata,
 		Hops:     hops,
 	}
@@ -60,12 +59,12 @@ func (h *announceHandler) ReceivedAnnounce(destinationHash []byte, announced any
 	if seen != nil {
 		return nil
 	}
+	h.endpoint.connections.rememberDestination(announcedIdentity.Hash(), destinationHash)
 	h.endpoint.mu.Lock()
 	observer := h.endpoint.observer
 	h.endpoint.mu.Unlock()
 	if observer != nil {
-		_ = observer.Discovered(peer)
+		h.endpoint.reportPeerError(observer.Discovered(peer))
 	}
-	h.endpoint.connections.rememberDestination(announcedIdentity.Hash(), destinationHash)
 	return nil
 }

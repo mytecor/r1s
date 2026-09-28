@@ -2,10 +2,11 @@
 //
 // The entity here is a PeerDirectory, not a Cluster: the realm is a security
 // boundary, whereas the directory is only the observable state of the network.
-// A discovered peer carries a transport-authenticated public identity plus an
-// opaque route and bounded advisory metadata. Discovery is advisory only: an
-// announce does not prove realm-key possession. Node promotes a candidate only
-// after the transport reports successful realm authentication.
+// A discovered peer carries a transport-authenticated public identity and
+// bounded advisory metadata. Routes remain private to the transport adapter.
+// Discovery is advisory only: an announce does not prove realm-key possession.
+// Node promotes a candidate only after the transport reports successful realm
+// authentication.
 package meshbus
 
 import (
@@ -32,18 +33,15 @@ var (
 	ErrPeerLimit = errors.New("peer directory capacity reached")
 	// ErrMetadataLimit is returned when application metadata exceeds bounds.
 	ErrMetadataLimit = errors.New("peer metadata exceeds bound")
+	// ErrInvalidDirectoryConfig is returned for negative resource bounds.
+	ErrInvalidDirectoryConfig = errors.New("invalid peer directory configuration")
 )
 
-// Peer describes one authenticated realm peer learned through discovery. It
-// carries only enough information to identify and route to the peer; allocator
-// capacity, runtime, tunnel or execution state never belongs here.
+// Peer describes one authenticated realm peer learned through discovery.
 type Peer struct {
 	// ID is the authenticated public identity established by the transport.
 	// It never comes from application metadata on the wire.
 	ID PeerID
-	// Route is the opaque transport route/address used to reach the peer. A
-	// route learned through discovery is not an authenticated sender identity.
-	Route string
 	// Metadata holds optional bounded application metadata (for example
 	// advisory os/arch hints). Presence and metadata are advisory only.
 	Metadata map[string]string
@@ -58,7 +56,7 @@ type Peer struct {
 // that a transport identity holds the realm key.
 type PeerObserver interface {
 	Discovered(Peer) error
-	Authenticated(PeerID, string) error
+	Authenticated(PeerID) error
 }
 
 // isValid reports whether the peer carries a valid authenticated identity.
@@ -84,17 +82,20 @@ type DirectoryConfig struct {
 	now func() time.Time
 }
 
-func (c DirectoryConfig) apply() DirectoryConfig {
-	if c.MaxPeers < 1 {
+func (c DirectoryConfig) apply() (DirectoryConfig, error) {
+	if c.MaxPeers < 0 || c.MaxMetadataBytes < 0 {
+		return DirectoryConfig{}, ErrInvalidDirectoryConfig
+	}
+	if c.MaxPeers == 0 {
 		c.MaxPeers = defaultDirectoryMaxPeers
 	}
-	if c.MaxMetadataBytes < 1 {
+	if c.MaxMetadataBytes == 0 {
 		c.MaxMetadataBytes = defaultMetadataBytes
 	}
 	if c.now == nil {
 		c.now = time.Now
 	}
-	return c
+	return c, nil
 }
 
 // PeerDirectory is a bounded, observable record of realm peers learned through
@@ -110,12 +111,15 @@ type PeerDirectory struct {
 }
 
 // NewPeerDirectory creates an empty directory with the given resource bounds.
-func NewPeerDirectory(config DirectoryConfig) *PeerDirectory {
-	config = config.apply()
+func NewPeerDirectory(config DirectoryConfig) (*PeerDirectory, error) {
+	config, err := config.apply()
+	if err != nil {
+		return nil, err
+	}
 	return &PeerDirectory{
 		config: config,
 		peers:  make(map[PeerID]Peer),
-	}
+	}, nil
 }
 
 // Remember adds or updates one discovered peer. An existing peer with the same
@@ -146,18 +150,6 @@ func (d *PeerDirectory) Remember(peer Peer) error {
 	return nil
 }
 
-// Resolve returns the current transport route for an authenticated PeerID. A
-// route learned through discovery is not an authenticated sender identity.
-func (d *PeerDirectory) Resolve(id PeerID) (route string, ok bool) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	peer, exists := d.peers[id]
-	if !exists {
-		return "", false
-	}
-	return peer.Route, true
-}
-
 // Get returns an immutable copy of one discovered peer.
 func (d *PeerDirectory) Get(id PeerID) (Peer, bool) {
 	d.mu.RLock()
@@ -185,16 +177,18 @@ func (d *PeerDirectory) Peers() []Peer {
 	return result
 }
 
-// Routes returns the bounded, copy-safe snapshot of transport routes used for
-// pub/sub fan-out, ordered by identity. This is the PeerSource the Bus consumes.
-func (d *PeerDirectory) Routes() []string {
+// IDs returns the bounded snapshot of peer identities used for pub/sub
+// fan-out, ordered by identity.
+func (d *PeerDirectory) IDs() []PeerID {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	result := make([]string, 0, len(d.peers))
+	result := make([]PeerID, 0, len(d.peers))
 	for _, peer := range d.peers {
-		result = append(result, peer.Route)
+		result = append(result, peer.ID)
 	}
-	sort.Strings(result)
+	sort.Slice(result, func(i, j int) bool {
+		return bytes.Compare(result[i].Bytes(), result[j].Bytes()) < 0
+	})
 	return result
 }
 
@@ -245,5 +239,5 @@ func clonePeer(peer Peer) Peer {
 	return peer
 }
 
-// Ensure the directory provides the bounded route snapshot the Bus consumes.
-var _ = PeerSourceFunc((*PeerDirectory)(nil).Routes)
+// Ensure the directory provides the bounded identity snapshot the Bus consumes.
+var _ = PeerSourceFunc((*PeerDirectory)(nil).IDs)

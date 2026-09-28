@@ -6,9 +6,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/mytecor/meshbus"
+	meshrns "github.com/mytecor/meshbus/rns"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
-	"github.com/mytecor/r1s/meshbus"
-	meshrns "github.com/mytecor/r1s/meshbus/rns"
 )
 
 func TestDescriptorMetadataRoundTrip(t *testing.T) {

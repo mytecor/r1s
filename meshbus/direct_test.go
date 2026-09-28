@@ -40,3 +40,9 @@ func TestReceivedMessageRejectsMissingAuthorityOrPayload(t *testing.T) {
 		t.Fatalf("missing payload error = %v", err)
 	}
 }
+
+func TestPeerIDRejectsOversizedIdentity(t *testing.T) {
+	if _, err := NewPeerID(make([]byte, MaxPeerIDBytes+1)); !errors.Is(err, ErrInvalidPeerID) {
+		t.Fatalf("oversized identity error = %v, want ErrInvalidPeerID", err)
+	}
+}

@@ -11,7 +11,7 @@ import (
 )
 
 func TestProductionStackRequiresSharedInstanceClientMode(t *testing.T) {
-	value, err := newStack(nil)
+	value, err := newStack(StackSharedClient, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

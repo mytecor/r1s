@@ -24,25 +24,35 @@ import (
 	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/link"
-	"github.com/mytecor/r1s/meshbus"
-	"github.com/mytecor/r1s/meshbus/realm"
+	"github.com/mytecor/meshbus"
+	"github.com/mytecor/meshbus/realm"
 )
 
 const (
-	defaultRealmAppName  = "meshbus"
-	defaultRealmAspect   = "peer"
-	defaultAnnounce      = 5 * time.Minute
-	defaultNetworkWait   = 30 * time.Second
-	defaultDirectorySize = 1024
+	defaultRealmAppName = "meshbus"
+	defaultRealmAspect  = "peer"
+	defaultAnnounce     = 5 * time.Minute
+	defaultNetworkWait  = 30 * time.Second
 )
 
-// Config defines one generic Reticulum adapter endpoint. Production endpoints
-// leave Reticulum nil and require the platform-default shared instance. A
-// non-nil Reticulum config is reserved for deterministic and live standalone
-// test harnesses.
+// StackMode selects how the adapter joins Reticulum.
+type StackMode uint8
+
+const (
+	// StackSharedClient attaches to an already-running shared instance and
+	// never falls back to owning its listener.
+	StackSharedClient StackMode = iota
+	// StackStandalone starts the explicitly configured Reticulum interfaces.
+	StackStandalone
+)
+
+// Config defines one generic Reticulum adapter endpoint. Shared-client mode
+// uses the platform-default shared instance; standalone mode requires an
+// explicit Reticulum configuration.
 type Config struct {
+	StackMode StackMode
 	Reticulum *common.ReticulumConfig
-	// connectShared is a test-only override for attaching production-mode
+	// connectShared is a test-only override for attaching shared-client mode
 	// endpoints to an isolated shared-instance listener.
 	connectShared sharedConnector
 	// IdentitySource is an existing or new identity file path, or a private
@@ -59,9 +69,8 @@ type Config struct {
 	Aspect           string
 	AnnounceInterval time.Duration
 	NetworkWait      time.Duration
-	// Interfaces, when non-empty, replaces config-driven interface
-	// construction. Tests use this to inject wrapped interfaces (for example
-	// packet-loss capture) while keeping the transport machinery intact.
+	// Interfaces, when non-empty, replaces standalone config-driven interface
+	// construction. It also supports wrapped interfaces for deterministic tests.
 	Interfaces []interfaces.Interface
 	// PresenceMetadata is bounded advisory data carried by meshbus.v1 presence.
 	PresenceMetadata map[string]string
@@ -70,7 +79,8 @@ type Config struct {
 	// DirectoryConfig bounds the peer directory. Zero uses the package default.
 	DirectoryConfig DirectoryConfig
 	// Handler receives authenticated direct messages as meshbus primitives.
-	Handler meshbus.Handler
+	Handler     meshbus.Handler
+	OnPeerError func(error)
 }
 
 // DirectoryConfig bounds the adapter's peer directory.
@@ -97,6 +107,7 @@ type Endpoint struct {
 	codec       genericPresenceCodec
 	directory   *meshbus.PeerDirectory
 	observer    meshbus.PeerObserver
+	onPeerError func(error)
 	runContext  context.Context
 
 	started      bool
@@ -153,7 +164,7 @@ func New(config Config) (*Endpoint, error) {
 			return nil, fmt.Errorf("load identity: %w", loadErr)
 		}
 	}
-	rnsStack, err := newStack(config.Reticulum, config.Interfaces...)
+	rnsStack, err := newStack(config.StackMode, config.Reticulum, config.Interfaces...)
 	if err != nil {
 		return nil, fmt.Errorf("construct Reticulum stack: %w", err)
 	}
@@ -177,21 +188,32 @@ func New(config Config) (*Endpoint, error) {
 	}
 	localDestination.SetDefaultAppData(advertiseData)
 
+	directory, err := meshbus.NewPeerDirectory(meshbus.DirectoryConfig{
+		MaxPeers:         config.DirectoryConfig.MaxPeers,
+		MaxMetadataBytes: config.DirectoryConfig.MaxMetadataBytes,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: peer directory: %v", ErrInvalidConfig, err)
+	}
 	endpoint := &Endpoint{
 		stack: rnsStack, identity: localIdentity, destination: localDestination,
 		handler: config.Handler, interval: config.AnnounceInterval, networkWait: config.NetworkWait,
-		name: hex.EncodeToString(localIdentity.Hash()), realm: openedRealm, realmID: realmID,
+		onPeerError: config.OnPeerError,
+		name:        hex.EncodeToString(localIdentity.Hash()), realm: openedRealm, realmID: realmID,
 		codec: codec, advertises: len(advertiseData) > 0,
 		connections: newConnectionRegistry(),
-		directory: meshbus.NewPeerDirectory(meshbus.DirectoryConfig{
-			MaxPeers:         config.DirectoryConfig.MaxPeers,
-			MaxMetadataBytes: config.DirectoryConfig.MaxMetadataBytes,
-		}),
+		directory:   directory,
 	}
 	localDestination.SetLinkEstablishedCallback(endpoint.acceptLink)
 	aspect := config.AppName + "." + config.Aspect
 	rnsStack.transport.RegisterAnnounceHandler(&announceHandler{endpoint: endpoint, aspect: aspect})
 	return endpoint, nil
+}
+
+func (e *Endpoint) reportPeerError(err error) {
+	if err != nil && e.onPeerError != nil {
+		e.onPeerError(err)
+	}
 }
 
 // Name is the hex-encoded hash of the RNS identity.
@@ -212,12 +234,6 @@ func (e *Endpoint) RealmID() []byte { return bytes.Clone(e.realmID) }
 // DiscoveredPeers returns advisory announce candidates. Realm authentication
 // has not necessarily completed; Node promotes candidates after proof.
 func (e *Endpoint) DiscoveredPeers() []meshbus.Peer { return e.directory.Peers() }
-
-// DiscoveredRoutes returns advisory routes learned from presence.
-func (e *Endpoint) DiscoveredRoutes() []string { return e.directory.Routes() }
-
-// DiscoveryDirectory exposes the bounded candidate directory.
-func (e *Endpoint) DiscoveryDirectory() *meshbus.PeerDirectory { return e.directory }
 
 // SetPeerObserver binds discovery and realm-authentication events before Start.
 func (e *Endpoint) SetPeerObserver(observer meshbus.PeerObserver) error {
@@ -256,9 +272,23 @@ func (e *Endpoint) DestinationForIdentity(identityHash string) (string, bool) {
 	return hex.EncodeToString(destinationHash), true
 }
 
-// SendMessage sends opaque application bytes over an authenticated realm
-// session. It does not inspect the payload or accept a payload-provided sender.
-func (e *Endpoint) SendMessage(ctx context.Context, target string, payload []byte) error {
+// SendMessage resolves an authenticated peer to its current RNS destination
+// and sends opaque application bytes over a realm-authenticated session.
+func (e *Endpoint) SendMessage(ctx context.Context, peer meshbus.PeerID, payload []byte) error {
+	if peer.IsZero() {
+		return meshbus.ErrInvalidPeerID
+	}
+	target, ok := e.DestinationForIdentity(peer.String())
+	if !ok {
+		return fmt.Errorf("%w: %s", meshbus.ErrUnknownPeer, peer)
+	}
+	return e.SendToDestination(ctx, target, payload)
+}
+
+// SendToDestination sends to an adapter-specific RNS destination. It exists
+// for protocol adapters that already persist an RNS destination; ordinary
+// meshbus applications should use the peer-addressed Node API.
+func (e *Endpoint) SendToDestination(ctx context.Context, target string, payload []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

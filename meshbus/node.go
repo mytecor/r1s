@@ -88,14 +88,22 @@ func NewNode(config NodeConfig) (*Node, error) {
 		return nil, fmt.Errorf("%w: peer TTL and sweep interval must be positive", ErrInvalidNode)
 	}
 
+	candidates, err := NewPeerDirectory(config.Directory)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidNode, err)
+	}
+	peers, err := NewPeerDirectory(config.Directory)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidNode, err)
+	}
 	node := &Node{
-		candidates: NewPeerDirectory(config.Directory),
-		peers:      NewPeerDirectory(config.Directory),
+		candidates: candidates,
+		peers:      peers,
 		peerTTL:    config.PeerTTL, sweep: config.SweepInterval, onPeerError: config.OnPeerError,
 	}
 	busConfig := config.Bus
 	busConfig.Sender = node
-	busConfig.Peers = PeerSourceFunc(node.routes)
+	busConfig.Peers = PeerSourceFunc(node.peerIDs)
 	bus, err := NewBus(busConfig)
 	if err != nil {
 		return nil, err
@@ -153,22 +161,22 @@ func (n *Node) Send(ctx context.Context, peer PeerID, payload []byte) error {
 	if err := n.requireRunning(); err != nil {
 		return err
 	}
-	route, ok := n.peers.Resolve(peer)
-	if !ok {
-		route, ok = n.candidates.Resolve(peer)
+	if _, ok := n.peers.Get(peer); !ok {
+		if _, candidate := n.candidates.Get(peer); !candidate {
+			return fmt.Errorf("%w: %s", ErrUnknownPeer, peer.String())
+		}
 	}
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrUnknownPeer, peer.String())
-	}
-	return n.transport.SendMessage(ctx, route, payload)
+	return n.transport.SendMessage(ctx, peer, payload)
 }
 
-func (n *Node) SendMessage(ctx context.Context, route string, payload []byte) error {
-	if err := n.requireRunning(); err != nil {
-		return err
-	}
-	return n.transport.SendMessage(ctx, route, payload)
+// SendMessage implements Sender for the composed Bus. It is equivalent to
+// Send and remains peer-addressed.
+func (n *Node) SendMessage(ctx context.Context, peer PeerID, payload []byte) error {
+	return n.Send(ctx, peer, payload)
 }
+
+// Identity returns this node's transport-authenticated identity.
+func (n *Node) Identity() PeerID { return n.identity }
 
 func (n *Node) Subscribe(topic string, handler EventHandler) (*Subscription, error) {
 	return n.bus.Subscribe(topic, handler)
@@ -193,7 +201,6 @@ func (n *Node) Peers() []Peer { return n.peers.Peers() }
 
 func (n *Node) Discovered(peer Peer) error {
 	if authenticated, ok := n.peers.Get(peer.ID); ok {
-		authenticated.Route = peer.Route
 		authenticated.Metadata = peer.Metadata
 		authenticated.Hops = peer.Hops
 		return n.recordPeer(n.peers, authenticated)
@@ -201,12 +208,10 @@ func (n *Node) Discovered(peer Peer) error {
 	return n.recordPeer(n.candidates, peer)
 }
 
-func (n *Node) Authenticated(id PeerID, route string) error {
+func (n *Node) Authenticated(id PeerID) error {
 	peer, ok := n.candidates.Get(id)
 	if !ok {
-		peer = Peer{ID: id, Route: route}
-	} else if peer.Route == "" {
-		peer.Route = route
+		peer = Peer{ID: id}
 	}
 	if err := n.recordPeer(n.peers, peer); err != nil {
 		return err
@@ -249,7 +254,7 @@ func (n *Node) recordPeer(directory *PeerDirectory, peer Peer) error {
 	return err
 }
 
-func (n *Node) routes() []string { return n.peers.Routes() }
+func (n *Node) peerIDs() []PeerID { return n.peers.IDs() }
 
 func (n *Node) sweepLoop(ctx context.Context) {
 	ticker := time.NewTicker(n.sweep)

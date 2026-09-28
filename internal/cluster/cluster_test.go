@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mytecor/r1s/meshbus/realm"
+	"github.com/mytecor/meshbus/realm"
 )
 
 func TestClusterUsesStandardMeshbusRealmProfile(t *testing.T) {

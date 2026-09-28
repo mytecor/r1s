@@ -10,21 +10,21 @@ import (
 )
 
 type sentMessage struct {
-	destination string
-	payload     []byte
+	peer    PeerID
+	payload []byte
 }
 
 type recordingSender struct {
 	mu       sync.Mutex
 	messages []sentMessage
-	fail     map[string]error
+	fail     map[PeerID]error
 }
 
-func (s *recordingSender) SendMessage(_ context.Context, destination string, payload []byte) error {
+func (s *recordingSender) SendMessage(_ context.Context, peer PeerID, payload []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.messages = append(s.messages, sentMessage{destination: destination, payload: bytes.Clone(payload)})
-	return s.fail[destination]
+	s.messages = append(s.messages, sentMessage{peer: peer, payload: bytes.Clone(payload)})
+	return s.fail[peer]
 }
 
 func (s *recordingSender) snapshot() []sentMessage {
@@ -35,11 +35,16 @@ func (s *recordingSender) snapshot() []sentMessage {
 	return result
 }
 
-func newTestBus(t *testing.T, sender Sender, peers []string, now *time.Time, update func(*BusConfig)) *Bus {
+func busTestPeer(value string) PeerID {
+	peer, _ := NewPeerID([]byte(value))
+	return peer
+}
+
+func newTestBus(t *testing.T, sender Sender, peers []PeerID, now *time.Time, update func(*BusConfig)) *Bus {
 	t.Helper()
 	config := BusConfig{
 		Sender: sender,
-		Peers:  PeerSourceFunc(func() []string { return append([]string(nil), peers...) }),
+		Peers:  PeerSourceFunc(func() []PeerID { return append([]PeerID(nil), peers...) }),
 		clock:  func() time.Time { return *now },
 	}
 	if update != nil {
@@ -55,8 +60,9 @@ func newTestBus(t *testing.T, sender Sender, peers []string, now *time.Time, upd
 
 func TestPublishFansOutOnceToUniquePeerSnapshot(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
-	sender := &recordingSender{fail: map[string]error{"peer-b": errors.New("offline")}}
-	bus := newTestBus(t, sender, []string{"peer-a", " peer-b ", "peer-a", ""}, &now, func(config *BusConfig) {
+	peerA, peerB := busTestPeer("peer-a"), busTestPeer("peer-b")
+	sender := &recordingSender{fail: map[PeerID]error{peerB: errors.New("offline")}}
+	bus := newTestBus(t, sender, []PeerID{peerA, peerB, peerA, {}}, &now, func(config *BusConfig) {
 		config.idSource = bytes.NewReader(bytes.Repeat([]byte{0x42}, 16))
 		config.FanoutConcurrency = 2
 	})
@@ -71,15 +77,15 @@ func TestPublishFansOutOnceToUniquePeerSnapshot(t *testing.T) {
 	if len(messages) != 2 {
 		t.Fatalf("sent %d messages, want 2", len(messages))
 	}
-	destinations := map[string]bool{}
+	destinations := map[PeerID]bool{}
 	for _, message := range messages {
-		destinations[message.destination] = true
+		destinations[message.peer] = true
 		event, decodeErr := decodeEvent(message.payload, defaultMaxEventPayload, defaultMaxEventTTL)
 		if decodeErr != nil || event.ID != result.ID || event.Topic != "git.ref.updated" || string(event.Payload) != "payload" {
 			t.Fatalf("wire event=%+v error=%v", event, decodeErr)
 		}
 	}
-	if !destinations["peer-a"] || !destinations["peer-b"] {
+	if !destinations[peerA] || !destinations[peerB] {
 		t.Fatalf("destinations=%v", destinations)
 	}
 }
@@ -215,7 +221,7 @@ func TestSubscriptionQueueAppliesBackpressure(t *testing.T) {
 func TestBusBoundsSubscriptionsFanoutAndWireInput(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	sender := &recordingSender{}
-	bus := newTestBus(t, sender, []string{"a", "b"}, &now, func(config *BusConfig) {
+	bus := newTestBus(t, sender, []PeerID{busTestPeer("a"), busTestPeer("b")}, &now, func(config *BusConfig) {
 		config.MaxSubscriptions = 1
 		config.MaxFanoutPeers = 1
 		config.FanoutConcurrency = 1

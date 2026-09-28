@@ -13,7 +13,6 @@ A discovered [`Peer`](../../meshbus/peer.go) carries:
 
 - a public `PeerID` established by the authenticated transport identity (realm membership is
   proven separately);
-- an opaque `Route` used to reach the peer (never an authenticated sender identity);
 - optional bounded `Metadata` (advisory application hints such as os/arch);
 - an optional advisory `Hops` path metric such as hop count; and
 - a local `LastSeen` timestamp used for deterministic stale expiry.
@@ -25,10 +24,9 @@ allocator, runtime, or command types enter `meshbus`.
 
 - `Remember(Peer)` adds a peer keyed by authenticated `PeerID`, or updates an existing peer in
   place — a duplicate discovery never creates a second entry.
-- `Resolve(PeerID)` returns the current transport route for an identity.
 - `Get(PeerID)` returns one immutable copy of a peer.
 - `Peers()` returns a bounded, copy-safe, identity-ordered snapshot for fan-out.
-- `Routes()` returns the bounded route snapshot consumed by `meshbus.Bus` fan-out via
+- `IDs()` returns the bounded identity snapshot consumed by `meshbus.Bus` fan-out via
   `PeerSourceFunc`.
 - `Remove(PeerID)` forgets a peer; `ExpireStale(age)` deterministically ages out idle peers.
 - `Len()` reports the current count.
@@ -39,16 +37,15 @@ allocator, runtime, or command types enter `meshbus`.
   updates to known identities still succeed.
 - `MaxMetadataBytes` (default 4096) caps the total application-metadata bytes carried on each peer
   record.
-- `Peers()` and `Routes()` return immutable copies, so a caller mutating a snapshot or its
+- `Peers()` and `IDs()` return immutable copies, so a caller mutating a snapshot or its
   metadata cannot corrupt the directory.
 
 ## Authority and limits
 
-Discovery is advisory only. Peer identity never comes from application metadata; a record without
-an authenticated identity is rejected regardless of its route. A route learned through discovery
-is never an authenticated sender identity — `ReceivedMessage.Sender` still comes only from the
-transport session. The directory adds no durable membership, no globally authoritative peer list,
-and no gossip or subscription advertisement.
+Discovery is advisory only. Peer identity never comes from application metadata, and transport
+routes remain private to the adapter. `ReceivedMessage.Sender` comes only from the transport
+session. The directory adds no durable membership, no globally authoritative peer list, and no
+gossip or subscription advertisement.
 
 ## Acceptance
 
@@ -57,6 +54,6 @@ and no gossip or subscription advertisement.
 - Duplicate discoveries update one peer instead of creating duplicates.
 - Peer count and metadata size are bounded, with `ErrPeerLimit` and `ErrMetadataLimit`.
 - Stale peers expire deterministically from `LastSeen`.
-- The Bus consumes the peer-directory route snapshot without r1s types.
+- The Bus consumes the peer-directory identity snapshot without r1s or transport-route types.
 - Deterministic tests cover update, expiry, bounds, and copy safety.
 - `make check` passes.

@@ -72,8 +72,9 @@ encoding/validation, and the allocator discovery channel used by the client and 
 
 The duplicated RNS stack, identity loader, announces, path lookup, Links, Channels, realm
 challenge-response, pre-authentication buffers, connection registry, reconnect behavior, and
-direct-message delivery were removed from the internal package. Identity helpers used by `r1sd`
-delegate to `meshbus/rns` rather than maintaining a second implementation.
+direct-message delivery were removed from the internal package. The later F24-09 hardening keeps
+r1s command classification and tunnel-seed access in this internal layer while the adapter owns
+only generic identity loading.
 
 r1s uses the standard meshbus realm profile and the single meshbus presence format. Allocators put
 compact capacity, placement, and tunnel fields into bounded `meshbus.v1` metadata; passive clients

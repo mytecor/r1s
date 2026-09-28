@@ -57,6 +57,11 @@ advertisement and multi-hop gossip are deferred until scale requires them.
 - [F24-05 — Extract reusable Reticulum meshbus adapter](./f24-05-rns-adapter.md)
 - [F24-06 — Move r1s onto the public meshbus transport](./f24-06-r1s-on-meshbus.md)
 - [F24-07 — Add the cohesive meshbus Node API](./f24-07-node-api.md)
+- [F24-08 — Make peer identity the public routing boundary](./f24-08-peer-routing-boundary.md)
+- [F24-09 — Remove r1s identity and stack policy from meshbus](./f24-09-generic-adapter-policy.md)
+- [F24-10 — Establish an independent Go module boundary](./f24-10-independent-module.md)
+- [F24-11 — Stabilize and harden the meshbus wire contracts](./f24-11-wire-contracts.md)
+- [F24-12 — Prove the external-consumer boundary](./f24-12-external-consumer.md)
 
 ## Completion criteria
 
@@ -66,4 +71,8 @@ advertisement and multi-hop gossip are deferred until scale requires them.
 - Pub/sub bounds and duplicate-delivery behavior have deterministic contract tests.
 - Generic peer discovery and a reusable public RNS adapter exist; r1s composes over them instead of owning the transport machinery.
 - A cohesive application-facing Node API composes realm, transport, discovery, direct messages and pub/sub.
+- Public core messaging addresses authenticated `PeerID`s rather than transport route strings.
+- meshbus builds and tests as an independent Go module with its own documentation and verification entry point.
+- Wire formats have compatibility documentation, golden vectors, and malformed-input fuzz coverage.
+- Black-box tests prove that consumers need only the exported API.
 - `make check` passes.

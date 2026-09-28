@@ -60,7 +60,7 @@ bounded candidate and authenticated directories; only authenticated peers enter 
 The application-facing surface provides `Start`, peer-addressed `Send`, `Subscribe`, `Publish`,
 `DiscoveredPeers`, authenticated `Peers`, and idempotent `Close`. Lifecycle transitions are explicit:
 send/publish before `Start`, repeated `Start`, and use after `Close` return distinct errors. Node
-automatically expires stale candidates and peers. `Publish` reads the authenticated route snapshot,
+automatically expires stale candidates and peers. `Publish` reads the authenticated identity snapshot,
 delivers to local subscriptions unless `RemoteOnly` is set, and reports attempted, delivered, and
 failed remote sends. Existing `BusConfig` and `DirectoryConfig` bounds remain configurable.
 

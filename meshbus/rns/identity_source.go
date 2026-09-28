@@ -13,10 +13,7 @@ import (
 
 const privateIdentitySize = 64
 
-// IsInlineIdentitySource reports whether source is an RNS-compatible encoded
-// private identity rather than a file path. Existing files always take
-// precedence, matching rnid import behavior.
-func IsInlineIdentitySource(source string) bool {
+func isInlineIdentitySource(source string) bool {
 	if _, err := os.Stat(source); err == nil || !errors.Is(err, os.ErrNotExist) {
 		return false
 	}
@@ -71,19 +68,4 @@ func privateIdentityEncoding(source string) (rnsutil.Encoding, bool) {
 		}
 	}
 	return 0, false
-}
-
-// IdentitySeed returns the persistent private identity material for a source:
-// an existing or created identity file, or an inline private identity. It is
-// the F14 tunnel-edge key material source: the tunnel node keys are
-// HKDF-derived from the same persistent identity, so they need no key files
-// and survive restarts (F14-01). The caller must treat the returned bytes as
-// secret.
-func IdentitySeed(source string) ([]byte, error) {
-	loaded, err := loadOrCreateIdentity(source)
-	if err != nil {
-		return nil, err
-	}
-	defer loaded.Close()
-	return loaded.GetPrivateKey()
 }

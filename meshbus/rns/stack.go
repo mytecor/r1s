@@ -48,10 +48,14 @@ type stack struct {
 	connect    sharedConnector
 }
 
-func newStack(config *common.ReticulumConfig, provided ...interfaces.Interface) (*stack, error) {
-	if config == nil {
+func newStack(mode StackMode, config *common.ReticulumConfig, provided ...interfaces.Interface) (*stack, error) {
+	switch mode {
+	case StackSharedClient:
+		if config != nil {
+			return nil, fmt.Errorf("%w: shared-client mode does not accept standalone Reticulum configuration", ErrInvalidConfig)
+		}
 		if len(provided) != 0 {
-			return nil, fmt.Errorf("%w: injected interfaces require a standalone test configuration", ErrInvalidConfig)
+			return nil, fmt.Errorf("%w: shared-client mode does not accept standalone interfaces", ErrInvalidConfig)
 		}
 		sharedConfig := common.NewReticulumConfig()
 		sharedConfig.EnableTransport = false
@@ -62,6 +66,12 @@ func newStack(config *common.ReticulumConfig, provided ...interfaces.Interface) 
 			required:  true,
 			connect:   connectRequiredSharedInstance,
 		}, nil
+	case StackStandalone:
+		if config == nil {
+			return nil, fmt.Errorf("%w: standalone mode requires Reticulum configuration", ErrInvalidConfig)
+		}
+	default:
+		return nil, fmt.Errorf("%w: unsupported Reticulum stack mode %d", ErrInvalidConfig, mode)
 	}
 
 	result := &stack{transport: rnstransport.NewTransport(config)}

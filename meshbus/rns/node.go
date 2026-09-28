@@ -2,8 +2,9 @@ package rns
 
 import (
 	"fmt"
+	"time"
 
-	"github.com/mytecor/r1s/meshbus"
+	"github.com/mytecor/meshbus"
 )
 
 // NodeConfig configures the cohesive meshbus Node backed by Reticulum. The
@@ -13,6 +14,10 @@ type NodeConfig struct {
 	Endpoint      Config
 	DirectHandler meshbus.Handler
 	Bus           meshbus.BusConfig
+	Directory     meshbus.DirectoryConfig
+	PeerTTL       time.Duration
+	SweepInterval time.Duration
+	OnPeerError   func(error)
 }
 
 // NewNode constructs a cohesive meshbus Node backed by this RNS adapter.
@@ -22,11 +27,24 @@ func NewNode(config NodeConfig) (*meshbus.Node, error) {
 	if config.Endpoint.Handler != nil {
 		return nil, fmt.Errorf("%w: RNS endpoint handler is managed by Node", meshbus.ErrInvalidNode)
 	}
+	directory := config.Directory
+	if directory.MaxPeers == 0 && directory.MaxMetadataBytes == 0 {
+		directory = meshbus.DirectoryConfig{
+			MaxPeers: config.Endpoint.DirectoryConfig.MaxPeers, MaxMetadataBytes: config.Endpoint.DirectoryConfig.MaxMetadataBytes,
+		}
+	}
 	return meshbus.NewNode(meshbus.NodeConfig{
 		DirectHandler: config.DirectHandler,
 		Bus:           config.Bus,
+		Directory:     directory,
+		PeerTTL:       config.PeerTTL,
+		SweepInterval: config.SweepInterval,
+		OnPeerError:   config.OnPeerError,
 		Transport: func(handler meshbus.Handler) (meshbus.NodeTransport, error) {
 			endpointConfig := config.Endpoint
+			endpointConfig.DirectoryConfig = DirectoryConfig{
+				MaxPeers: directory.MaxPeers, MaxMetadataBytes: directory.MaxMetadataBytes,
+			}
 			endpointConfig.Handler = handler
 			return New(endpointConfig)
 		},

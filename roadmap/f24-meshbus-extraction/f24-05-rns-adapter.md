@@ -84,12 +84,12 @@ library — no r1s protocol, allocator, client, runtime, or command packages.
 
 The adapter exposes meshbus primitives rather than r1s envelopes:
 
-- `Endpoint.SendMessage(ctx, route, payload)` sends opaque authenticated bytes over a reused
-  realm session.
+- `Endpoint.SendMessage(ctx, peerID, payload)` resolves the adapter-private RNS destination and
+  sends opaque authenticated bytes over a reused realm session. The low-level
+  `SendToDestination` surface exists only for protocol adapters that already persist RNS destinations.
 - Inbound bytes reach a `meshbus.Handler` as `meshbus.ReceivedMessage`, whose sender always comes
   from the authenticated Link (never from serialized payload).
-- `Endpoint.DiscoveredPeers()` / `DiscoveredRoutes()` expose bounded advisory announce candidates
-  for low-level users.
+- `Endpoint.DiscoveredPeers()` exposes bounded advisory announce candidates without routes.
 - `SetPeerObserver` reports discovery separately from successful realm authentication. `Node` owns
   the authoritative peer directory and uses only authenticated peers for `Bus` fan-out.
 
@@ -106,7 +106,7 @@ wire-format hook.
 
 `meshbus/rns` has standalone UDP-loopback contract tests that run without a shared instance and
 without importing r1s: same-realm discovery, foreign-realm rejection on a shared pair, direct
-authenticated byte exchange, send-after-link-loss reconnect, peer-snapshot/route snapshots for Bus
+authenticated byte exchange, send-after-link-loss reconnect, peer snapshots for Bus
 fan-out, discovery/authentication observer delivery, presence round-trip, identity-source handling, config
 validation, and stack construction.
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,17 +12,16 @@ import (
 
 type memoryNetwork struct {
 	mu        sync.RWMutex
-	endpoints map[string]*memoryNodeTransport
+	endpoints map[PeerID]*memoryNodeTransport
 }
 
 func newMemoryNetwork() *memoryNetwork {
-	return &memoryNetwork{endpoints: make(map[string]*memoryNodeTransport)}
+	return &memoryNetwork{endpoints: make(map[PeerID]*memoryNodeTransport)}
 }
 
 type memoryNodeTransport struct {
 	network  *memoryNetwork
 	id       PeerID
-	route    string
 	handler  Handler
 	observer PeerObserver
 
@@ -38,11 +36,9 @@ func (n *memoryNetwork) factory(identity byte, capture **memoryNodeTransport) Tr
 		if err != nil {
 			return nil, err
 		}
-		transport := &memoryNodeTransport{
-			network: n, id: peer, route: fmt.Sprintf("memory-%02x", identity), handler: handler,
-		}
+		transport := &memoryNodeTransport{network: n, id: peer, handler: handler}
 		n.mu.Lock()
-		n.endpoints[transport.route] = transport
+		n.endpoints[transport.id] = transport
 		n.mu.Unlock()
 		*capture = transport
 		return transport, nil
@@ -68,7 +64,7 @@ func (t *memoryNodeTransport) Close() error {
 	t.closed = true
 	t.mu.Unlock()
 	t.network.mu.Lock()
-	delete(t.network.endpoints, t.route)
+	delete(t.network.endpoints, t.id)
 	t.network.mu.Unlock()
 	return nil
 }
@@ -80,7 +76,7 @@ func (t *memoryNodeTransport) SetPeerObserver(observer PeerObserver) error {
 	return nil
 }
 
-func (t *memoryNodeTransport) SendMessage(ctx context.Context, route string, payload []byte) error {
+func (t *memoryNodeTransport) SendMessage(ctx context.Context, peer PeerID, payload []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -91,10 +87,10 @@ func (t *memoryNodeTransport) SendMessage(ctx context.Context, route string, pay
 		return errors.New("memory transport is not available")
 	}
 	t.network.mu.RLock()
-	target := t.network.endpoints[route]
+	target := t.network.endpoints[peer]
 	t.network.mu.RUnlock()
 	if target == nil {
-		return errors.New("memory route is unavailable")
+		return errors.New("memory peer is unavailable")
 	}
 	target.mu.RLock()
 	targetReady := target.started && !target.closed
@@ -103,10 +99,10 @@ func (t *memoryNodeTransport) SendMessage(ctx context.Context, route string, pay
 	if !targetReady {
 		return errors.New("memory target is not available")
 	}
-	if err := t.observer.Authenticated(target.id, target.route); err != nil {
+	if err := t.observer.Authenticated(target.id); err != nil {
 		return err
 	}
-	if err := target.observer.Authenticated(t.id, t.route); err != nil {
+	if err := target.observer.Authenticated(t.id); err != nil {
 		return err
 	}
 	message, err := NewReceivedMessage(t.id.Bytes(), bytes.Clone(payload))
@@ -117,7 +113,7 @@ func (t *memoryNodeTransport) SendMessage(ctx context.Context, route string, pay
 }
 
 func (t *memoryNodeTransport) discover(peer *memoryNodeTransport, metadata map[string]string) error {
-	return t.observer.Discovered(Peer{ID: peer.id, Route: peer.route, Metadata: metadata})
+	return t.observer.Discovered(Peer{ID: peer.id, Metadata: metadata})
 }
 
 func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
@@ -218,7 +214,7 @@ func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 	}
 
 	extra, _ := NewPeerID([]byte{0xc3})
-	if err := nodeA.Authenticated(extra, "extra"); !errors.Is(err, ErrPeerLimit) {
+	if err := nodeA.Authenticated(extra); !errors.Is(err, ErrPeerLimit) {
 		t.Fatalf("directory bound error=%v, want ErrPeerLimit", err)
 	}
 	if _, err := nodeB.Subscribe("second.event", func(context.Context, ReceivedEvent) error { return nil }); !errors.Is(err, ErrSubscriptionLimit) {
@@ -256,7 +252,7 @@ func TestNodeRejectsUnknownPeersAndClosesComposition(t *testing.T) {
 	if err := node.Start(ctx); !errors.Is(err, ErrNodeClosed) {
 		t.Fatalf("Start() after close error=%v", err)
 	}
-	if err := node.SendMessage(ctx, "route", []byte("payload")); !errors.Is(err, ErrNodeClosed) {
+	if err := node.SendMessage(ctx, unknown, []byte("payload")); !errors.Is(err, ErrNodeClosed) {
 		t.Fatalf("SendMessage() after close error=%v", err)
 	}
 }
@@ -293,10 +289,10 @@ func TestNodeExpiresStaleCandidatesAndAuthenticatedPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 	peer, _ := NewPeerID([]byte{2})
-	if err := node.Discovered(Peer{ID: peer, Route: "candidate"}); err != nil {
+	if err := node.Discovered(Peer{ID: peer}); err != nil {
 		t.Fatal(err)
 	}
-	if err := node.Authenticated(peer, "candidate"); err != nil {
+	if err := node.Authenticated(peer); err != nil {
 		t.Fatal(err)
 	}
 	if len(node.Peers()) != 1 {

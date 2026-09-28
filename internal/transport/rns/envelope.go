@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mytecor/meshbus"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
 	coretransport "github.com/mytecor/r1s/internal/transport"
-	"github.com/mytecor/r1s/meshbus"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -44,7 +44,7 @@ func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Enve
 	if err != nil {
 		return fmt.Errorf("marshal envelope: %w", err)
 	}
-	if err := e.transport.SendMessage(ctx, target, data); err != nil {
+	if err := e.transport.SendToDestination(ctx, target, data); err != nil {
 		return translateSendError(err)
 	}
 	return nil

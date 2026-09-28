@@ -6,7 +6,7 @@ import (
 	"github.com/Quad4-Software/Reticulum-Go/pkg/channel"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/link"
-	"github.com/mytecor/r1s/meshbus"
+	"github.com/mytecor/meshbus"
 )
 
 func (e *Endpoint) acceptLink(value any) {

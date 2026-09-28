@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"time"
 )
@@ -23,16 +22,16 @@ const (
 	defaultFanoutConcurrency = 8
 )
 
-// PeerSource returns a snapshot of authenticated, transport-specific peer
-// destinations. Publish never forwards an event beyond this one-hop snapshot.
+// PeerSource returns a snapshot of authenticated peers. Publish never forwards
+// an event beyond this one-hop snapshot.
 type PeerSource interface {
-	Peers() []string
+	Peers() []PeerID
 }
 
 // PeerSourceFunc adapts a function to PeerSource.
-type PeerSourceFunc func() []string
+type PeerSourceFunc func() []PeerID
 
-func (f PeerSourceFunc) Peers() []string { return f() }
+func (f PeerSourceFunc) Peers() []PeerID { return f() }
 
 // BusConfig sets finite resource bounds for one in-memory event bus.
 type BusConfig struct {
@@ -193,14 +192,14 @@ func (b *Bus) Publish(ctx context.Context, topic string, payload []byte, options
 	if err != nil {
 		return PublishResult{}, err
 	}
-	result := PublishResult{ID: id, Failed: make(map[string]error)}
+	result := PublishResult{ID: id, Failed: make(map[PeerID]error)}
 	var failures []error
 	if !options.localSender.IsZero() {
 		receivedAt := b.config.clock().UTC()
 		b.duplicate(id, event.PublishedAt.Add(event.TTL), receivedAt)
 		local := ReceivedEvent{Event: cloneEvent(event), Sender: options.localSender, ReceivedAt: receivedAt}
 		if localErr := b.dispatch(local); localErr != nil {
-			result.Failed["local"] = localErr
+			result.LocalError = localErr
 			failures = append(failures, localErr)
 		} else {
 			result.LocalDelivered = true
@@ -215,10 +214,10 @@ func (b *Bus) Publish(ctx context.Context, topic string, payload []byte, options
 		return result, errors.Join(failures...)
 	}
 
-	jobs := make(chan string, len(destinations))
+	jobs := make(chan PeerID, len(destinations))
 	type sendResult struct {
-		destination string
-		err         error
+		peer PeerID
+		err  error
 	}
 	results := make(chan sendResult, len(destinations))
 	for _, destination := range destinations {
@@ -231,11 +230,11 @@ func (b *Bus) Publish(ctx context.Context, topic string, payload []byte, options
 	for range workers {
 		go func() {
 			defer wg.Done()
-			for destination := range jobs {
-				if sendErr := b.sender.SendMessage(ctx, destination, bytes.Clone(wire)); sendErr != nil {
-					results <- sendResult{destination: destination, err: fmt.Errorf("publish event to %q: %w", destination, sendErr)}
+			for peer := range jobs {
+				if sendErr := b.sender.SendMessage(ctx, peer, bytes.Clone(wire)); sendErr != nil {
+					results <- sendResult{peer: peer, err: fmt.Errorf("publish event to %s: %w", peer, sendErr)}
 				} else {
-					results <- sendResult{destination: destination}
+					results <- sendResult{peer: peer}
 				}
 			}
 		}()
@@ -244,7 +243,7 @@ func (b *Bus) Publish(ctx context.Context, topic string, payload []byte, options
 	close(results)
 	for delivery := range results {
 		if delivery.err != nil {
-			result.Failed[delivery.destination] = delivery.err
+			result.Failed[delivery.peer] = delivery.err
 			failures = append(failures, delivery.err)
 		} else {
 			result.Delivered++
@@ -295,19 +294,18 @@ func (b *Bus) Handler(next Handler) Handler {
 	}
 }
 
-func (b *Bus) destinations() ([]string, error) {
-	seen := make(map[string]struct{})
-	result := make([]string, 0)
-	for _, destination := range b.peers.Peers() {
-		destination = strings.TrimSpace(destination)
-		if destination == "" {
+func (b *Bus) destinations() ([]PeerID, error) {
+	seen := make(map[PeerID]struct{})
+	result := make([]PeerID, 0)
+	for _, peer := range b.peers.Peers() {
+		if peer.IsZero() {
 			continue
 		}
-		if _, exists := seen[destination]; exists {
+		if _, exists := seen[peer]; exists {
 			continue
 		}
-		seen[destination] = struct{}{}
-		result = append(result, destination)
+		seen[peer] = struct{}{}
+		result = append(result, peer)
 		if len(result) > b.config.MaxFanoutPeers {
 			return nil, ErrFanoutLimit
 		}
