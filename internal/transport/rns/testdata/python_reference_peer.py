@@ -60,10 +60,11 @@ AUTH_DOMAIN = b"meshbus-realm-auth-v1"
 REALM_ID_DOMAIN = b"meshbus-realm-id-v1"
 AUTH_CHALLENGE = 1
 AUTH_RESPONSE = 2
+AUTH_READY = 3
 
 
 class AuthMessage(ChannelMessageBase):
-    """Carries a cluster-membership challenge or response."""
+    """Carries a cluster-membership challenge, response, or ready marker."""
 
     MSGTYPE = AUTH_MSGTYPE
 
@@ -73,9 +74,18 @@ class AuthMessage(ChannelMessageBase):
         self.proof = bytes(proof)
 
     def pack(self):
+        if self.kind == AUTH_READY:
+            if self.nonce or self.proof:
+                raise ValueError("ready must not contain authentication data")
+            return bytes([self.kind])
         return bytes([self.kind]) + self.nonce + self.proof
 
     def unpack(self, raw):
+        if raw == bytes([AUTH_READY]):
+            self.kind = AUTH_READY
+            self.nonce = b""
+            self.proof = b""
+            return
         if len(raw) not in (33, 65):
             raise ValueError("invalid auth message length")
         self.kind = raw[0]
@@ -160,7 +170,13 @@ class Peer:
             ch = link.get_channel()
             ch.register_message_type(AuthMessage)
             ch.register_message_type(EnvelopeMessage)
-            state = {"remote": None, "nonce": None, "authenticated": False, "pending": []}
+            state = {
+                "remote": None,
+                "nonce": None,
+                "local_authenticated": False,
+                "peer_ready": False,
+                "pending": [],
+            }
 
             def proof(nonce, challenger, responder):
                 return hmac.new(
@@ -177,6 +193,14 @@ class Peer:
                 sys.stderr.write("CHANNEL_MSG " + str(len(message.data)) + "\n")
                 sys.stderr.flush()
                 ch.send(EnvelopeMessage(message.data))
+
+            def deliver_pending_if_ready():
+                if not state["local_authenticated"] or not state["peer_ready"]:
+                    return
+                pending = state["pending"]
+                state["pending"] = []
+                for envelope in pending:
+                    handle_envelope(envelope)
 
             def identified(_link, remote):
                 state["remote"] = remote.hash
@@ -208,14 +232,15 @@ class Peer:
                             proof(message.nonce, self.identity.hash, remote),
                         )
                     ):
-                        state["authenticated"] = True
-                        pending = state["pending"]
-                        state["pending"] = []
-                        for envelope in pending:
-                            handle_envelope(envelope)
+                        state["local_authenticated"] = True
+                        ch.send(AuthMessage(AUTH_READY))
+                        deliver_pending_if_ready()
+                    elif message.kind == AUTH_READY:
+                        state["peer_ready"] = True
+                        deliver_pending_if_ready()
                     return True
                 if isinstance(message, EnvelopeMessage):
-                    if state["authenticated"]:
+                    if state["local_authenticated"] and state["peer_ready"]:
                         handle_envelope(message)
                     elif len(state["pending"]) < 8:
                         state["pending"].append(message)

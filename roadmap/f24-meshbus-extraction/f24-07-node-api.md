@@ -52,24 +52,26 @@ remain enforced. `make check` passes.
 
 ## Implementation notes
 
-[`meshbus.Node`](https://github.com/mytecor/meshbus/blob/v0.1.0/node.go) composes a transport through the small `NodeTransport`
+[`meshbus.Node`](https://github.com/mytecor/meshbus/blob/v0.2.0/node.go) composes a transport through the small `NodeTransport`
 interface. A `TransportFactory` receives the already-composed inbound handler, while a
 `PeerObserver` reports advisory discovery and successful realm authentication separately. Node owns
-bounded candidate and authenticated directories; only authenticated peers enter pub/sub fan-out.
+a bounded candidate directory and a session-lifetime authenticated directory; only authenticated,
+ready peers enter pub/sub fan-out.
 
 The application-facing surface provides `Start`, peer-addressed `Send`, `Subscribe`, `Publish`,
 `DiscoveredPeers`, authenticated `Peers`, and idempotent `Close`. Lifecycle transitions are explicit:
 send/publish before `Start`, repeated `Start`, and use after `Close` return distinct errors. Node
-automatically expires stale candidates and peers. `Publish` reads the authenticated identity snapshot,
-delivers to local subscriptions unless `RemoteOnly` is set, and reports attempted, delivered, and
-failed remote sends. Existing `BusConfig` and `DirectoryConfig` bounds remain configurable.
+automatically expires stale candidates; authenticated peers remain until their transport session
+ends. `Publish` reads the authenticated identity snapshot, delivers to local subscriptions unless
+`RemoteOnly` is set, and reports attempted, delivered, and failed remote sends. Existing per-item,
+queue, deduplication, discovery, and concurrency bounds remain configurable.
 
-[`meshbus/rns.NewNode`](https://github.com/mytecor/meshbus/blob/v0.1.0/rns/node.go) is the Reticulum-backed constructor. Applications
+[`meshbus/rns.NewNode`](https://github.com/mytecor/meshbus/blob/v0.2.0/rns/node.go) is the Reticulum-backed constructor. Applications
 provide realm, identity, and presence settings in the endpoint config; the constructor installs the
 composed inbound handler and directory wiring itself.
 
 Deterministic in-memory tests create two Nodes, discover them in both directions, exchange an
 authenticated direct message, and publish an event without supplying peers. They also prove that
-the configured directory and subscription bounds remain active. A UDP-loopback integration test
+the configured discovery and per-subscription bounds remain active. A UDP-loopback integration test
 constructs the same API with `meshbus/rns.Endpoint` and exercises RNS discovery, direct delivery,
 and pub/sub with the authenticated sender.

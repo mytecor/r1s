@@ -3,6 +3,7 @@ package rns
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
 	"github.com/mytecor/meshbus"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/protocol"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -136,6 +138,62 @@ func TestEndpointsExchangeAuthenticatedEnvelopeOverPublicMeshbusAdapter(t *testi
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("envelope was not delivered")
+	}
+}
+
+func TestEndpointsTransferMaximumLogEnvelopeAsResource(t *testing.T) {
+	portA := freeUDPPort(t)
+	portB := freeUDPPort(t)
+	for portB == portA {
+		portB = freeUDPPort(t)
+	}
+	root := t.TempDir()
+	received := make(chan *r1sv1.Envelope, 1)
+	client := newTestEndpointWithCapacity(t, filepath.Join(root, "client"), portA, portB, nil, func(_ context.Context, envelope *r1sv1.Envelope) error {
+		received <- envelope
+		return nil
+	})
+	allocator := newTestEndpoint(t, filepath.Join(root, "allocator"), portB, portA, func(context.Context, *r1sv1.Envelope) error { return nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for _, endpoint := range []*Endpoint{client, allocator} {
+		if err := endpoint.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = endpoint.Close() })
+	}
+
+	data := bytes.Repeat([]byte("r"), protocol.MaxLogBytes)
+	digest := sha256.Sum256(data)
+	envelope := &r1sv1.Envelope{
+		MessageId:     "large-log-response",
+		CorrelationId: "log-request",
+		Sender:        []byte("forged-payload-sender"),
+		SentAt:        timestamppb.Now(),
+		Payload: &r1sv1.Envelope_ExecutionLogsResponse{ExecutionLogsResponse: &r1sv1.ExecutionLogsResponse{
+			ExecutionId: "execution",
+			Stream:      "stdout",
+			Data:        data,
+			NextOffset:  uint64(len(data)),
+			Sha256:      digest[:],
+		}},
+	}
+	sendContext, stopSend := context.WithTimeout(context.Background(), 20*time.Second)
+	defer stopSend()
+	if err := allocator.Send(sendContext, client.Destination(), envelope); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case delivered := <-received:
+		wantSender, _ := hex.DecodeString(allocator.Name())
+		if !bytes.Equal(delivered.GetSender(), wantSender) {
+			t.Fatalf("sender = %x, want authenticated identity %x", delivered.GetSender(), wantSender)
+		}
+		if got := delivered.GetExecutionLogsResponse().GetData(); !bytes.Equal(got, data) {
+			t.Fatalf("log data bytes = %d, want %d", len(got), len(data))
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("maximum log envelope was not delivered over RNS Resource")
 	}
 }
 

@@ -4,24 +4,26 @@
 
 ## Outcome
 
-The public [`meshbus`](https://github.com/mytecor/meshbus/tree/v0.1.0) package defines an opaque direct-message contract with an
+The public [`meshbus`](https://github.com/mytecor/meshbus/tree/v0.2.0) package defines an opaque direct-message contract with an
 immutable `PeerID`, isolated payload bytes, a handler, and a sender interface. It imports no r1s
 protocol or Reticulum-Go packages.
 
-The RNS session layer now performs only peer identification, realm authentication, Channel
-delivery, and bounded pre-authentication buffering. Once authenticated, it emits a meshbus
-`ReceivedMessage`; it no longer unmarshals or validates r1s Protobuf messages.
+The RNS session layer now performs only peer identification, realm authentication, a bidirectional
+ready exchange, Channel/Resource delivery, and bounded early-authentication state. Once both peers
+are ready, it emits a meshbus `ReceivedMessage`; it no longer unmarshals or validates r1s Protobuf
+messages.
 
 A separate r1s envelope adapter owns Protobuf encoding and validation. On receive it always
 replaces `Envelope.sender` with the meshbus message's transport-authenticated peer before protocol
 validation. On send it serializes the envelope and delegates the bytes to `SendMessage`. The
-existing RNS Channel message type and wire bytes remain unchanged.
+existing RNS Channel message type remains unchanged for messages up to its MDU; larger messages use
+an RNS Resource on the same authenticated Link.
 
 ## Authority
 
 - Only the identity authenticated by the RNS Link becomes `ReceivedMessage.Sender`.
 - A sender copied into opaque payload bytes has no authority.
-- Empty identities and empty direct messages are rejected.
+- Empty identities are rejected; an opaque direct-message payload may be empty.
 - `PeerID.Bytes` and `ReceivedMessage.Payload` return copies, preventing handlers from mutating the
   stored authority or message.
 - r1s authorization remains above meshbus and continues to validate commands against the injected

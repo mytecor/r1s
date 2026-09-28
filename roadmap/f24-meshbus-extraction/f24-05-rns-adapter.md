@@ -33,7 +33,7 @@ the existing RNS endpoint into it:
 - authenticated direct-message delivery;
 - connection/session reuse;
 - peer route lookup;
-- bounded pre-authentication buffering;
+- bounded early-authentication state;
 - generic peer discovery integration.
 
 Expose meshbus primitives rather than r1s envelopes. The adapter must provide enough functionality
@@ -74,18 +74,19 @@ allowed custom compatibility codecs; the final cutover moved r1s itself to the g
 
 ## Implementation notes
 
-The public [`meshbus/rns`](https://github.com/mytecor/meshbus/tree/v0.1.0/rns) package owns the reusable RNS machinery that was
+The public [`meshbus/rns`](https://github.com/mytecor/meshbus/tree/v0.2.0/rns) package owns the reusable RNS machinery that was
 previously entangled with r1s: identity loading (file or inline encodings, or an ephemeral
 in-memory identity), destination creation, announce registration and the periodic refresh loop,
-Link establishment, mutual realm proof, Channel creation, authenticated direct-message delivery,
-bounded pre-authentication buffering, connection/session reuse, peer route lookup, and peer
-discovery integration. It imports only Reticulum-Go, the meshbus primitives, and the standard
+Link establishment, mutual realm proof and ready exchange, Channel/Resource direct-message
+delivery, bounded early-authentication state, connection/session reuse, peer route lookup, and
+peer discovery integration. It imports only Reticulum-Go, the meshbus primitives, and the standard
 library — no r1s protocol, allocator, client, runtime, or command packages.
 
 The adapter exposes meshbus primitives rather than r1s envelopes:
 
 - `Endpoint.SendMessage(ctx, peerID, payload)` resolves the adapter-private RNS destination and
-  sends opaque authenticated bytes over a reused realm session. The low-level
+  sends opaque authenticated bytes over a reused realm session. Payloads above the Channel MDU use
+  an RNS Resource transparently. The low-level
   `SendToDestination` surface exists only for protocol adapters that already persist RNS destinations.
 - Inbound bytes reach a `meshbus.Handler` as `meshbus.ReceivedMessage`, whose sender always comes
   from the authenticated Link (never from serialized payload).
@@ -106,7 +107,7 @@ wire-format hook.
 
 `meshbus/rns` has standalone UDP-loopback contract tests that run without a shared instance and
 without importing r1s: same-realm discovery, foreign-realm rejection on a shared pair, direct
-authenticated byte exchange, send-after-link-loss reconnect, peer snapshots for Bus
+authenticated byte and large Resource exchange, send-after-link-loss reconnect, peer snapshots for Bus
 fan-out, discovery/authentication observer delivery, presence round-trip, identity-source handling, config
 validation, and stack construction.
 

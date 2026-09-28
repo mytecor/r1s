@@ -66,14 +66,14 @@ allocator catalog
 ## Implementation notes
 
 The r1s [`internal/transport/rns`](../../internal/transport/rns) package is now a thin application
-adapter over the public [`meshbus/rns`](https://github.com/mytecor/meshbus/tree/v0.1.0/rns)
+adapter over the public [`meshbus/rns`](https://github.com/mytecor/meshbus/tree/v0.2.0/rns)
 endpoint. It retains only the r1s
 placement/capacity/tunnel metadata projection, Protobuf envelope
 encoding/validation, and the allocator discovery channel used by the client and authority broker.
 
-The duplicated RNS stack, identity loader, announces, path lookup, Links, Channels, realm
-challenge-response, pre-authentication buffers, connection registry, reconnect behavior, and
-direct-message delivery were removed from the internal package. The later F24-09 hardening keeps
+The duplicated RNS stack, identity loader, announces, path lookup, Links, Channels/Resources, realm
+challenge-response and ready exchange, bounded early-authentication state, connection registry,
+reconnect behavior, and direct-message delivery were removed from the internal package. The later F24-09 hardening keeps
 r1s command classification and tunnel-seed access in this internal layer while the adapter owns
 only generic identity loading.
 
@@ -84,6 +84,6 @@ always replaces the serialized sender with the authenticated `meshbus.ReceivedMe
 before validation.
 
 Deterministic tests cover r1s descriptor discovery and authenticated envelope exchange through the
-public adapter, forged-sender replacement, foreign-realm rejection, generic reconnect behavior,
-and direct delivery through a required shared instance. The existing Python-reference compatibility
+public adapter, maximum-size log delivery over an RNS Resource, forged-sender replacement,
+foreign-realm rejection, generic reconnect behavior, and direct delivery through a required shared instance. The existing Python-reference compatibility
 harness remains at the r1s adapter boundary because it exchanges r1s Protobuf envelopes.

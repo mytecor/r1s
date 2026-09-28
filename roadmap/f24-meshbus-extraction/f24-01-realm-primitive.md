@@ -4,7 +4,7 @@
 
 ## Outcome
 
-The public [`meshbus/realm`](https://github.com/mytecor/meshbus/tree/v0.1.0/realm) package owns shared-secret realm key generation,
+The public [`meshbus/realm`](https://github.com/mytecor/meshbus/tree/v0.2.0/realm) package owns shared-secret realm key generation,
 public ID derivation, and ordered mutual membership proofs. It depends only on the Go standard
 library and assigns no r1s roles or permissions.
 

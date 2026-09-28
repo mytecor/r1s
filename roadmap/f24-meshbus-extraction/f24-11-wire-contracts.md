@@ -23,7 +23,8 @@ explicit compatibility contract that can be versioned independently from r1s.
 
 ## Implementation notes
 
-[`WIRE.md`](https://github.com/mytecor/meshbus/blob/v0.1.0/WIRE.md) specifies realm, authentication, Channel, presence, and event
-formats. Realm, authentication, and event golden vectors pin bytes; event, presence, and
+[`docs/WIRE.md`](https://github.com/mytecor/meshbus/blob/v0.2.0/docs/WIRE.md) specifies realm,
+authentication/ready, Channel/Resource, presence, and event formats. Realm, authentication, and
+event golden vectors pin bytes; event, presence, and
 authentication decoders have fuzz targets. The public presence codec supports independent
 implementations without exposing adapter internals.

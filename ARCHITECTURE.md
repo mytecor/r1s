@@ -95,41 +95,49 @@ r1s: allocator discovery + execution protocol + placement + leases
 Broadcast is not a separate application primitive. `meshbus.Bus.Publish` creates a bounded event
 and fans it out once to a snapshot of authenticated peer destinations. The bus uses exact local
 topic subscriptions, 128-bit event IDs, receive-bounded TTL, bounded duplicate suppression,
-bounded per-subscription queues, a subscription cap, a peer cap, and fixed fan-out concurrency. It
-has no forwarding, persistence, replay, consumer groups, offsets, or exactly-once claim. Announces
-remain presence/discovery only. r1s request/offer/assign messages keep their protocol semantics and
-use generic direct messaging without becoming pub/sub events. The staged extraction is tracked in
-[F24](./roadmap/f24-meshbus-extraction/README.md).
+bounded per-subscription queues, and fixed fan-out concurrency. Discovery candidates are bounded
+with oldest-first eviction, while authenticated peers and subscriptions have no artificial global
+cap. It has no forwarding, persistence, replay, consumer groups, offsets, or exactly-once claim.
+Announces remain presence/discovery only. r1s request/offer/assign messages keep their protocol
+semantics and use generic direct messaging without becoming pub/sub events. The staged extraction
+is tracked in [F24](./roadmap/f24-meshbus-extraction/README.md).
 
-The RNS session path performs Link identity and realm authentication, then emits a meshbus
-`ReceivedMessage`. A separate r1s adapter unmarshals and validates the Protobuf envelope and always
-replaces its serialized sender with `ReceivedMessage.Sender`; malformed r1s payloads never reach the
-allocator or client handler. Outbound r1s envelopes are encoded above the same opaque
-`SendMessage` boundary. This keeps peer authority below protocol semantics without changing the
-existing Channel message type or bytes.
+The RNS session path performs Link identity and realm authentication, exchanges a bidirectional
+ready marker, and only then emits a meshbus `ReceivedMessage`. Payloads up to the negotiated Channel
+MDU use the direct-message Channel type; larger payloads, including the maximum 64 KiB r1s log
+response, use an RNS Resource on the same authenticated Link and enter the same handler. A separate
+r1s adapter unmarshals and validates the Protobuf envelope and always replaces its serialized sender
+with `ReceivedMessage.Sender`; malformed r1s payloads never reach the allocator or client handler.
+Outbound r1s envelopes are encoded above the same opaque `SendMessage` boundary. This keeps peer
+authority below protocol semantics.
+
+The ready marker was introduced by meshbus v0.2.0. A v0.1 peer never emits it, so mixed v0.1/v0.2
+r1s participants cannot complete the application-message handshake and must be upgraded together.
 
 The generic event wire form is versioned independently with the `MBE` v1 marker. It carries event
 ID, topic, publication time, TTL, content type, and opaque payload, but never a sender. On receive,
 the sender is taken exclusively from the enclosing authenticated direct message. r1s does not
 instantiate the event bus, so the existing r1s Protobuf wire protocol and behavior are unchanged.
 The staged extraction fixed the transport-independent peer
-discovery contract (`PeerDirectory`) — a bounded, copy-safe directory of authenticated
+discovery contract (`PeerDirectory`) — a copy-safe directory of authenticated
 `PeerID`s with advisory metadata, named a directory rather than a cluster
 because the realm is a security boundary while the directory is only observable network state.
 F24-05 extracts the reusable public `meshbus/rns` adapter
 (it owns the generic RNS machinery — identity, destinations, announces, Links, realm
-authentication, Channels, direct delivery, session reuse, peer routes, pre-auth buffering,
+authentication and ready exchange, Channel/Resource direct delivery, session reuse, peer routes,
+bounded early-authentication state,
 PeerDirectory integration, and the single bounded `meshbus.v1` presence format, exposing
 peer-addressed `SendMessage`, `ReceivedMessage`, and peer snapshots without importing r1s),
 F24-06 moved r1s onto that adapter (only r1s-specific adaptation stays in `internal/transport/rns`),
 F24-07 added the cohesive application-facing `Node` API, and F24-08 through F24-12 made routes
 adapter-private, established `github.com/mytecor/meshbus` as an independent external module, and
-added wire compatibility and external-consumer tests. `Node` owns bounded candidate and
-authenticated peer directories, transport lifecycle, stale-peer expiry, direct messages, and
-`Bus`. An RNS announce creates only a candidate; successful realm proof promotes it into `Peers`
-and pub/sub fan-out. Publishing delivers locally by default and returns attempted/delivered/failed
-counts for remote best-effort sends. `meshbus/rns.NewNode` supplies the Reticulum-backed
-constructor. Meshbus remains a small brokerless primitive.
+added wire compatibility and external-consumer tests. `Node` owns a bounded, stale-expiring
+candidate directory and a session-lifetime authenticated-peer directory, plus transport lifecycle,
+direct messages, and `Bus`. An RNS announce creates only a candidate; successful realm proof and
+ready exchange promote it into `Peers` and pub/sub fan-out. Publishing delivers locally by default
+and returns attempted/delivered/failed counts for remote best-effort sends.
+`meshbus/rns.NewNode` supplies the Reticulum-backed constructor. Meshbus remains a small brokerless
+primitive.
 
 ## Commands
 
@@ -212,7 +220,7 @@ The RNS adapter must populate `Envelope.sender` from the authenticated link iden
 must not be allowed to assert an arbitrary sender by serializing different bytes in the envelope.
 
 Cluster membership is a separate transport-boundary authorization step implemented through the
-transport-independent [`meshbus/realm`](https://github.com/mytecor/meshbus/tree/v0.1.0/realm)
+transport-independent [`meshbus/realm`](https://github.com/mytecor/meshbus/tree/v0.2.0/realm)
 primitive. A participant loads a
 random 256-bit `ClusterKey` from `~/.config/r1s/realms/<cluster-id>` and derives the public
 identifier as `SHA-256("meshbus-realm-id-v1" || ClusterKey)`. `cluster init` and `cluster join` write

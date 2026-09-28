@@ -4,7 +4,7 @@
 
 ## Outcome
 
-The public [`meshbus`](https://github.com/mytecor/meshbus/tree/v0.1.0) package provides a brokerless in-memory event bus over its
+The public [`meshbus`](https://github.com/mytecor/meshbus/tree/v0.2.0) package provides a brokerless in-memory event bus over its
 authenticated direct-message sender. `Publish` creates one event and sends it once to each unique
 destination in the current authenticated peer snapshot. Receiving dispatches only to exact local
 topic subscriptions.
@@ -20,7 +20,7 @@ The compact `MBE` v1 frame carries:
 - a validated topic of at most 128 bytes;
 - publication time and bounded millisecond TTL;
 - an optional bounded printable content type;
-- a non-empty bounded opaque payload.
+- a bounded opaque payload, which may be empty.
 
 The frame does not contain a sender. `ReceivedEvent.Sender` always comes from the authenticated
 `ReceivedMessage` that carried the frame. Publication time is metadata: expiry is bounded by both
@@ -33,14 +33,14 @@ beyond one TTL after receipt.
   expiry when full.
 - Each exact-topic subscription has one worker and a finite non-blocking queue.
 - A full interested queue reports explicit backpressure without blocking unrelated subscriptions.
-- Subscription count and fan-out peer count have hard caps.
-- Fan-out uses a fixed worker count, attempts every destination in the accepted snapshot, and joins
+- Subscription count and fan-out peer count have no artificial global caps.
+- Fan-out uses a fixed worker count, attempts every authenticated destination in the snapshot, and joins
   partial delivery errors.
 - Duplicate peer destinations are removed before fan-out.
 
-Defaults are one-minute event TTL, one-hour maximum TTL, 64 KiB payloads, 4096 dedup entries, 32
-queued events per subscription, 128 subscriptions, 256 peers, and eight concurrent sends. A
-transport may impose a smaller payload limit; the current RNS Channel MDU does so.
+Defaults are one-minute event TTL, one-hour maximum TTL, 64 MiB payloads, 4096 dedup entries, 32
+queued events per subscription, and eight concurrent sends. RNS sends payloads up to the negotiated
+Channel MDU as Channel messages and larger payloads as Resources on the authenticated Link.
 
 ## r1s boundary
 
@@ -56,7 +56,7 @@ so other applications can supply an authenticated peer snapshot without importin
 - The receiver exposes only the direct transport's authenticated sender.
 - Expired and duplicate events are not dispatched.
 - Deduplication storage remains within its configured capacity.
-- Exact topic filtering, subscription caps, peer caps, malformed frames, and queue backpressure have
+- Exact topic filtering, malformed frames, and queue backpressure have
   deterministic tests.
 - Ordinary direct messages fall through to a composed direct-message handler.
 - The generic package imports only the Go standard library.

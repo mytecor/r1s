@@ -303,7 +303,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   through F24-12 now harden the peer-routing boundary, remove remaining r1s policy, establish an
   independent Go module, stabilize wire contracts, and prove black-box consumption. The module is
   published as [`github.com/mytecor/meshbus`](https://github.com/mytecor/meshbus) and r1s consumes
-  its `v0.1.0` tag without a local replacement.
+  its `v0.2.0` tag without a local replacement. That release adds authenticated-session readiness,
+  RNS Resource delivery for messages above the Channel MDU, bounded discovery eviction, and removes
+  artificial authenticated-peer, subscription, and fan-out caps.
 - **Done when:** r1s composes its control protocol over a reusable meshbus direct-message boundary;
   authenticated realm peers can publish best-effort, TTL-bounded, deduplicated events by fan-out;
   announces carry discovery only; and the sender exposed to applications always comes from the
@@ -328,14 +330,15 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   black-box consumer coverage. F24 closes without
   subscription gossip, multi-hop routing, persistence or ACK — meshbus stays a small brokerless
   primitive. F24-05 is complete: the public `meshbus/rns` package owns the generic
-  RNS machinery (identity, destinations, announces, Links, realm authentication, Channels, direct
-  delivery, session reuse, private peer routes, pre-auth buffering, PeerDirectory integration) with the
+  RNS machinery (identity, destinations, announces, Links, realm authentication, ready exchange,
+  Channel/Resource direct delivery, session reuse, private peer routes, bounded early-authentication state,
+  PeerDirectory integration) with the
   single bounded `meshbus.v1` presence descriptor, and it
   exposes peer-addressed `SendMessage`, `ReceivedMessage`, and peer snapshots without importing r1s. F24-06 is complete:
   the duplicated internal RNS machinery and old compatibility profile are removed. Only the r1s
   metadata projection, Protobuf envelope, and allocator discovery projection remain in
   `internal/transport/rns`. The final `meshbus.Node` owns candidate/authenticated peer directories,
-  lifecycle and stale expiry; only peers that complete realm proof enter `Peers` and pub/sub
+  lifecycle and candidate stale expiry; only peers that complete realm proof and ready exchange enter `Peers` and pub/sub
   fan-out. `Publish` delivers locally by default and reports partial remote delivery. The same API
   is covered with both an in-memory transport and `meshbus/rns`.
 
