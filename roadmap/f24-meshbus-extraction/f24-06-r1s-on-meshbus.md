@@ -66,7 +66,8 @@ allocator catalog
 ## Implementation notes
 
 The r1s [`internal/transport/rns`](../../internal/transport/rns) package is now a thin application
-adapter over the public [`meshbus/rns`](../../meshbus/rns) endpoint. It retains only the r1s
+adapter over the public [`meshbus/rns`](https://github.com/mytecor/meshbus/tree/v0.1.0/rns)
+endpoint. It retains only the r1s
 placement/capacity/tunnel metadata projection, Protobuf envelope
 encoding/validation, and the allocator discovery channel used by the client and authority broker.
 

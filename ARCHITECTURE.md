@@ -50,9 +50,8 @@ The source boundaries are:
 ```text
 api/proto/r1s/v1/       versioned wire schema
 client/                  public ephemeral Run Controller API
-meshbus/                 direct messages, peer directory, bounded pub/sub, and cohesive Node API
-meshbus/realm/           reusable shared-secret realm membership primitive
-meshbus/rns/             reusable Reticulum adapter (identity, links, realm auth, direct delivery)
+github.com/mytecor/meshbus
+                         external realm, peer messaging, pub/sub, Node, and Reticulum adapter module
 internal/broker/         local credential isolation and per-run transport endpoints
 internal/protocol/      message validation and compatibility
 internal/client/         in-memory request state, offer selection, and observed execution state
@@ -124,7 +123,7 @@ PeerDirectory integration, and the single bounded `meshbus.v1` presence format, 
 peer-addressed `SendMessage`, `ReceivedMessage`, and peer snapshots without importing r1s),
 F24-06 moved r1s onto that adapter (only r1s-specific adaptation stays in `internal/transport/rns`),
 F24-07 added the cohesive application-facing `Node` API, and F24-08 through F24-12 made routes
-adapter-private, established `github.com/mytecor/meshbus` as an independent nested module, and
+adapter-private, established `github.com/mytecor/meshbus` as an independent external module, and
 added wire compatibility and external-consumer tests. `Node` owns bounded candidate and
 authenticated peer directories, transport lifecycle, stale-peer expiry, direct messages, and
 `Bus`. An RNS announce creates only a candidate; successful realm proof promotes it into `Peers`
@@ -213,7 +212,8 @@ The RNS adapter must populate `Envelope.sender` from the authenticated link iden
 must not be allowed to assert an arbitrary sender by serializing different bytes in the envelope.
 
 Cluster membership is a separate transport-boundary authorization step implemented through the
-transport-independent [`meshbus/realm`](./meshbus/realm) primitive. A participant loads a
+transport-independent [`meshbus/realm`](https://github.com/mytecor/meshbus/tree/v0.1.0/realm)
+primitive. A participant loads a
 random 256-bit `ClusterKey` from `~/.config/r1s/realms/<cluster-id>` and derives the public
 identifier as `SHA-256("meshbus-realm-id-v1" || ClusterKey)`. `cluster init` and `cluster join` write
 credentials atomically with owner-only permissions; `cluster list` exposes only their public IDs.

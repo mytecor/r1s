@@ -17,13 +17,6 @@ This file records unresolved choices so they do not remain implicit in implement
 3. **Identity storage** — define secure creation, persistence, rotation, backup, and per-service
    identity boundaries.
 
-4. **meshbus repository publication** — [F24](./f24-meshbus-extraction/README.md) keeps the staged
-   extraction in-tree while F24-08 through F24-12 establish the final peer-addressed API,
-   independent Go module, wire compatibility suite, and external-consumer proof. After those tasks,
-   publish `meshbus/` as its own repository, replace the temporary local module replacement with a
-   tagged dependency, and record the first release. Subscription advertisement/routing,
-   persistence, replay, consumer groups, offsets, and exactly-once delivery remain out of scope.
-
 5. **History retention and replay horizon defaults** — pinned with [F11](./f11-state-retention/README.md)
    completion: command replay horizon `CommandHorizon` = 7 days, default result retention = 24 hours
    (`DefaultRetention`, bounded by the horizon), tombstone lifetime = horizon, `defaultReplayTTL` = 10

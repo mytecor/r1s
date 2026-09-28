@@ -52,7 +52,7 @@ remain enforced. `make check` passes.
 
 ## Implementation notes
 
-[`meshbus.Node`](../../meshbus/node.go) composes a transport through the small `NodeTransport`
+[`meshbus.Node`](https://github.com/mytecor/meshbus/blob/v0.1.0/node.go) composes a transport through the small `NodeTransport`
 interface. A `TransportFactory` receives the already-composed inbound handler, while a
 `PeerObserver` reports advisory discovery and successful realm authentication separately. Node owns
 bounded candidate and authenticated directories; only authenticated peers enter pub/sub fan-out.
@@ -64,7 +64,7 @@ automatically expires stale candidates and peers. `Publish` reads the authentica
 delivers to local subscriptions unless `RemoteOnly` is set, and reports attempted, delivered, and
 failed remote sends. Existing `BusConfig` and `DirectoryConfig` bounds remain configurable.
 
-[`meshbus/rns.NewNode`](../../meshbus/rns/node.go) is the Reticulum-backed constructor. Applications
+[`meshbus/rns.NewNode`](https://github.com/mytecor/meshbus/blob/v0.1.0/rns/node.go) is the Reticulum-backed constructor. Applications
 provide realm, identity, and presence settings in the endpoint config; the constructor installs the
 composed inbound handler and directory wiring itself.
 

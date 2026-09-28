@@ -4,12 +4,12 @@
 
 ## Outcome
 
-The public [`meshbus`](../../meshbus) package now owns the transport-independent realm peer
+The public [`meshbus`](https://github.com/mytecor/meshbus/tree/v0.1.0) package now owns the transport-independent realm peer
 discovery contract. `meshbus.PeerDirectory` is a bounded, observable directory of authenticated
 realm peers learned through discovery — named a directory, not a cluster, because the **realm is
 a security boundary**, whereas the directory is only the observable state of the network.
 
-A discovered [`Peer`](../../meshbus/peer.go) carries:
+A discovered [`Peer`](https://github.com/mytecor/meshbus/blob/v0.1.0/peer.go) carries:
 
 - a public `PeerID` established by the authenticated transport identity (realm membership is
   proven separately);

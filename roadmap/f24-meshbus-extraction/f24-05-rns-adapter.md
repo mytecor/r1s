@@ -74,7 +74,7 @@ allowed custom compatibility codecs; the final cutover moved r1s itself to the g
 
 ## Implementation notes
 
-The public [`meshbus/rns`](../../meshbus/rns) package owns the reusable RNS machinery that was
+The public [`meshbus/rns`](https://github.com/mytecor/meshbus/tree/v0.1.0/rns) package owns the reusable RNS machinery that was
 previously entangled with r1s: identity loading (file or inline encodings, or an ephemeral
 in-memory identity), destination creation, announce registration and the periodic refresh loop,
 Link establishment, mutual realm proof, Channel creation, authenticated direct-message delivery,

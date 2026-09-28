@@ -301,8 +301,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   messages, bounded one-hop pub/sub, `PeerDirectory`, the reusable `meshbus/rns` adapter, the r1s
   application adapter over that transport, and a cohesive application-facing `Node` API. F24-08
   through F24-12 now harden the peer-routing boundary, remove remaining r1s policy, establish an
-  independent Go module, stabilize wire contracts, and prove black-box consumption before the
-  repository is physically split.
+  independent Go module, stabilize wire contracts, and prove black-box consumption. The module is
+  published as [`github.com/mytecor/meshbus`](https://github.com/mytecor/meshbus) and r1s consumes
+  its `v0.1.0` tag without a local replacement.
 - **Done when:** r1s composes its control protocol over a reusable meshbus direct-message boundary;
   authenticated realm peers can publish best-effort, TTL-bounded, deduplicated events by fan-out;
   announces carry discovery only; and the sender exposed to applications always comes from the

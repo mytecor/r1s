@@ -1,4 +1,4 @@
-.PHONY: check docs-check fmt generate generate-check install-hooks module-boundary-check protoc-check test race vet
+.PHONY: check docs-check fmt generate generate-check install-hooks protoc-check test race vet
 
 MODULE := github.com/mytecor/r1s
 PROTO_DIR := api/proto
@@ -10,7 +10,7 @@ PROTOC_GEN_GO_GRPC := bin/protoc-gen-go-grpc
 PROTOC_GEN_GO_GRPC_VERSION := v1.5.1
 PROTOC_VERSION := 36.0
 
-check: generate-check vet race module-boundary-check docs-check
+check: generate-check vet race docs-check
 
 generate: protoc-check $(PROTOC_GEN_GO) $(PROTOC_GEN_GO_GRPC)
 	protoc $(PROTOC_INCLUDES) --plugin=protoc-gen-go=$(PROTOC_GEN_GO) --go_out=. --go_opt=module=$(MODULE) $(PROTO_FILES)
@@ -49,26 +49,12 @@ install-hooks:
 
 race:
 	go test -race ./...
-	cd meshbus && go test -race ./...
 
 test:
 	go test ./...
-	cd meshbus && go test ./...
 
 vet:
 	go vet ./...
-	cd meshbus && go vet ./...
-
-module-boundary-check:
-	@cd meshbus && if go list -deps ./... | rg -q '^github.com/mytecor/r1s(/|$$)'; then \
-		echo "meshbus must not depend on r1s packages"; \
-		exit 1; \
-	fi
-	@cd meshbus && if go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' . ./realm \
-		| rg -v '^$$|^github.com/mytecor/meshbus(/realm)?$$' | rg -q .; then \
-		echo "meshbus core and realm must depend only on the Go standard library"; \
-		exit 1; \
-	fi
 
 docs-check:
 	lychee --no-progress --offline --include-fragments=full .

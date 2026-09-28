@@ -4,8 +4,8 @@
 
 ## Outcome
 
-Tests and examples consume meshbus exactly as an unrelated repository would, and the remaining
-repository extraction is a release operation rather than an architectural refactor.
+Tests and examples consume meshbus exactly as an unrelated repository would. The module is
+published independently and r1s is an ordinary tagged-version consumer.
 
 ## Scope
 
@@ -25,6 +25,6 @@ repository extraction is a release operation rather than an architectural refact
 
 An external-package test runs a complete two-Node discovery, direct-authentication, subscription,
 and publication workflow using only exported APIs. Realm vectors and the public RNS presence codec
-also have external-package tests. The root dependency guard checks that the meshbus module cannot
-resolve any r1s package. Physical repository publication remains the release operation recorded in
-[`BACKLOG.md`](../BACKLOG.md).
+also have external-package tests. The standalone module boundary prevents imports of r1s internal
+packages, and its own CI verifies the repository independently. r1s consumes `v0.1.0` without a
+local replacement.

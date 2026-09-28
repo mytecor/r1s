@@ -9,6 +9,8 @@ Corresponds to [F24 in the roadmap](../../ROADMAP.md#f24-brokerless-meshbus-extr
 `meshbus` is a reusable brokerless messaging layer below r1s. It owns secure realm membership,
 peer discovery and sessions, authenticated direct messages, and best-effort pub/sub. r1s keeps all
 allocator, execution, placement, lease, log, tunnel, and application-authorization semantics.
+The library is published independently at
+[`github.com/mytecor/meshbus`](https://github.com/mytecor/meshbus); r1s consumes the tagged module.
 
 At the r1s boundary, `cluster` means a named and locally managed meshbus realm plus r1s policy. The
 user-facing `r1s cluster` commands remain, but the completed cutover intentionally adopts standard

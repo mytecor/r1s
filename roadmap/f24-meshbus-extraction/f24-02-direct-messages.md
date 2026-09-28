@@ -4,7 +4,7 @@
 
 ## Outcome
 
-The public [`meshbus`](../../meshbus) package defines an opaque direct-message contract with an
+The public [`meshbus`](https://github.com/mytecor/meshbus/tree/v0.1.0) package defines an opaque direct-message contract with an
 immutable `PeerID`, isolated payload bytes, a handler, and a sender interface. It imports no r1s
 protocol or Reticulum-Go packages.
 

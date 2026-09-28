@@ -9,14 +9,12 @@ require (
 	github.com/containerd/containerd/v2 v2.3.5
 	github.com/containerd/errdefs v1.0.0
 	github.com/gologme/log v1.3.0
-	github.com/mytecor/meshbus v0.0.0
+	github.com/mytecor/meshbus v0.1.0
 	github.com/yggdrasil-network/yggdrasil-go v0.5.14
 	go.etcd.io/bbolt v1.4.3
 	golang.org/x/sys v0.48.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 )
-
-replace github.com/mytecor/meshbus => ./meshbus
 
 require (
 	github.com/Arceliar/phony v0.0.0-20220903101357-530938a4b13d // indirect
