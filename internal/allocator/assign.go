@@ -93,14 +93,17 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 		return nil, err
 	}
 	startRequest := a.startRequestLocked(record)
+	a.syncMetricsLocked()
 	a.mu.Unlock()
 
 	startErr := a.runtime.Start(ctx, startRequest, a.completionReporter(record.id))
 
 	a.mu.Lock()
 	current := a.executions[record.id]
+	finished := false
 	if startErr != nil && current.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_STARTING {
 		a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED, startErr.Error(), nil, a.now().UTC())
+		finished = true
 	} else if startErr == nil && current.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_STARTING {
 		current.phase = r1sv1.ExecutionPhase_EXECUTION_PHASE_RUNNING
 		current.occurredAt = a.now().UTC()
@@ -108,6 +111,10 @@ func (a *Allocator) handleAssign(ctx context.Context, envelope *r1sv1.Envelope, 
 	}
 	response, responseErr := a.stateEnvelopeLocked(current, envelope.GetMessageId(), a.now().UTC())
 	persistErr := a.persistLocked(context.Background())
+	if persistErr == nil && finished {
+		a.observeFinishedMetricsLocked(current)
+	}
+	a.syncMetricsLocked()
 	a.mu.Unlock()
 	if responseErr != nil {
 		return nil, responseErr

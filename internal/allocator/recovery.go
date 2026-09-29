@@ -57,6 +57,7 @@ func (a *Allocator) Recover(ctx context.Context) error {
 				return errors.Join(ErrRuntimeStop, err)
 			}
 			a.mu.Lock()
+			finished := false
 			if current := a.executions[id]; current != nil && !protocol.Terminal(current.phase) {
 				phase := r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED
 				if reason == protocol.LeaseExpiredDetail {
@@ -65,8 +66,13 @@ func (a *Allocator) Recover(ctx context.Context) error {
 					phase = r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED
 				}
 				a.finishLocked(current, phase, reason, nil, a.now().UTC())
+				finished = true
 			}
 			err := a.persistLocked(context.Background())
+			if err == nil && finished {
+				a.observeFinishedMetricsLocked(a.executions[id])
+			}
+			a.syncMetricsLocked()
 			a.mu.Unlock()
 			if err != nil {
 				return err
@@ -81,10 +87,16 @@ func (a *Allocator) Recover(ctx context.Context) error {
 				return errors.Join(ErrRuntimeStop, err)
 			}
 			a.mu.Lock()
+			finished := false
 			if current := a.executions[id]; current != nil && !protocol.Terminal(current.phase) {
 				a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED, protocol.LeaseExpiredDetail, nil, a.now().UTC())
+				finished = true
 			}
 			err := a.persistLocked(context.Background())
+			if err == nil && finished {
+				a.observeFinishedMetricsLocked(a.executions[id])
+			}
+			a.syncMetricsLocked()
 			a.mu.Unlock()
 			if err != nil {
 				return err
@@ -98,6 +110,7 @@ func (a *Allocator) Recover(ctx context.Context) error {
 
 		a.mu.Lock()
 		current := a.executions[id]
+		finished := false
 		if recoverErr == nil {
 			if current != nil && current.phase == r1sv1.ExecutionPhase_EXECUTION_PHASE_STARTING {
 				current.phase = r1sv1.ExecutionPhase_EXECUTION_PHASE_RUNNING
@@ -107,12 +120,17 @@ func (a *Allocator) Recover(ctx context.Context) error {
 		} else if errors.Is(recoverErr, r1sruntime.ErrExecutionMissing) || errors.Is(recoverErr, r1sruntime.ErrExecutionConflict) {
 			if current != nil && !protocol.Terminal(current.phase) {
 				a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED, recoverErr.Error(), nil, a.now().UTC())
+				finished = true
 			}
 		} else {
 			a.mu.Unlock()
 			return errors.Join(ErrRuntimeStart, recoverErr)
 		}
 		persistErr := a.persistLocked(context.Background())
+		if persistErr == nil && finished {
+			a.observeFinishedMetricsLocked(current)
+		}
+		a.syncMetricsLocked()
 		a.mu.Unlock()
 		if persistErr != nil {
 			return persistErr

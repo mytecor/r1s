@@ -63,11 +63,17 @@ func (a *Allocator) handleCancel(ctx context.Context, envelope *r1sv1.Envelope, 
 		a.mu.Unlock()
 		return nil, errors.Join(ErrRuntimeStop, stopErr, persistErr)
 	}
+	finished := false
 	if !protocol.Terminal(current.phase) {
 		a.finishLocked(current, r1sv1.ExecutionPhase_EXECUTION_PHASE_CANCELLED, cancel.GetReason(), nil, a.now().UTC())
+		finished = true
 	}
 	response, responseErr := a.stateEnvelopeLocked(current, envelope.GetMessageId(), a.now().UTC())
 	persistErr := a.persistLocked(context.Background())
+	if persistErr == nil && finished {
+		a.observeFinishedMetricsLocked(current)
+	}
+	a.syncMetricsLocked()
 	a.mu.Unlock()
 	if responseErr != nil {
 		return nil, responseErr

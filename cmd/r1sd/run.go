@@ -37,6 +37,8 @@ type commandLine struct {
 	tunnelEndpointPubKey  []byte
 	tunnelPeers           []string
 	node                  *r1sv1.NodeCapabilities
+	metricsAddress        string
+	logJSON               bool
 }
 
 func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) error {
@@ -86,6 +88,8 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 	tunnelEndpointPubKey := flags.String("tunnel-endpoint-pubkey", "", "opaque transport-neutral allocator edge public key (hex); set automatically by the F14-02 edge")
 	tunnelPeers := flags.String("tunnel-peer", "", "comma-separated bootstrap peer URIs for the tunnel edge (defaults to the public Yggdrasil overlay)")
 	nodeValue := flags.String("node", "", "JSON node capabilities for placement, for example {\"labels\":{\"region\":\"eu\"}}; os/arch default to the build target")
+	metricsAddress := flags.String("metrics-address", "", "TCP address for Prometheus metrics HTTP endpoint (e.g. 127.0.0.1:9090); disabled when empty")
+	logJSON := flags.Bool("log-json", false, "emit structured service logs in JSON format instead of text")
 	if err := flags.Parse(arguments); err != nil {
 		return commandLine{}, err
 	}
@@ -146,5 +150,6 @@ func parseCommandLine(arguments []string, stderr io.Writer) (commandLine, error)
 		tunnelEnabled:   *tunnelEnabled,
 		tunnelEndpoint:  tunnelEndpointBytes, tunnelEndpointPubKey: tunnelEndpointPubKeyBytes,
 		tunnelPeers: tunnelPeerList(*tunnelPeers), node: node,
+		metricsAddress: *metricsAddress, logJSON: *logJSON,
 	}, nil
 }

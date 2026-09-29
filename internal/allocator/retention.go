@@ -117,6 +117,7 @@ func (a *Allocator) Sweep(ctx context.Context) error {
 			pending = append(pending, dead)
 		}
 	}
+	a.syncMetricsLocked()
 	a.mu.Unlock()
 	var allErr error
 	for _, dead := range pending {

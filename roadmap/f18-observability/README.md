@@ -2,10 +2,10 @@
 
 Corresponds to [milestone F18](../../ROADMAP.md#f18-observability).
 
-**Status:** ⏳ Planned — the planned inspection surface must align with the F22 run-only model: it
-builds on `r1s run` and allocator-local export points, not the removed
-`inspect`/`result`/`logs`/`list` commands, local client API, or `Watch` journal
-([F22-07](../f22-rns-shared-instance/f22-07-client-cleanup.md)).
+**Status:** ✅ Complete — landed: `r1sd --metrics-address` exposes Prometheus metrics,
+`--log-json` emits structured lifecycle events with secret redaction, and `client.Stats()`
+exposes in-memory controller views. The planned inspection surface aligns with the F22 run-only
+model without restoring the removed `inspect`/`result`/`logs`/`list` commands or local client API.
 
 ## Outcome
 

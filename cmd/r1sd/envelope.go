@@ -9,6 +9,7 @@ import (
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/tunnel"
+	"google.golang.org/protobuf/proto"
 )
 
 // tunnelEndpointAdvertisement returns the endpoint advertisement handed to
@@ -24,9 +25,16 @@ func (d *daemon) tunnelEndpointAdvertisement() tunnel.Endpoint {
 // handleEnvelope applies one inbound control-plane envelope to the allocator
 // core and relays any responses back to the sender.
 func (d *daemon) handleEnvelope(_ context.Context, envelope *r1sv1.Envelope) error {
+	if d.metrics != nil {
+		d.metrics.ObserveInboundEnvelope(proto.Size(envelope))
+	}
 	responses, handleErr := d.core.Handle(context.Background(), envelope)
 	if handleErr != nil {
-		d.logger.Printf("reject message %q from %x: %v", envelope.GetMessageId(), envelope.GetSender(), handleErr)
+		d.events.Warn("envelope.rejected", "message rejected", map[string]any{
+			"message_id": envelope.GetMessageId(),
+			"sender":     hex.EncodeToString(envelope.GetSender()),
+			"error":      handleErr.Error(),
+		})
 	}
 	var responseErr error
 	for _, response := range responses {
@@ -35,6 +43,8 @@ func (d *daemon) handleEnvelope(_ context.Context, envelope *r1sv1.Envelope) err
 		cancel()
 		if sendErr != nil {
 			responseErr = errors.Join(responseErr, fmt.Errorf("send response: %w", sendErr))
+		} else if d.metrics != nil {
+			d.metrics.ObserveOutboundEnvelope(proto.Size(response))
 		}
 	}
 	return errors.Join(handleErr, responseErr)

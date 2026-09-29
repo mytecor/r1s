@@ -115,8 +115,15 @@ func (a *Allocator) completeEviction(ctx context.Context, id string, previousPha
 		}
 		return errors.Join(ErrRuntimeStop, stopErr, a.persistLocked(context.Background()))
 	}
+	finished := false
 	if !protocol.Terminal(record.phase) {
 		a.finishLocked(record, r1sv1.ExecutionPhase_EXECUTION_PHASE_FAILED, protocol.LeaseExpiredDetail, nil, now)
+		finished = true
 	}
-	return a.persistLocked(context.Background())
+	persistErr := a.persistLocked(context.Background())
+	if persistErr == nil && finished {
+		a.observeFinishedMetricsLocked(record)
+	}
+	a.syncMetricsLocked()
+	return persistErr
 }

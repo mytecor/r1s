@@ -47,6 +47,7 @@ type Allocator struct {
 
 	tunnels      *tunnel.Registry
 	tunnelConfig TunnelConfig
+	metrics      MetricsCollector
 }
 
 // New restores or constructs an allocator.
@@ -137,10 +138,12 @@ func New(config Config, runtime r1sruntime.Runtime) (*Allocator, error) {
 			Enabled:  config.Tunnel.Enabled,
 			Endpoint: config.Tunnel.Endpoint,
 		},
+		metrics: config.Metrics,
 	}
 	result.tunnels = tunnel.NewRegistry()
 	result.mu.Lock()
 	err = result.loadLocked(context.Background())
+	result.syncMetricsLocked()
 	result.mu.Unlock()
 	if err != nil {
 		return nil, err

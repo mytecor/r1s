@@ -91,3 +91,43 @@ func TestRNSConfigFlagIsRemoved(t *testing.T) {
 		t.Fatalf("parseCommandLine() error = %v, want removed flag diagnostic", err)
 	}
 }
+
+func TestMetricsAddressFlag(t *testing.T) {
+	opts, err := parseCommandLine([]string{
+		"--identity", "unused",
+		"--metrics-address", "127.0.0.1:9090",
+		"--log-json",
+		"deadbeef",
+	}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("parseCommandLine: %v", err)
+	}
+	if opts.metricsAddress != "127.0.0.1:9090" {
+		t.Errorf("metricsAddress = %q, want 127.0.0.1:9090", opts.metricsAddress)
+	}
+	if !opts.logJSON {
+		t.Errorf("logJSON = false, want true")
+	}
+}
+
+func TestInvalidMetricsAddress(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var stdout, stderr bytes.Buffer
+	if err := run(context.Background(), []string{"cluster", "init"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	clusterID := strings.TrimPrefix(lines[0], "Cluster ID: ")
+
+	stdout.Reset()
+	stderr.Reset()
+	err := run(context.Background(), []string{
+		"--identity", "unused",
+		"--metrics-address", "invalid-host-definitely-not-existing:99999999",
+		clusterID,
+	}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "start metrics server") {
+		t.Fatalf("expected metrics server startup error, got %v", err)
+	}
+}

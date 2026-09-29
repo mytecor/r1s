@@ -20,6 +20,7 @@ func (a *Allocator) SweepExpired() int {
 	expired := a.expireOffersLocked(a.now().UTC())
 	if expired > 0 {
 		_ = a.persistLocked(context.Background())
+		a.syncMetricsLocked()
 	}
 	return expired
 }

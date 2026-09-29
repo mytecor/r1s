@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +17,7 @@ import (
 	"github.com/mytecor/r1s/internal/logstore"
 	runtimecontainerd "github.com/mytecor/r1s/internal/runtime/containerd"
 	statebolt "github.com/mytecor/r1s/internal/store/bolt"
+	"github.com/mytecor/r1s/internal/telemetry"
 	"github.com/mytecor/r1s/internal/transport/rns"
 	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/protobuf/proto"
@@ -25,12 +25,14 @@ import (
 
 type daemon struct {
 	stdout        io.Writer
-	logger        *log.Logger
 	endpoint      *rns.Endpoint
 	core          *allocator.Allocator
 	runtime       *runtimecontainerd.Adapter
 	stateStore    *statebolt.Store
 	sweepInterval time.Duration
+	metrics       *telemetry.Metrics
+	metricsServer *telemetry.Server
+	events        *telemetry.Logger
 	// tunnel is the embedded tunnel edge (node + listener + accept loop). Nil
 	// unless --tunnel-enabled.
 	tunnel *tunnelEdge
@@ -69,12 +71,21 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 		node = clone
 	}
 
-	result := &daemon{stdout: stdout, logger: log.New(stderr, "r1sd: ", log.LstdFlags|log.Lmsgprefix), sweepInterval: options.sweepInterval}
+	result := &daemon{stdout: stdout, sweepInterval: options.sweepInterval, events: telemetry.NewLogger(stderr, options.logJSON)}
+	if options.metricsAddress != "" {
+		result.metrics = telemetry.NewMetrics()
+		var err error
+		result.metricsServer, err = telemetry.StartServer(options.metricsAddress, result.metrics)
+		if err != nil {
+			return nil, fmt.Errorf("start metrics server on %q: %w", options.metricsAddress, err)
+		}
+	}
 	result.endpoint, err = rns.New(rns.Config{
 		IdentitySource: options.identitySource, ClusterKey: clusterKey,
 		Capacity: options.capacity, AnnounceInterval: options.announceInterval, Node: node,
 	}, result.handleEnvelope)
 	if err != nil {
+		result.close()
 		return nil, err
 	}
 	identityHash, err := hex.DecodeString(result.endpoint.Name())
@@ -140,6 +151,7 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 			Enabled:  options.tunnelEnabled,
 			Endpoint: result.tunnelEndpointAdvertisement(),
 		},
+		Metrics: result.metrics,
 	}, result.runtime)
 	if err != nil {
 		result.close()
@@ -159,6 +171,16 @@ func (d *daemon) serve(ctx context.Context) error {
 		return err
 	}
 	fmt.Fprintf(d.stdout, "r1sd ready identity=%s destination=%s\n", d.endpoint.Name(), d.endpoint.Destination())
+	d.events.Info("allocator.ready", "allocator started and ready", map[string]any{
+		"identity":    d.endpoint.Name(),
+		"destination": d.endpoint.Destination(),
+	})
+	if d.metricsServer != nil {
+		fmt.Fprintf(d.stdout, "r1sd metrics listening on %s\n", d.metricsServer.Address())
+		d.events.Info("metrics.ready", "metrics server listening", map[string]any{
+			"address": d.metricsServer.Address(),
+		})
+	}
 	if d.tunnel != nil {
 		fmt.Fprintf(d.stdout, "r1sd tunnel edge ready address=%x pubkey=%x\n", d.tunnel.node.AddressBytes(), d.tunnel.node.PublicKey())
 		go d.tunnel.runAcceptLoop(ctx, d.core)
@@ -167,7 +189,7 @@ func (d *daemon) serve(ctx context.Context) error {
 	defer ticker.Stop()
 	for {
 		if err := d.core.Sweep(ctx); err != nil {
-			d.logger.Printf("state/log cleanup: %v", err)
+			d.events.Error("sweep.error", "state/log cleanup failed", map[string]any{"error": err.Error()})
 		}
 		select {
 		case <-ctx.Done():
@@ -178,6 +200,9 @@ func (d *daemon) serve(ctx context.Context) error {
 }
 
 func (d *daemon) close() {
+	if d.metricsServer != nil {
+		_ = d.metricsServer.Close()
+	}
 	if d.tunnel != nil {
 		_ = d.tunnel.listener.Close()
 	}

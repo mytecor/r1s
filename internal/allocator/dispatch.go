@@ -3,6 +3,7 @@ package allocator
 import (
 	"context"
 	"errors"
+	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
@@ -17,11 +18,18 @@ import (
 // routes to the per-command handlers in this package (offers.go, executions.go,
 // lease.go, release.go, logs.go, tunnel.go). State transitions themselves live
 // in those handler files; dispatch.go owns only the routing.
-func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1sv1.Envelope, error) {
-	if err := protocol.ValidateEnvelope(envelope); err != nil {
+func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) (responses []*r1sv1.Envelope, err error) {
+	start := time.Now()
+	defer func() {
+		if err != nil {
+			a.observeRejectionMetric(err)
+		}
+		a.observeDispatchLatency(commandName(envelope), time.Since(start))
+	}()
+	if err = protocol.ValidateEnvelope(envelope); err != nil {
 		return nil, err
 	}
-	if err := a.checkFreshness(envelope); err != nil {
+	if err = a.checkFreshness(envelope); err != nil {
 		return a.errorResponse(envelope, err), err
 	}
 	if envelope.GetExecutionLogsRequest() != nil {
@@ -47,8 +55,6 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		}
 	}
 
-	var responses []*r1sv1.Envelope
-	var err error
 	switch payload := envelope.GetPayload().(type) {
 	case *r1sv1.Envelope_ExecutionRequest:
 		responses, err = a.handleRequest(envelope, payload.ExecutionRequest)
@@ -74,4 +80,33 @@ func (a *Allocator) Handle(ctx context.Context, envelope *r1sv1.Envelope) ([]*r1
 		err = errors.Join(err, persistErr)
 	}
 	return responses, err
+}
+
+// commandName returns the stable dispatch-latency label for an envelope's
+// command. It is derived from the payload type rather than a variable updated
+// as Handle progresses, so every exit path — including validation, freshness,
+// and replay-duplicate ack — records the command it was actually handling
+// instead of falling back to "unknown".
+func commandName(envelope *r1sv1.Envelope) string {
+	if envelope.GetExecutionLogsRequest() != nil {
+		return "logs"
+	}
+	switch envelope.GetPayload().(type) {
+	case *r1sv1.Envelope_ExecutionRequest:
+		return "request"
+	case *r1sv1.Envelope_ExecutionAssign:
+		return "assign"
+	case *r1sv1.Envelope_ExecutionCancel:
+		return "cancel"
+	case *r1sv1.Envelope_ExecutionInspect:
+		return "inspect"
+	case *r1sv1.Envelope_ExecutionOfferRelease:
+		return "release"
+	case *r1sv1.Envelope_ExecutionLeaseRenew:
+		return "renew"
+	case *r1sv1.Envelope_ExecutionTunnelOpen:
+		return "tunnel_open"
+	default:
+		return "unknown"
+	}
 }

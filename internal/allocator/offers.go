@@ -33,6 +33,7 @@ func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.Execu
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.expireOffersLocked(now)
+	a.observeRequestMetric(request.GetResourceClass())
 
 	requestKey := authorityKey(envelope.GetSender(), request.GetRequestId())
 	if offerID, ok := a.requests[requestKey]; ok {
@@ -122,5 +123,7 @@ func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.Execu
 		a.capacity.release(class)
 		return nil, err
 	}
+	a.observeOfferMetric(class)
+	a.syncMetricsLocked()
 	return []*r1sv1.Envelope{response}, nil
 }

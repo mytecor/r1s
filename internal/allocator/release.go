@@ -55,6 +55,7 @@ func (a *Allocator) handleOfferRelease(envelope *r1sv1.Envelope, release *r1sv1.
 			_ = a.capacity.reserve(record.offer.GetResourceClass())
 			return nil, err
 		}
+		a.syncMetricsLocked()
 	}
 	return []*r1sv1.Envelope{{
 		MessageId: messageID, Sender: bytes.Clone(a.identity), CorrelationId: envelope.GetMessageId(), SentAt: timestamppb.New(now),

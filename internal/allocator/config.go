@@ -52,6 +52,21 @@ type Config struct {
 	// constraint is then rejected so the client is never told a node matches
 	// without evidence.
 	Node *r1sv1.NodeCapabilities
+
+	// Metrics optionally receives bounded allocator lifecycle and telemetry events.
+	Metrics MetricsCollector
+}
+
+// MetricsCollector is the interface Allocator uses to record operator-facing telemetry.
+type MetricsCollector interface {
+	ObserveRequest(resourceClass string)
+	ObserveOffer(resourceClass string)
+	ObserveRejection(reason string)
+	ObserveLeaseEviction()
+	ObserveExecutionTerminal(resourceClass, phase string, duration time.Duration)
+	ObserveDispatchLatency(command string, duration time.Duration)
+	UpdateCapacity(class string, total, available uint32)
+	SetActiveExecutions(class string, count int)
 }
 
 // offerStatus is the lifecycle phase of one offer record: outstanding while

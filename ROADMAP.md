@@ -198,8 +198,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > Local structured logs, metrics, and client inspection commands expose allocator and execution
 > health without introducing global desired state or bundling an observability backend.
 
-- **Status:** 🚧 in progress — F22-01 complete; inspection surface realigned to the F22 run-only
-  model (no removed `inspect`/`result`/`logs`/`list` commands, local API, or `Watch` journal)
+- **Status:** ✅ complete; Prometheus exporter endpoint on `r1sd --metrics-address`, structured
+  logging with secret redaction (`--log-json`), allocator metric observations, and client inspection
+  statistics landed and verified under `go test -race`
 - **Done when:** operators can inspect discovered allocators and executions from `r1s run` / `r1sd`
   output and scrape documented allocator-local metrics without receiving workload stdout/stderr
   implicitly.

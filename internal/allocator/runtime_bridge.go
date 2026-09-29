@@ -43,8 +43,11 @@ func (a *Allocator) RuntimeCompleted(completion r1sruntime.Completion) error {
 	if err := a.persistLocked(context.Background()); err != nil {
 		*record = previous
 		a.capacity.restore(used)
+		a.syncMetricsLocked()
 		return err
 	}
+	a.observeFinishedMetricsLocked(record)
+	a.syncMetricsLocked()
 	return nil
 }
 
