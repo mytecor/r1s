@@ -1,7 +1,7 @@
 # F21-01 — Private tunnel RNS transport stack
 
-**Status:** 🧪 Experimental prototype — implemented and retained only through the F21-05 benchmark;
-F21-06 removes it after the RNS data-plane no-go.
+**Status:** 🗑 Removed — the experimental prototype was retained only through the F21-05
+benchmark and was deleted by F21-06 after the RNS data-plane no-go. Historical record only.
 
 ## Prototype outcome
 

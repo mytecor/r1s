@@ -2,10 +2,10 @@
 
 Corresponds to the F21 milestone in [ROADMAP.md](../../ROADMAP.md).
 
-**Status:** 🔄 No-go recorded — F21-05 demonstrated that a Python-compatible RNS
-`Link`/`Channel`/`Buffer` stream is not suitable for the execution-tunnel data plane. F21-06 now
-rolls back the experimental private-RNS path and retains the embedded Yggdrasil tunnel implemented
-by F19/F20.
+**Status:** ✅ No-go recorded and rolled back — F21-05 demonstrated that a Python-compatible RNS
+`Link`/`Channel`/`Buffer` stream is not suitable for the execution-tunnel data plane, and F21-06
+rolled back the experimental private-RNS path while retaining the embedded Yggdrasil tunnel
+implemented by F19/F20.
 
 ## Decision
 
@@ -14,9 +14,9 @@ The experiment keeps the architecture's original transport boundary:
 - **RNS remains the control plane** for discovery, authenticated commands, lifecycle, and tunnel
   grant exchange.
 - **Yggdrasil remains the tunnel data plane** carrying SSH, HTTP, and arbitrary application bytes.
-- The private RNS-over-system-Ygg transport under [`internal/tunnel/rns`](../../internal/tunnel/rns)
-  is benchmark evidence and temporary code only; it does not replace the working
-  [`internal/tunnel/yggdrasil`](../../internal/tunnel/yggdrasil) adapter.
+- The private RNS-over-system-Ygg transport under `internal/tunnel/rns`
+  was benchmark evidence and temporary code only; it is now removed (F21-06) and did not replace the
+  working [internal/tunnel/yggdrasil](../../internal/tunnel/yggdrasil) adapter.
 - F21-06 does **not** remove `yggdrasil-go`, Ironwood, tunnel grants, the authenticated mesh pair,
   or its multiplexed streams. It removes or reverts the experimental RNS tunnel integration while
   preserving the F19/F20 user-facing and container-isolation contracts.
@@ -64,4 +64,6 @@ part of this rollback.
 - [F21-04 — Client edge and CLI/config cleanup](./f21-04-client-edge-cli-cleanup.md) — cancelled.
 - [F21-05 — Benchmark and live acceptance](./f21-05-benchmark-live-acceptance.md) — complete,
   recorded no-go.
-- [F21-06 — Roll back private RNS tunnel and retain Ygg](./f21-06-remove-ygg-adapter.md) — planned.
+- [F21-06 — Roll back private RNS tunnel and retain Ygg](./f21-06-remove-ygg-adapter.md) — complete:
+  the experimental RNS package, the benchmark harness, and the unused Open/advertisement slice
+  are removed; the embedded Ygg adapter is retained.

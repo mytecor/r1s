@@ -81,7 +81,7 @@ This file records unresolved choices so they do not remain implicit in implement
     `staleTime`, so the watchdog CASes the link STALE and `WaitReady` fails the write. Transfers
     that finish inside `staleTime` pass (1 MiB ~2.3s, 4 MiB ~6.7s, 10×1 MiB concurrent ~9.4s);
     the defect is time-based, not size-based. Gated by
-    `TestSustainedTransferOutlivesStaleTime` in [`internal/tunnel/rns`](../internal/tunnel/rns)
+    `TestSustainedTransferOutlivesStaleTime` in `internal/tunnel/rns`
     (`R1S_TEST_SUSTAINED_TUNNEL=1`), which reproduces at ~10s. Fix directions to evaluate before
     F21-06 (the gate was no-go until then): upstream the keepalive/stale floor in Reticulum-Go (raise
     `KeepaliveMinSec` or scale `staleTime` on low-RTT links), or keep the sender's `lastInbound`
@@ -178,17 +178,18 @@ This file records unresolved choices so they do not remain implicit in implement
     when `QueueSend` races `writeStream`, stranding queued bytes and stalling both tunnel links at
     ~10s. r1s does not vendor, copy, or locally replace Reticulum-Go. Until the fixes land in a
     canonical release, the deliberately removable
-    compatibility layer under [`internal/tunnel/rns`](../internal/tunnel/rns) (split across
-    `backbone.go`, `compat.go`, and `writer.go`) registers a per-Link serial ingress proxy and
-    selects Reticulum-Go's public synchronous, process-global
-    Backbone Go backend whenever the tunnel is enabled; startup fails closed if another component
-    already selected a native backend. It also contains the negotiated-MDU writer, blocking
+    compatibility layer under `internal/tunnel/rns` (since removed by
+    F21-06; split across
+    `backbone.go`, `compat.go`, and `writer.go`) registered a per-Link serial ingress proxy and
+    selected Reticulum-Go's public synchronous, process-global
+    Backbone Go backend whenever the tunnel was enabled; startup failed closed if another component
+    already selected a native backend. It also contained the negotiated-MDU writer, blocking
     reader, and sender-side uncompressed Buffer policy required by the same version. The latter
-    emits the existing `StreamDataMessage` form with `compressed=false`, which remains fully
+    emitted the existing `StreamDataMessage` form with `compressed=false`, which remained fully
     interoperable with Python RNS while avoiding three failed bzip2 probes per incompressible
-    tunnel fragment. It does not change the wire format or add stream framing. Removal is a few
+    tunnel fragment. It did not change the wire format or add stream framing. Removal was a few
     attachment-point edits documented in those files. The regression coverage in
-    [`internal/tunnel/rns/regression_test.go`](../internal/tunnel/rns/regression_test.go) gates the
+    `internal/tunnel/rns/regression_test.go` gated the
     adapter and its eventual deletion; upstream tracking is
     [Reticulum-Go issue #17](https://github.com/Quad4-Software/Reticulum-Go/issues/17) for
     correctness/parity and

@@ -26,7 +26,7 @@ removes the unused RNS-only Open/advertisement surface while preserving schema c
 
 - Do not delete `ExecutionTunnelGrant`/`ExecutionTunnelGrantAck`, `ygg_peer_pubkey`, grant ID/TTL,
   `Preamble`, or `Registry.Mint`/`Accept`; they remain part of the selected Ygg data plane.
-- Do not switch `r1sd`/`r1s serve` to the F21-01 RNS transport. F21-06 removes the unused
+- Do not switch `r1sd`/`r1s serve` to the F21-01 RNS transport. F21-06 removed the unused
   experimental Open/advertisement slice instead.
 
 ## Experimental outcome

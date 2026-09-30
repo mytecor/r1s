@@ -33,11 +33,11 @@ type Allocator struct {
 	Hops        uint8
 	Capacity    map[string]uint32
 	Node        *r1sv1.NodeCapabilities
-	// Tunnel endpoint advertisement (F21-02): the allocator's private tunnel
-	// RNS Backbone/TCP listener as host:port plus the tunnel RNS destination
-	// hash the client dials to open a tunnel. Populated from the authenticated
-	// announce descriptor; advisory, like Node, and re-discovered on the next
-	// announce. Holds empty values when the allocator runs no tunnel edge.
+	// Tunnel endpoint advertisement: the allocator's advertised tunnel edge
+	// (the F22-06 Yggdrasil edge host/port plus its destination hash) that a
+	// client dials to open a tunnel. Populated from the authenticated announce
+	// descriptor; advisory, like Node, and re-discovered on the next announce.
+	// Holds empty values when the allocator runs no tunnel edge.
 	TunnelHost        string
 	TunnelPort        int
 	TunnelDestination string

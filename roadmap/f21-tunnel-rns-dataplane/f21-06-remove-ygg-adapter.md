@@ -1,6 +1,9 @@
 # F21-06 — Roll back private RNS tunnel and retain Ygg
 
-**Status:** ⏳ Planned — F21-05 recorded a no-go for the private RNS data plane.
+**Status:** ✅ Complete — F21-05 recorded a no-go for the private RNS data plane and F21-06
+rolled back the experimental RNS tunnel package, the benchmark harness, and the unused
+`TunnelOpen`/`TunnelOpenResult`/`TunnelOpenError` protocol surface, retaining the embedded
+Yggdrasil data plane.
 
 ## Outcome
 
@@ -16,17 +19,18 @@ isolation.
   pinning, and the existing grant/preamble/accept flow.
 - Keep `r1s tunnel <execution> --port <host>:<container>`, the service-backed `LocalTunnel` API,
   client-managed target ports, and allocator-side `DialExecution` unchanged.
-- Remove the experimental [`internal/tunnel/rns`](../../internal/tunnel/rns) data-plane package
-  after retaining any transport-independent regression knowledge in tests or roadmap notes.
-- Remove `TunnelOpen`, `TunnelOpenResult`, private tunnel destination advertisement, and related
-  generated/schema fields if they have no user outside the rejected RNS path. Preserve Protobuf
-  compatibility according to the repository rules; do not reuse field numbers.
-- Remove benchmark-only connector wiring only after the final F21-05 record remains preserved in
+- Removed the experimental `internal/tunnel/rns` data-plane package after retaining its
+transport-independent regression knowledge in roadmap notes ([F21-05](./f21-05-benchmark-live-acceptance.md)).
+- Removed `TunnelOpen`, `TunnelOpenResult`, `TunnelOpenError`, and the private tunnel destination
+  advertisement slice: they had no user outside the rejected RNS path. Protobuf compatibility
+  follows the repository's additive rule; the removed names are retired and never reused (no
+  field numbers were consumed because the messages were separate types outside the Envelope
+  oneof).
+- Removed the benchmark-only connector wiring after the final F21-05 record was preserved in
   [F21-05](./f21-05-benchmark-live-acceptance.md).
-- Reconcile README, architecture, CLI help, flags, and roadmap text with the retained embedded-Ygg
-  implementation. Do not introduce a system-Ygg/raw-TCP replacement in this rollback.
-- Run `go mod tidy` only for dependencies made unreachable by the rollback; do not remove the Ygg
-  dependency graph used by the production tunnel adapter.
+- Deleted the `internal/tunnel/benchmark` old-vs-new harness together with the RNS connector.
+- Ran `go mod tidy` for dependencies made unreachable by the rollback; the Ygg
+dependency graph used by the production tunnel adapter is retained.
 
 ## Acceptance
 

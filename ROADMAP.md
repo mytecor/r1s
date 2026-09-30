@@ -249,7 +249,9 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
 > IFAC work, and small Backbone writes. RNS remains the control plane; Ygg remains the application
 > data plane.
 
-- **Status:** 🔄 no-go recorded; F21-06 rollback planned
+- **Status:** ✅ no-go recorded and rolled back — F21-06 removed the experimental private-RNS
+tunnel package, the old-vs-new benchmark harness, and the unused Open/advertisement slice while
+retaining the embedded-Ygg adapter.
 - **Done when:** the experimental private-RNS tunnel package and its unused Open/advertisement
   surface are removed, while the F19/F20 embedded-Ygg adapter, grants, multiplexed streams,
   user-facing tunnel UX, owner authorization, and container namespace isolation remain intact;
@@ -378,9 +380,10 @@ Open decisions and deferred work live in [BACKLOG.md](./roadmap/BACKLOG.md).
   client-supplied destinations survive as `r1s run -p` under
   [F22-06](./roadmap/f22-rns-shared-instance/f22-06-run-tunnels.md); the standalone command is gone.
 - [F21](#f21-tunnel-data-plane-over-system-yggdrasil--private-rns) reached its benchmark decision:
-  the private RNS tunnel is a no-go, the embedded Ygg adapter remains selected, and F21-06 rolls
-  back the experimental RNS package and unused Open/advertisement slice. The benchmark and upstream
-  Reticulum-Go findings remain recorded; they no longer gate tunnel delivery.
+  the private RNS tunnel is a no-go, the embedded Ygg adapter remains selected, and F21-06 rolled
+  back the experimental RNS package, the benchmark harness, and the unused Open/advertisement
+  slice. The benchmark and upstream Reticulum-Go findings remain recorded; they no longer gate
+  tunnel delivery.
 - [F16](#f16-node-capabilities-and-placement) landed (2026): allocators advertise bounded
   OS/arch/runtime/device/resource-profile/label capabilities in offers and a compact RNS announce
   summary; clients express exact-match `--constraints`, and only compatible allocators receive the

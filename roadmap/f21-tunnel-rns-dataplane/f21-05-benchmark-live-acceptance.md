@@ -4,8 +4,7 @@
 the decision is **no-go for the private RNS tunnel data plane**. F21-06 retains Ygg and rolls back
 the experimental RNS path. The sustained >10s correctness blocker is closed and its regression
 gate passes, but the optimized RNS path remains 26.7–39.9× slower in the representative benchmark
-rows. The old-vs-new harness is in
-[`internal/tunnel/benchmark`](../../internal/tunnel/benchmark).
+rows. The old-vs-new harness is in `internal/tunnel/benchmark` (removed by F21-06).
 
 ## Status history
 
@@ -56,14 +55,14 @@ and prevents the removal that the original F21-06 plan proposed.
 - All benchmark rows exist for both transports with the same methodology, the RNS overhead is
   explicitly recorded, and the F21-06 decision is no-go.
 - The deterministic two-stack matrix remains regression coverage for the experimental findings.
-  The production live leg is cancelled rather than counted as a pass because F21-06 removes the
+  The production live leg is cancelled rather than counted as a pass because F21-06 removed the
   prototype instead of deploying it.
 - `go build ./...`, `go vet ./...`, `go test -race ./...`, and `make check` pass.
 
 ## Measurements
 
 The recorded old-vs-new rows, both transports run on the same host with the same methodology
-([`DefaultSuite`](../../internal/tunnel/benchmark/bench.go) sizes: 1 MiB / 10 MiB single-stream
+(`DefaultSuite` sizes in the removed harness: 1 MiB / 10 MiB single-stream
 transfers, 200 HTTP round-trips over an established connection, 10 concurrent × 1 MiB streams,
 20 fresh-connection opens). Recorded 2026-09-23 by
 `R1S_TEST_F21_BENCHMARK=recorded go test ./internal/tunnel/benchmark/ -run TestRecordedBenchmark \
@@ -127,7 +126,7 @@ ratio by 10×.
   not cover it. Recorded in [BACKLOG entry 10](../BACKLOG.md) with the measured curve (1 MiB
   ~2.3s, 4 MiB ~6.7s, 10×1 MiB concurrent ~9.4s all pass; 10 MiB dies at ~10s) and a gated
   regression test (`R1S_TEST_SUSTAINED_TUNNEL=1`) in
-  [`internal/tunnel/rns`](../../internal/tunnel/rns). No benchmark rows can be recorded at the
+  `internal/tunnel/rns`. No benchmark rows can be recorded at the
   acceptance sizes until the transfer survives >10s — this is the F21-06 go/no-go gate.
   **Resolved 2026-09-23** (Status above): the compat adapter's per-edge liveness beacon closes it.
   After disabling automatic compression for tunnel writes, 10 MiB completes in ~2.5s and no longer
