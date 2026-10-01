@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
-	"github.com/mytecor/meshbus"
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
 	"google.golang.org/protobuf/proto"

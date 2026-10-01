@@ -13,7 +13,7 @@ underneath r1s.
 
 Generic realm authentication and direct-message contracts already exist in:
 
-- `meshbus/realm`
+- `meshbus/security/realm`
 - meshbus direct-message API
 
 The Reticulum-specific implementation still lives under `internal/transport/rns`. This task
@@ -21,7 +21,7 @@ physically extracts it into a public adapter package.
 
 ## Scope
 
-Create a public adapter package, preferably `meshbus/rns`. Move or refactor the generic parts of
+Create a public adapter package, now `meshbus/transport/rns`. Move or refactor the generic parts of
 the existing RNS endpoint into it:
 
 - RNS identity handling;
@@ -53,7 +53,7 @@ allowed custom compatibility codecs; the final cutover moved r1s itself to the g
 
 ## Constraints
 
-- `meshbus/rns` may import Reticulum-Go and meshbus.
+- `meshbus/transport/rns` may import Reticulum-Go and meshbus core and security packages.
 - It must not import r1s protocol, client, allocator, runtime or command packages.
 - Received sender identity always comes from the authenticated Link.
 - Foreign realms are rejected before message delivery.
@@ -74,7 +74,7 @@ allowed custom compatibility codecs; the final cutover moved r1s itself to the g
 
 ## Implementation notes
 
-The public [`meshbus/rns`](https://github.com/mytecor/meshbus/tree/v0.2.0/rns) package owns the reusable RNS machinery that was
+The public [`meshbus/transport/rns`](https://github.com/mytecor/meshbus/tree/v0.3.0/transport/rns) package owns the reusable RNS machinery that was
 previously entangled with r1s: identity loading (file or inline encodings, or an ephemeral
 in-memory identity), destination creation, announce registration and the periodic refresh loop,
 Link establishment, mutual realm proof and ready exchange, Channel/Resource direct-message
@@ -105,7 +105,7 @@ wire-format hook.
 
 ### Deterministic tests
 
-`meshbus/rns` has standalone UDP-loopback contract tests that run without a shared instance and
+`meshbus/transport/rns` has standalone UDP-loopback contract tests that run without a shared instance and
 without importing r1s: same-realm discovery, foreign-realm rejection on a shared pair, direct
 authenticated byte and large Resource exchange, send-after-link-loss reconnect, peer snapshots for Bus
 fan-out, discovery/authentication observer delivery, presence round-trip, identity-source handling, config
@@ -120,15 +120,13 @@ and therefore is not moved.
 The dependency direction becomes:
 
 ```text
-meshbus
-├── realm
-├── PeerDirectory
-├── direct messages
-└── Bus
-     ↑
-meshbus/rns
-     ↑
+meshbus/security/realm
+          ↑
+meshbus/core
+          ↑
+meshbus/transport/rns
+          ↑
 r1s adapter
 ```
 
-rather than the current `meshbus <- internal/transport/rns <-> r1s`.
+rather than the original `meshbus <- internal/transport/rns <-> r1s`.

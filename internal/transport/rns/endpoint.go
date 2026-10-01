@@ -1,5 +1,5 @@
 // Package rns adapts r1s discovery descriptors and Protobuf envelopes to the
-// reusable authenticated transport implemented by meshbus/rns.
+// reusable authenticated transport implemented by meshbus/transport/rns.
 package rns
 
 import (
@@ -11,8 +11,8 @@ import (
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
-	"github.com/mytecor/meshbus"
-	meshrns "github.com/mytecor/meshbus/rns"
+	meshbus "github.com/mytecor/meshbus/core"
+	meshrns "github.com/mytecor/meshbus/transport/rns"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	coretransport "github.com/mytecor/r1s/internal/transport"
 )

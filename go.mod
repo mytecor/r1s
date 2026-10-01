@@ -9,7 +9,7 @@ require (
 	github.com/containerd/containerd/v2 v2.3.5
 	github.com/containerd/errdefs v1.0.0
 	github.com/gologme/log v1.3.0
-	github.com/mytecor/meshbus v0.2.0
+	github.com/mytecor/meshbus v0.3.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/yggdrasil-network/yggdrasil-go v0.5.14
 	go.etcd.io/bbolt v1.4.3

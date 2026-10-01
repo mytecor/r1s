@@ -4,12 +4,12 @@
 
 ## Outcome
 
-The public [`meshbus`](https://github.com/mytecor/meshbus/tree/v0.2.0) package now owns the transport-independent realm peer
+The public [`meshbus/core`](https://github.com/mytecor/meshbus/tree/v0.3.0/core) package now owns the transport-independent realm peer
 discovery contract. `meshbus.PeerDirectory` is an observable directory of authenticated
 realm peers learned through discovery — named a directory, not a cluster, because the **realm is
 a security boundary**, whereas the directory is only the observable state of the network.
 
-A discovered [`Peer`](https://github.com/mytecor/meshbus/blob/v0.2.0/peer.go) carries:
+A discovered [`Peer`](https://github.com/mytecor/meshbus/blob/v0.3.0/core/peer.go) carries:
 
 - a public `PeerID` established by the authenticated transport identity (realm membership is
   proven separately);
@@ -26,8 +26,8 @@ allocator, runtime, or command types enter `meshbus`.
   place — a duplicate discovery never creates a second entry.
 - `Get(PeerID)` returns one immutable copy of a peer.
 - `Peers()` returns a copy-safe, identity-ordered snapshot for fan-out.
-- `IDs()` returns the identity snapshot consumed by `meshbus.Bus` fan-out via
-  `PeerSourceFunc`.
+- `IDs()` returns an immutable identity snapshot; `Node` combines authenticated peer state with
+  non-expired leased interests for pub/sub fan-out.
 - `Remove(PeerID)` forgets a peer; `ExpireStale(age)` deterministically ages out idle peers.
 - `Len()` reports the current count.
 
@@ -45,8 +45,8 @@ allocator, runtime, or command types enter `meshbus`.
 
 Discovery is advisory only. Peer identity never comes from application metadata, and transport
 routes remain private to the adapter. `ReceivedMessage.Sender` comes only from the transport
-session. The directory adds no durable membership, no globally authoritative peer list, and no
-gossip or subscription advertisement.
+session. The directory adds no durable membership or globally authoritative peer list. Direct
+subscription interests are ephemeral leases owned separately by `Node`, not directory metadata.
 
 ## Acceptance
 

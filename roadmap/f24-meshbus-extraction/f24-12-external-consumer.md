@@ -9,7 +9,7 @@ published independently and r1s is an ordinary tagged-version consumer.
 
 ## Scope
 
-- Add black-box tests using `meshbus_test`, `realm_test`, and `rns_test` where practical.
+- Add black-box tests using `core_test`, `realm_test`, and `rns_test` where practical.
 - Add a minimal direct-message/pub-sub example using only exported APIs.
 - Add a dependency guard forbidding imports from meshbus back into r1s.
 - Record the standalone repository cutover and first-version procedure.
@@ -26,5 +26,5 @@ published independently and r1s is an ordinary tagged-version consumer.
 An external-package test runs a complete two-Node discovery, direct-authentication, subscription,
 and publication workflow using only exported APIs. Realm vectors and the public RNS presence codec
 also have external-package tests. The standalone module boundary prevents imports of r1s internal
-packages, and its own CI verifies the repository independently. r1s consumes `v0.2.0` without a
+packages, and its own CI verifies the repository independently. r1s consumes `v0.3.0` without a
 local replacement.

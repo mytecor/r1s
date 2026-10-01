@@ -4,12 +4,12 @@
 
 ## Outcome
 
-`meshbus/rns` exposes generic identity and Reticulum stack configuration. r1s owns its decision to
+`meshbus/transport/rns` exposes generic identity and Reticulum stack configuration. r1s owns its decision to
 require a shared-instance client and its use of RNS identity material for execution tunnels.
 
 ## Scope
 
-- Remove the F14 tunnel-key helper and roadmap terminology from `meshbus/rns`.
+- Remove the F14 tunnel-key helper and roadmap terminology from `meshbus/transport/rns`.
 - Keep tunnel identity derivation in the r1s layer.
 - Make shared-client and standalone RNS modes explicit generic adapter choices.
 - Keep r1s configured to fail closed when its required shared instance is unavailable.

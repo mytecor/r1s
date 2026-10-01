@@ -11,7 +11,7 @@ mechanics and cannot become application authority or leak through pub/sub result
 
 - Change the direct sender and pub/sub peer-source contracts from route strings to `PeerID`.
 - Make `Node.Send` the peer-addressed direct-message surface and remove its route-addressed bypass.
-- Keep RNS destination resolution inside `meshbus/rns`.
+- Keep RNS destination resolution inside `meshbus/transport/rns`.
 - Report fan-out failures by peer identity.
 - Bound peer identity size and reject invalid resource-limit configuration.
 - Stop exposing mutable adapter-owned peer directories.
@@ -27,6 +27,6 @@ mechanics and cannot become application authority or leak through pub/sub result
 ## Implementation notes
 
 `Sender`, `PeerSource`, `Bus`, `Node`, and delivery results now use `PeerID`. `Peer` no longer
-contains a route, and `PeerDirectory.IDs` supplies fan-out snapshots. `meshbus/rns.Endpoint`
+contains a route, and `PeerDirectory.IDs` supplies identity snapshots. `meshbus/transport/rns.Endpoint`
 privately resolves identities to destinations; only the r1s protocol adapter uses the explicit
 low-level `SendToDestination` bridge for its already-persisted RNS destination values.

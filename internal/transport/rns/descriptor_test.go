@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/mytecor/meshbus"
-	meshrns "github.com/mytecor/meshbus/rns"
+	meshbus "github.com/mytecor/meshbus/core"
+	meshrns "github.com/mytecor/meshbus/transport/rns"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 )
 

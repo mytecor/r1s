@@ -11,6 +11,9 @@ peer discovery and sessions, authenticated direct messages, and best-effort pub/
 allocator, execution, placement, lease, log, tunnel, and application-authorization semantics.
 The library is published independently at
 [`github.com/mytecor/meshbus`](https://github.com/mytecor/meshbus); r1s consumes the tagged module.
+The current dependency is v0.3.0, whose public packages are `core`, `security/realm`, and
+`transport/rns`. Its wildcard subscriptions and leased peer-interest routing stay below r1s; r1s
+continues to use authenticated direct messages for its Protobuf control protocol.
 
 At the r1s boundary, `cluster` means a named and locally managed meshbus realm plus r1s policy. The
 user-facing `r1s cluster` commands remain, but the completed cutover intentionally adopts standard
@@ -45,10 +48,10 @@ meshbus realm IDs, proofs, and `meshbus.v1` presence instead of retaining the ol
 
 ## Delivery baseline
 
-The first pub/sub version is intentionally small: no persistence or replay, reliable Channel
-delivery while a link is usable, reconnect on later sends, publisher fan-out to known peers, event
-IDs, bounded deduplication, and TTL. Handlers must tolerate duplicate delivery. Subscription
-advertisement and multi-hop gossip are deferred until scale requires them.
+Pub/sub is intentionally small: no persistence or replay, reliable Channel delivery while a link
+is usable, reconnect on later sends, concrete subjects, wildcard local subscriptions, ephemeral
+leased peer interests, event IDs, bounded deduplication, and TTL. Handlers must tolerate duplicate
+delivery. Multi-hop gossip remains out of scope.
 
 ## Tasks
 

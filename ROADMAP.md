@@ -301,14 +301,15 @@ retaining the embedded-Ygg adapter.
 > allocator, execution, placement, lease, or authorization policy into the library.
 
 - **Status:** ✅ complete — F24-01 through F24-07 provide realm membership, authenticated direct
-  messages, bounded one-hop pub/sub, `PeerDirectory`, the reusable `meshbus/rns` adapter, the r1s
+  messages, bounded one-hop pub/sub, `PeerDirectory`, the reusable `meshbus/transport/rns` adapter, the r1s
   application adapter over that transport, and a cohesive application-facing `Node` API. F24-08
   through F24-12 now harden the peer-routing boundary, remove remaining r1s policy, establish an
   independent Go module, stabilize wire contracts, and prove black-box consumption. The module is
   published as [`github.com/mytecor/meshbus`](https://github.com/mytecor/meshbus) and r1s consumes
-  its `v0.2.0` tag without a local replacement. That release adds authenticated-session readiness,
-  RNS Resource delivery for messages above the Channel MDU, bounded discovery eviction, and removes
-  artificial authenticated-peer, subscription, and fan-out caps.
+  its `v0.3.0` tag without a local replacement. The current release reorganizes the public API into
+  `core`, `security/realm`, and `transport/rns`, adds wildcard subscriptions and leased peer-interest
+  routing, and removes the redundant RNS session-wide send mutex. r1s uses only the realm and direct
+  transport surfaces, so its Protobuf control semantics remain unchanged.
 - **Done when:** r1s composes its control protocol over a reusable meshbus direct-message boundary;
   authenticated realm peers can publish best-effort, TTL-bounded, deduplicated events by fan-out;
   announces carry discovery only; and the sender exposed to applications always comes from the
@@ -321,10 +322,10 @@ retaining the embedded-Ygg adapter.
 - [F24](#f24-brokerless-meshbus-extraction) now has generic realm, authenticated direct-message,
   and bounded pub/sub boundaries. r1s keeps the `cluster` CLI, token format, and Protobuf control
   semantics while intentionally switching IDs, proofs, credentials, and presence to the standard
-  meshbus profile. Pub/sub is one-hop
-  fan-out with exact local topics, TTL, bounded deduplication and backpressure; r1s does not recast
+  meshbus profile. Pub/sub is one-hop fan-out for concrete subjects with wildcard local
+  subscriptions, leased remote interests, TTL, bounded deduplication and backpressure; r1s does not recast
   execution messages as events. F24-04 fixed a transport-independent peer discovery contract
-  (`PeerDirectory`), F24-05 physically extracted a reusable `meshbus/rns` adapter, and F24-06 moved
+  (`PeerDirectory`), F24-05 physically extracted a reusable `meshbus/transport/rns` adapter, and F24-06 moved
   r1s onto that adapter so only r1s-specific adaptation stays in `internal/transport/rns`. F24-07
   added a cohesive Node API so
   applications do not hand-wire `Realm + RNS adapter + PeerDirectory + Bus`. F24-08 through
@@ -332,7 +333,7 @@ retaining the embedded-Ygg adapter.
   independent `github.com/mytecor/meshbus` module, document and test the wire contracts, and add
   black-box consumer coverage. F24 closes without
   subscription gossip, multi-hop routing, persistence or ACK — meshbus stays a small brokerless
-  primitive. F24-05 is complete: the public `meshbus/rns` package owns the generic
+  primitive. F24-05 is complete: the public `meshbus/transport/rns` package owns the generic
   RNS machinery (identity, destinations, announces, Links, realm authentication, ready exchange,
   Channel/Resource direct delivery, session reuse, private peer routes, bounded early-authentication state,
   PeerDirectory integration) with the
@@ -340,10 +341,10 @@ retaining the embedded-Ygg adapter.
   exposes peer-addressed `SendMessage`, `ReceivedMessage`, and peer snapshots without importing r1s. F24-06 is complete:
   the duplicated internal RNS machinery and old compatibility profile are removed. Only the r1s
   metadata projection, Protobuf envelope, and allocator discovery projection remain in
-  `internal/transport/rns`. The final `meshbus.Node` owns candidate/authenticated peer directories,
+  `internal/transport/rns`. The final `core.Node` owns candidate/authenticated peer directories,
   lifecycle and candidate stale expiry; only peers that complete realm proof and ready exchange enter `Peers` and pub/sub
   fan-out. `Publish` delivers locally by default and reports partial remote delivery. The same API
-  is covered with both an in-memory transport and `meshbus/rns`.
+  is covered with both an in-memory transport and `meshbus/transport/rns`.
 
 - [F17](#f17-execution-lease) is complete: execution lifetime is bounded by a durably persisted,
   explicitly renewed client-held lease instead of a request-time deadline. Under F22 the lease is

@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mytecor/meshbus/realm"
+	"github.com/mytecor/meshbus/security/realm"
 )
 
 const (

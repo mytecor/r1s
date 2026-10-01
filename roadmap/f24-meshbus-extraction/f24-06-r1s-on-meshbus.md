@@ -4,14 +4,14 @@
 
 ## Outcome
 
-Make r1s consume meshbus and `meshbus/rns` instead of owning the generic Reticulum transport
+Make r1s consume meshbus and `meshbus/transport/rns` instead of owning the generic Reticulum transport
 machinery. After this task, the r1s RNS layer contains only r1s-specific adaptation, removing the
 remaining layer mixing.
 
 ## Scope
 
 Refactor the current `internal/transport/rns` package. Move generic transport/session/discovery
-behavior to `meshbus/rns` (F24-05). Keep r1s-specific behavior above it:
+behavior to `meshbus/transport/rns` (F24-05). Keep r1s-specific behavior above it:
 
 - r1s allocator discovery metadata;
 - Capacity;
@@ -37,7 +37,7 @@ r1s envelope adapter
     ↓
 meshbus direct message
     ↓
-meshbus/rns
+meshbus/transport/rns
 ```
 
 and discovery:
@@ -45,7 +45,7 @@ and discovery:
 ```text
 RNS announce
     ↓
-meshbus/rns presence
+meshbus/transport/rns presence
     ↓
 r1s descriptor adapter
     ↓
@@ -55,7 +55,7 @@ allocator catalog
 ## Acceptance
 
 - Generic RNS code is no longer owned by r1s.
-- `meshbus/rns` imports no r1s packages.
+- `meshbus/transport/rns` imports no r1s packages.
 - r1s request/offer/assign behavior is unchanged.
 - Allocator discovery retains Capacity and placement information.
 - Forged `Envelope.sender` remains ineffective.
@@ -66,7 +66,7 @@ allocator catalog
 ## Implementation notes
 
 The r1s [`internal/transport/rns`](../../internal/transport/rns) package is now a thin application
-adapter over the public [`meshbus/rns`](https://github.com/mytecor/meshbus/tree/v0.2.0/rns)
+adapter over the public [`meshbus/transport/rns`](https://github.com/mytecor/meshbus/tree/v0.3.0/transport/rns)
 endpoint. It retains only the r1s
 placement/capacity/tunnel metadata projection, Protobuf envelope
 encoding/validation, and the allocator discovery channel used by the client and authority broker.
