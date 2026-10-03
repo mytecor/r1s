@@ -224,7 +224,7 @@ The RNS adapter must populate `Envelope.sender` from the authenticated link iden
 must not be allowed to assert an arbitrary sender by serializing different bytes in the envelope.
 
 Cluster membership is a separate transport-boundary authorization step implemented through the
-transport-independent [`meshbus/security/realm`](https://github.com/mytecor/meshbus/tree/v0.3.0/security/realm)
+transport-independent [`meshbus/security/realm`](https://github.com/mytecor/meshbus/tree/v0.4.0/security/realm)
 primitive. A participant loads a
 random 256-bit `ClusterKey` from `~/.config/r1s/realms/<cluster-id>` and derives the public
 identifier as `SHA-256("meshbus-realm-id-v1" || ClusterKey)`. `cluster init` and `cluster join` write

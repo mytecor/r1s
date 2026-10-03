@@ -51,11 +51,11 @@ remain enforced. `make check` passes.
 
 ## Implementation notes
 
-[`core.Node`](https://github.com/mytecor/meshbus/blob/v0.3.0/core/node.go) composes a transport through the small `NodeTransport`
+[`core.Node`](https://github.com/mytecor/meshbus/blob/v0.4.0/core/node.go) composes a transport through the small `NodeTransport`
 interface. A `TransportFactory` receives the already-composed inbound handler, while a
 `PeerObserver` reports advisory discovery and successful realm authentication separately. Node owns
 a bounded candidate directory and a session-lifetime authenticated directory; only authenticated,
-ready peers enter pub/sub fan-out. v0.3.0 adds direct interest queries and periodic leased renewals,
+ready peers enter pub/sub fan-out. Since v0.3.0, meshbus adds direct interest queries and periodic leased renewals,
 so publication targets only authenticated peers with a matching non-expired interest.
 
 The application-facing surface provides `Start`, peer-addressed `Send`, `Subscribe`, `Publish`,
@@ -67,7 +67,7 @@ interests, delivers locally unless `RemoteOnly` is set, and reports attempted, d
 failed remote sends. Existing per-item,
 queue, deduplication, discovery, and concurrency bounds remain configurable.
 
-[`meshbus/transport/rns.NewNode`](https://github.com/mytecor/meshbus/blob/v0.3.0/transport/rns/node.go) is the Reticulum-backed constructor. Applications
+[`meshbus/transport/rns.NewNode`](https://github.com/mytecor/meshbus/blob/v0.4.0/transport/rns/node.go) is the Reticulum-backed constructor. Applications
 provide realm, identity, and presence settings in the endpoint config; the constructor installs the
 composed inbound handler and directory wiring itself.
 

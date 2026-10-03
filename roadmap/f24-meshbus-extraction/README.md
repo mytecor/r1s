@@ -11,7 +11,9 @@ peer discovery and sessions, authenticated direct messages, and best-effort pub/
 allocator, execution, placement, lease, log, tunnel, and application-authorization semantics.
 The library is published independently at
 [`github.com/mytecor/meshbus`](https://github.com/mytecor/meshbus); r1s consumes the tagged module.
-The current dependency is v0.3.0, whose public packages are `core`, `security/realm`, and
+The current dependency is **v0.4.0** (which fixes the shared-instance client startup ordering
+race and was verified by the full live acceptance suite on `mytecor-homelab-ygg`), whose public
+packages are `core`, `security/realm`, and
 `transport/rns`. Its wildcard subscriptions and leased peer-interest routing stay below r1s; r1s
 continues to use authenticated direct messages for its Protobuf control protocol.
 

@@ -26,5 +26,5 @@ published independently and r1s is an ordinary tagged-version consumer.
 An external-package test runs a complete two-Node discovery, direct-authentication, subscription,
 and publication workflow using only exported APIs. Realm vectors and the public RNS presence codec
 also have external-package tests. The standalone module boundary prevents imports of r1s internal
-packages, and its own CI verifies the repository independently. r1s consumes `v0.3.0` without a
-local replacement.
+packages, and its own CI verifies the repository independently. r1s consumes the published
+tagged module (`v0.4.0` as of the last meshbus upgrade) without a local replacement.

@@ -4,7 +4,7 @@
 
 ## Outcome
 
-The public [`meshbus/core`](https://github.com/mytecor/meshbus/tree/v0.3.0/core) package provides a brokerless in-memory event bus over its
+The public [`meshbus/core`](https://github.com/mytecor/meshbus/tree/v0.4.0/core) package provides a brokerless in-memory event bus over its
 authenticated direct-message sender. `Publish` creates one event for a concrete subject and sends
 it once to each authenticated peer with a matching non-expired leased interest. Receiving uses the
 same matcher for exact and NATS-style `*` and terminal `>` local subscriptions.
