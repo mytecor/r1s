@@ -50,9 +50,6 @@ func TestLiveIdentityQuotaEnforced(t *testing.T) {
 
 	// Create the client first so its identity hash is stable before the
 	// admission policy is written (the policy names the allowed identity).
-	clientPort, allocatorPort := distinctUDPPorts(t)
-	allocatorConfig := filepath.Join(root, "allocator.conf")
-	writeRNSConfig(t, allocatorConfig, allocatorPort, clientPort)
 	allocatorIdentity := filepath.Join(root, "allocator.identity")
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	allocatorLogs := filepath.Join(root, "allocator.logs")
@@ -68,7 +65,7 @@ func TestLiveIdentityQuotaEnforced(t *testing.T) {
 	}
 	defer observer.Close()
 
-	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
+	liveClient := newAcceptanceClient(t, clientIdentity)
 	liveClient.observed = make(chan *r1sv1.Envelope, 64)
 	defer liveClient.close(t)
 	identityHex := liveClient.endpoint.Name()
@@ -92,7 +89,7 @@ func TestLiveIdentityQuotaEnforced(t *testing.T) {
 		cleanupExecutionContainers(t, observer, namespace)
 	}()
 
-	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace,
+	daemon = startAllocator(t, ctx, binary, allocatorIdentity, allocatorState, address, namespace,
 		"--logs", allocatorLogs, "--log-bytes", "4096", "--log-budget", "8192",
 		"--admission-policy", admissionPath, "--capacity", "default=2")
 	service := liveClient.waitForAllocator(t, daemon.identity)
@@ -217,9 +214,10 @@ func TestLiveIdentityQuotaEnforced(t *testing.T) {
 	// a fresh request through.
 	daemon.stop(t)
 	daemon = nil
-	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace,
+	daemon = startAllocator(t, ctx, binary, allocatorIdentity, allocatorState, address, namespace,
 		"--logs", allocatorLogs, "--log-bytes", "4096", "--log-budget", "8192",
 		"--admission-policy", admissionPath, "--capacity", "default=2")
+	liveClient.reconnect(t)
 	liveClient.waitForAllocator(t, daemon.identity)
 	drainObserved(liveClient.observed)
 	freshID, freshRequest, err := liveClient.core.CreateRequest(&r1sv1.Workload{
@@ -321,9 +319,6 @@ func TestLiveRejectionUnderLossNoDuplicateExecution(t *testing.T) {
 		t.Fatalf("build r1sd: %v\n%s", err, output)
 	}
 
-	clientPort, allocatorPort := distinctUDPPorts(t)
-	allocatorConfig := filepath.Join(root, "allocator.conf")
-	writeRNSConfig(t, allocatorConfig, allocatorPort, clientPort)
 	allocatorIdentity := filepath.Join(root, "allocator.identity")
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	clientIdentity := filepath.Join(root, "client.identity")
@@ -338,7 +333,7 @@ func TestLiveRejectionUnderLossNoDuplicateExecution(t *testing.T) {
 	}
 	defer observer.Close()
 
-	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
+	liveClient := newAcceptanceClient(t, clientIdentity)
 	liveClient.observed = make(chan *r1sv1.Envelope, 64)
 	defer liveClient.close(t)
 	var daemon *allocatorProcess
@@ -350,7 +345,7 @@ func TestLiveRejectionUnderLossNoDuplicateExecution(t *testing.T) {
 	}()
 
 	// Single slot: one running workload fills the only capacity.
-	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace,
+	daemon = startAllocator(t, ctx, binary, allocatorIdentity, allocatorState, address, namespace,
 		"--capacity", "default=1")
 	liveClient.waitForAllocator(t, daemon.identity)
 	_, assignment := startExecution(t, liveClient, daemon.destination, image, "sleep 120; exit 0")
@@ -416,9 +411,6 @@ func TestLiveSweepCrashPreservesCapacityAndAuthority(t *testing.T) {
 		t.Fatalf("build r1sd: %v\n%s", err, output)
 	}
 
-	clientPort, allocatorPort := distinctUDPPorts(t)
-	allocatorConfig := filepath.Join(root, "allocator.conf")
-	writeRNSConfig(t, allocatorConfig, allocatorPort, clientPort)
 	allocatorIdentity := filepath.Join(root, "allocator.identity")
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	allocatorLogs := filepath.Join(root, "allocator.logs")
@@ -434,7 +426,7 @@ func TestLiveSweepCrashPreservesCapacityAndAuthority(t *testing.T) {
 	}
 	defer observer.Close()
 
-	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
+	liveClient := newAcceptanceClient(t, clientIdentity)
 	liveClient.observed = make(chan *r1sv1.Envelope, 64)
 	defer liveClient.close(t)
 	var daemon *allocatorProcess
@@ -450,9 +442,10 @@ func TestLiveSweepCrashPreservesCapacityAndAuthority(t *testing.T) {
 	}()
 
 	// Aggressive cleanup cadence makes collection land within the test window.
-	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace,
+	daemon = startAllocator(t, ctx, binary, allocatorIdentity, allocatorState, address, namespace,
 		"--logs", allocatorLogs, "--log-bytes", "4096", "--log-budget", "8192",
-		"--capacity", "default=1", "--sweep-interval", "300ms")
+		"--capacity", "default=1", "--retention", "5s", "--sweep-interval", "300ms")
+	liveClient.reconnect(t)
 	liveClient.waitForAllocator(t, daemon.identity)
 
 	// Short-retention workload: completes quickly and becomes collectable.
@@ -499,9 +492,9 @@ func TestLiveSweepCrashPreservesCapacityAndAuthority(t *testing.T) {
 	// Restart from the same store and log directory. The restarted daemon must
 	// reconcile the uncollected terminal execution (or mid-cleanup tombstone)
 	// without duplicating work, then collect it on the aggressive sweep cadence.
-	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace,
+	daemon = startAllocator(t, ctx, binary, allocatorIdentity, allocatorState, address, namespace,
 		"--logs", allocatorLogs, "--log-bytes", "4096", "--log-budget", "8192",
-		"--capacity", "default=1", "--sweep-interval", "300ms")
+		"--capacity", "default=1", "--retention", "5s", "--sweep-interval", "300ms")
 	liveClient.waitForAllocator(t, daemon.identity)
 
 	// Eventually the replayed assignment answers EXPIRED: the collected result

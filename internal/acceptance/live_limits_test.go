@@ -48,9 +48,6 @@ func TestLiveResourceLimitsEnforced(t *testing.T) {
 		t.Fatalf("build r1sd: %v\n%s", err, output)
 	}
 
-	clientPort, allocatorPort := distinctUDPPorts(t)
-	allocatorConfig := filepath.Join(root, "allocator.conf")
-	writeRNSConfig(t, allocatorConfig, allocatorPort, clientPort)
 	allocatorIdentity := filepath.Join(root, "allocator.identity")
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	allocatorLogs := filepath.Join(root, "allocator.logs")
@@ -80,7 +77,7 @@ func TestLiveResourceLimitsEnforced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
+	liveClient := newAcceptanceClient(t, clientIdentity)
 	defer liveClient.close(t)
 	var daemon *allocatorProcess
 	defer func() {
@@ -90,7 +87,7 @@ func TestLiveResourceLimitsEnforced(t *testing.T) {
 		cleanupExecutionContainers(t, observer, namespace)
 	}()
 
-	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace,
+	daemon = startAllocator(t, ctx, binary, allocatorIdentity, allocatorState, address, namespace,
 		"--logs", allocatorLogs, "--log-bytes", "4096", "--log-budget", "8192", "--admission-policy", admissionPath)
 	service := liveClient.waitForAllocator(t, daemon.identity)
 	if service.Destination != daemon.destination {
@@ -111,8 +108,9 @@ func TestLiveResourceLimitsEnforced(t *testing.T) {
 	// recovered execution (reconcile reattaches without re-creating the spec).
 	daemon.stop(t)
 	daemon = nil
-	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace,
+	daemon = startAllocator(t, ctx, binary, allocatorIdentity, allocatorState, address, namespace,
 		"--logs", allocatorLogs, "--log-bytes", "4096", "--log-budget", "8192", "--admission-policy", admissionPath)
+	liveClient.reconnect(t)
 	liveClient.waitForAllocator(t, daemon.identity)
 	waitForRunningContainer(t, observer, namespace, executionID)
 	resources = containerResources(t, observer, namespace, executionID)

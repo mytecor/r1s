@@ -50,9 +50,6 @@ func TestLiveRetainedLogsSurviveRestart(t *testing.T) {
 		t.Fatalf("build r1sd: %v\n%s", err, output)
 	}
 
-	clientPort, allocatorPort := distinctUDPPorts(t)
-	allocatorConfig := filepath.Join(root, "allocator.conf")
-	writeRNSConfig(t, allocatorConfig, allocatorPort, clientPort)
 	allocatorIdentity := filepath.Join(root, "allocator.identity")
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	allocatorLogs := filepath.Join(root, "allocator.logs")
@@ -68,7 +65,7 @@ func TestLiveRetainedLogsSurviveRestart(t *testing.T) {
 	}
 	defer observer.Close()
 
-	liveClient := newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
+	liveClient := newAcceptanceClient(t, clientIdentity)
 	defer liveClient.close(t)
 	var daemon *allocatorProcess
 	defer func() {
@@ -78,7 +75,7 @@ func TestLiveRetainedLogsSurviveRestart(t *testing.T) {
 		cleanupExecutionContainers(t, observer, namespace)
 	}()
 
-	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace, "--logs", allocatorLogs, "--log-bytes", "4096", "--log-budget", "8192")
+	daemon = startAllocator(t, ctx, binary, allocatorIdentity, allocatorState, address, namespace, "--logs", allocatorLogs, "--log-bytes", "4096", "--log-budget", "8192")
 	liveClient.waitForAllocator(t, daemon.identity)
 
 	// A workload that writes bounded stdout+stderr then fails.
@@ -104,7 +101,8 @@ func TestLiveRetainedLogsSurviveRestart(t *testing.T) {
 	// survive the daemon process lifetime.
 	daemon.stop(t)
 	daemon = nil
-	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace, "--logs", allocatorLogs, "--log-bytes", "4096", "--log-budget", "8192")
+	daemon = startAllocator(t, ctx, binary, allocatorIdentity, allocatorState, address, namespace, "--logs", allocatorLogs, "--log-bytes", "4096", "--log-budget", "8192")
+	liveClient.reconnect(t)
 	liveClient.waitForAllocator(t, daemon.identity)
 
 	// After restart the per-execution logstore still holds the stream files.

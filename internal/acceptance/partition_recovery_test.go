@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
 	containerdclient "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
@@ -57,9 +55,6 @@ func TestPartitionRecovery(t *testing.T) {
 		t.Fatalf("build r1sd: %v\n%s", err, output)
 	}
 
-	clientPort, allocatorPort := distinctUDPPorts(t)
-	allocatorConfig := filepath.Join(root, "allocator.conf")
-	writeRNSConfig(t, allocatorConfig, allocatorPort, clientPort)
 	allocatorIdentity := filepath.Join(root, "allocator.identity")
 	allocatorState := filepath.Join(root, "allocator.state.db")
 	clientIdentity := filepath.Join(root, "client.identity")
@@ -87,8 +82,8 @@ func TestPartitionRecovery(t *testing.T) {
 		cleanupExecutionContainers(t, observer, namespace)
 	}()
 
-	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace)
-	liveClient = newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
+	daemon = startAllocator(t, ctx, binary, allocatorIdentity, allocatorState, address, namespace)
+	liveClient = newAcceptanceClient(t, clientIdentity)
 	service := liveClient.waitForAllocator(t, daemon.identity)
 	if service.Destination != daemon.destination {
 		t.Fatalf("discovered allocator destination = %s, want %s", service.Destination, daemon.destination)
@@ -102,32 +97,31 @@ func TestPartitionRecovery(t *testing.T) {
 	liveClient.send(t, daemon.destination, assignment)
 	assertSingleRunningContainer(t, observer, namespace, executionID)
 
-	// The one-shot client goes offline. The workload remains running independently
-	// of the RNS link and the client-side process lifetime.
-	liveClient.close(t)
-	liveClient = nil
+	// Disconnect the run controller's transport while preserving its in-memory
+	// request and assignment state. Execution lifetime does not follow the link.
+	liveClient.disconnect(t)
 	time.Sleep(500 * time.Millisecond)
 	assertSingleRunningContainer(t, observer, namespace, executionID)
 
-	// Restart r1sd while the client remains offline. The old process releases its
-	// containerd connection without stopping the task; the new process reconciles
-	// the same durable execution through Recover rather than Start.
+	// Restart r1sd, breaking the allocator control link. The old process releases
+	// its containerd connection without stopping the task; the new process
+	// reconciles the same durable execution through Recover rather than Start.
 	daemon.stop(t)
 	daemon = nil
 	assertSingleRunningContainer(t, observer, namespace, executionID)
-	daemon = startAllocator(t, ctx, binary, allocatorConfig, allocatorIdentity, allocatorState, address, namespace)
+	daemon = startAllocator(t, ctx, binary, allocatorIdentity, allocatorState, address, namespace)
 	if daemon.destination != service.Destination || daemon.identity != service.Identity {
 		t.Fatalf("allocator identity changed across restart: before=%+v after=%s/%s", service, daemon.destination, daemon.identity)
 	}
 	assertSingleRunningContainer(t, observer, namespace, executionID)
 
-	// Completion and cleanup happen while the client is still offline.
+	// Completion and cleanup happen after allocator recovery without restarting
+	// the workload.
 	waitForContainerCount(t, observer, namespace, executionID, 0, 30*time.Second)
 
-	// Bring the client back online as a fresh ephemeral process. The client keeps
-	// no durable state; Select resolves the request against the allocator's
-	// durable snapshots, which replay the exact original assignment.
-	liveClient = newAcceptanceClient(t, clientPort, allocatorPort, clientIdentity)
+	// The allocator's durable snapshots replay the exact original assignment;
+	// no client state is restored from disk.
+	liveClient.connect(t)
 	liveClient.waitForAllocator(t, daemon.identity)
 	replayedDestination, replayedAssignment, err := liveClient.core.Select(requestID)
 	if err != nil {
@@ -176,40 +170,41 @@ type acceptanceClient struct {
 	core     *client.Client
 	cancel   context.CancelFunc
 	closed   bool
+	identity string
+	path     string
 	// observed receives every inbound envelope (after core.Handle); a test
 	// that subscribes can inspect CommandError rejections at the wire level.
 	observed chan *r1sv1.Envelope
 }
 
-func newAcceptanceClient(t *testing.T, listenPort, targetPort int, identityPath string) *acceptanceClient {
+func newAcceptanceClient(t *testing.T, identityPath string) *acceptanceClient {
 	t.Helper()
-	configuration := common.DefaultConfig()
-	configuration.EnableTransport = false
-	configuration.ShareInstance = false
-	configuration.ConfigPath = filepath.Join(filepath.Dir(identityPath), "reticulum-client")
-	configuration.Interfaces = map[string]*common.InterfaceConfig{
-		"f5-loopback": {
-			Type:       "UDPInterface",
-			Enabled:    true,
-			Address:    fmt.Sprintf("127.0.0.1:%d", listenPort),
-			TargetHost: fmt.Sprintf("127.0.0.1:%d", targetPort),
-		},
-	}
+	result := &acceptanceClient{path: identityPath}
+	result.connect(t)
+	return result
+}
 
-	result := &acceptanceClient{}
+func (c *acceptanceClient) connect(t *testing.T) {
+	t.Helper()
+	if c.closed {
+		t.Fatal("connect closed acceptance client")
+	}
+	if c.endpoint != nil {
+		t.Fatal("acceptance client is already connected")
+	}
 	endpoint, err := rns.New(rns.Config{
-		Reticulum: configuration, IdentitySource: identityPath, ClusterKey: acceptanceClusterKey, NetworkWait: 15 * time.Second,
+		IdentitySource: c.path, ClusterKey: acceptanceClusterKey, NetworkWait: 15 * time.Second,
 	}, func(handlerContext context.Context, envelope *r1sv1.Envelope) error {
 		identityKey := hex.EncodeToString(envelope.GetSender())
-		if destination, ok := result.endpoint.DestinationForIdentity(identityKey); ok {
-			if registerErr := result.core.RegisterAllocator(client.Allocator{Identity: envelope.GetSender(), Destination: destination}); registerErr != nil {
+		if destination, ok := c.endpoint.DestinationForIdentity(identityKey); ok {
+			if registerErr := c.core.RegisterAllocator(client.Allocator{Identity: envelope.GetSender(), Destination: destination}); registerErr != nil {
 				return registerErr
 			}
 		}
-		handleErr := result.core.Handle(handlerContext, envelope)
-		if result.observed != nil {
+		handleErr := c.core.Handle(handlerContext, envelope)
+		if c.observed != nil {
 			select {
-			case result.observed <- envelope:
+			case c.observed <- envelope:
 			default:
 			}
 		}
@@ -218,23 +213,52 @@ func newAcceptanceClient(t *testing.T, listenPort, targetPort int, identityPath 
 	if err != nil {
 		t.Fatal(err)
 	}
-	result.endpoint = endpoint
+	c.endpoint = endpoint
 	identity, err := hex.DecodeString(endpoint.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
-	result.core, err = client.New(client.Config{Identity: identity})
-	if err != nil {
+	if c.core == nil {
+		c.core, err = client.New(client.Config{Identity: identity})
+		if err != nil {
+			_ = endpoint.Close()
+			t.Fatal(err)
+		}
+		c.identity = endpoint.Name()
+	} else if endpoint.Name() != c.identity {
 		_ = endpoint.Close()
-		t.Fatal(err)
+		t.Fatalf("acceptance client identity changed across reconnect: %s -> %s", c.identity, endpoint.Name())
 	}
 	startContext, cancel := context.WithCancel(context.Background())
-	result.cancel = cancel
+	c.cancel = cancel
 	if err := endpoint.Start(startContext); err != nil {
-		result.close(t)
+		cancel()
+		_ = endpoint.Close()
+		c.endpoint = nil
+		c.cancel = nil
 		t.Fatal(err)
 	}
-	return result
+}
+
+func (c *acceptanceClient) disconnect(t *testing.T) {
+	t.Helper()
+	if c.endpoint == nil {
+		return
+	}
+	if c.cancel != nil {
+		c.cancel()
+	}
+	if err := c.endpoint.Close(); err != nil {
+		t.Errorf("close client endpoint: %v", err)
+	}
+	c.endpoint = nil
+	c.cancel = nil
+}
+
+func (c *acceptanceClient) reconnect(t *testing.T) {
+	t.Helper()
+	c.disconnect(t)
+	c.connect(t)
 }
 
 func (c *acceptanceClient) close(t *testing.T) {
@@ -242,11 +266,8 @@ func (c *acceptanceClient) close(t *testing.T) {
 	if c.closed {
 		return
 	}
+	c.disconnect(t)
 	c.closed = true
-	c.cancel()
-	if err := c.endpoint.Close(); err != nil {
-		t.Errorf("close client endpoint: %v", err)
-	}
 }
 
 func (c *acceptanceClient) waitForAllocator(t *testing.T, identity string) rns.Service {
@@ -277,11 +298,18 @@ func (c *acceptanceClient) waitForAllocator(t *testing.T, identity string) rns.S
 
 func (c *acceptanceClient) send(t *testing.T, destination string, envelope *r1sv1.Envelope) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	if err := c.endpoint.Send(ctx, destination, envelope); err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(40 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
+		lastErr = c.endpoint.Send(ctx, destination, envelope)
+		cancel()
+		if lastErr == nil {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
+	t.Fatalf("send %s to %s after retry: %v", envelope.GetMessageId(), destination, lastErr)
 }
 
 func startExecution(t *testing.T, c *acceptanceClient, destination, image, script string) (string, *r1sv1.Envelope) {
@@ -323,7 +351,7 @@ type allocatorProcess struct {
 	stopped     bool
 }
 
-func startAllocator(t *testing.T, ctx context.Context, binary, config, identity, state, address, namespace string, extra ...string) *allocatorProcess {
+func startAllocator(t *testing.T, ctx context.Context, binary, identity, state, address, namespace string, extra ...string) *allocatorProcess {
 	t.Helper()
 	clusterHome := identity + ".home"
 	clusterID, err := cluster.SaveCredential(filepath.Join(clusterHome, cluster.DefaultRelPath), acceptanceClusterKey)
@@ -331,7 +359,6 @@ func startAllocator(t *testing.T, ctx context.Context, binary, config, identity,
 		t.Fatal(err)
 	}
 	arguments := []string{
-		"--rns-config", config,
 		"--identity", identity,
 		"--state", state,
 		"--capacity", "default=1",
@@ -594,49 +621,6 @@ func waitUntil(t *testing.T, timeout time.Duration, predicate func() (bool, erro
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-}
-
-func writeRNSConfig(t *testing.T, path string, listenPort, targetPort int) {
-	t.Helper()
-	configuration := fmt.Sprintf(`[reticulum]
-enable_transport = No
-share_instance = No
-
-[interfaces]
-  [[f5-loopback]]
-    type = UDPInterface
-    enabled = Yes
-    listen_ip = 127.0.0.1
-    listen_port = %d
-    target_host = 127.0.0.1
-    target_port = %d
-`, listenPort, targetPort)
-	if err := os.WriteFile(path, []byte(configuration), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func distinctUDPPorts(t *testing.T) (int, int) {
-	t.Helper()
-	first := freeUDPPort(t)
-	second := freeUDPPort(t)
-	for second == first {
-		second = freeUDPPort(t)
-	}
-	return first, second
-}
-
-func freeUDPPort(t *testing.T) int {
-	t.Helper()
-	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := listener.LocalAddr().(*net.UDPAddr).Port
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return port
 }
 
 func mustWorkingDirectory(t *testing.T) string {

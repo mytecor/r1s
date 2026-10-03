@@ -37,7 +37,9 @@ import hashlib
 import hmac
 import json
 import os
+import queue
 import sys
+import threading
 import time
 import urllib.parse
 
@@ -170,6 +172,7 @@ class Peer:
             ch = link.get_channel()
             ch.register_message_type(AuthMessage)
             ch.register_message_type(EnvelopeMessage)
+            outbound = queue.Queue()
             state = {
                 "remote": None,
                 "nonce": None,
@@ -177,6 +180,30 @@ class Peer:
                 "peer_ready": False,
                 "pending": [],
             }
+
+            # The remote-identified callback can run before the Python
+            # Channel outlet becomes usable. Sending directly from that
+            # callback intermittently raises ME_LINK_NOT_READY and aborts the
+            # realm handshake. Keep callback execution non-blocking and
+            # serialize every outbound auth/envelope message through a worker
+            # that waits for Channel readiness while preserving wire order.
+            def send_when_ready():
+                while True:
+                    message = outbound.get()
+                    while True:
+                        if link.status == RNS.Link.CLOSED:
+                            return
+                        if ch.is_ready_to_send():
+                            try:
+                                ch.send(message)
+                                break
+                            except Exception:
+                                # Readiness can change between the check and
+                                # send. Retry until the link closes.
+                                pass
+                        time.sleep(0.01)
+
+            threading.Thread(target=send_when_ready, daemon=True).start()
 
             def proof(nonce, challenger, responder):
                 return hmac.new(
@@ -192,7 +219,7 @@ class Peer:
                 )
                 sys.stderr.write("CHANNEL_MSG " + str(len(message.data)) + "\n")
                 sys.stderr.flush()
-                ch.send(EnvelopeMessage(message.data))
+                outbound.put(EnvelopeMessage(message.data))
 
             def deliver_pending_if_ready():
                 if not state["local_authenticated"] or not state["peer_ready"]:
@@ -205,7 +232,7 @@ class Peer:
             def identified(_link, remote):
                 state["remote"] = remote.hash
                 state["nonce"] = os.urandom(32)
-                ch.send(AuthMessage(AUTH_CHALLENGE, state["nonce"]))
+                outbound.put(AuthMessage(AUTH_CHALLENGE, state["nonce"]))
 
             link.set_remote_identified_callback(identified)
             if link.get_remote_identity() is not None:
@@ -217,7 +244,7 @@ class Peer:
                     if remote is None:
                         return True
                     if message.kind == AUTH_CHALLENGE and len(message.proof) == 0:
-                        ch.send(
+                        outbound.put(
                             AuthMessage(
                                 AUTH_RESPONSE,
                                 message.nonce,
@@ -233,7 +260,7 @@ class Peer:
                         )
                     ):
                         state["local_authenticated"] = True
-                        ch.send(AuthMessage(AUTH_READY))
+                        outbound.put(AuthMessage(AUTH_READY))
                         deliver_pending_if_ready()
                     elif message.kind == AUTH_READY:
                         state["peer_ready"] = True
