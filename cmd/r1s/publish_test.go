@@ -1,10 +1,15 @@
 package main
 
 import (
-	"errors"
 	"net"
 	"testing"
+
+	r1sclient "github.com/mytecor/r1s/client"
 )
+
+func publisherTestApplication() *application {
+	return &application{controller: &r1sclient.Client{}}
+}
 
 func TestParsePort(t *testing.T) {
 	cases := []struct {
@@ -91,7 +96,7 @@ func TestParsePublishFlag(t *testing.T) {
 // route, so the allocator authorizes each container port exactly once.
 func TestPublisherTargetDedup(t *testing.T) {
 	mappings := []portMapping{{host: 18000, container: 80}, {host: 18080, container: 8080}, {host: 18001, container: 80}}
-	p, err := newRunPublisher(t.Context(), &application{}, mappings)
+	p, err := newRunPublisher(t.Context(), publisherTestApplication(), mappings)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,55 +130,26 @@ func TestPublisherTargetDedup(t *testing.T) {
 // forwarding starts.
 func TestPublisherDupBindFails(t *testing.T) {
 	mappings := []portMapping{{host: 18010, container: 80}, {host: 18010, container: 8080}}
-	if _, err := newRunPublisher(t.Context(), &application{}, mappings); err == nil {
+	if _, err := newRunPublisher(t.Context(), publisherTestApplication(), mappings); err == nil {
 		t.Fatal("duplicate host port bind succeeded")
 	}
 }
 
-// TestPublisherSetActiveClosesStalePair is the F22-06 rebinding guard: pointing
-// the publisher at a new execution closes the old execution's pair so its
-// streams end, without touching the listeners, and a later connection
-// re-establishes against the replacement.
-func TestPublisherSetActiveClosesStalePair(t *testing.T) {
-	p, err := newRunPublisher(t.Context(), &application{}, []portMapping{{host: 18020, container: 80}})
+// TestPublisherSetActiveKeepsListener verifies the CLI adapter delegates
+// attempt selection to client.RunTunnel without rebinding its local listener.
+func TestPublisherSetActiveKeepsListener(t *testing.T) {
+	p, err := newRunPublisher(t.Context(), publisherTestApplication(), []portMapping{{host: 18020, container: 80}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer p.close()
 
-	// A stub pair conn records Close; the publisher only inspects executionID
-	// and calls Close on the stale pair during rebinding.
-	stale := &fakePairConn{}
-	p.pair = &tunnelPair{executionID: "execution-attempt-1", ports: map[uint16]bool{80: true}, conn: stale}
-
+	p.SetActive("execution-attempt-1")
 	p.SetActive("execution-attempt-2")
-	if !stale.closed {
-		t.Fatal("SetActive did not close the stale pair conn")
-	}
-	if p.pair != nil {
-		t.Fatal("SetActive did not drop the stale pair cache")
-	}
 	// The listener is still bound: a fresh connection can be accepted.
 	conn, err := net.Dial("tcp", p.listeners[0].Addr().String())
 	if err != nil {
 		t.Fatalf("listener not bound after rebinding: %v", err)
 	}
 	conn.Close()
-	// Same-execution SetActive must not disturb an established pair.
-	p.pair = &tunnelPair{executionID: "execution-attempt-2", ports: map[uint16]bool{80: true}, conn: stale}
-	stale.closed = false
-	p.SetActive("execution-attempt-2")
-	if stale.closed || p.pair == nil {
-		t.Fatal("SetActive for the same execution disturbed the pair")
-	}
 }
-
-// fakePairConn is a minimal tunnel.Conn that records whether it was closed.
-type fakePairConn struct{ closed bool }
-
-func (f *fakePairConn) Read(p []byte) (int, error)  { return 0, errors.New("closed") }
-func (f *fakePairConn) Write(p []byte) (int, error) { return 0, errors.New("closed") }
-func (f *fakePairConn) Close() error                { f.closed = true; return nil }
-func (f *fakePairConn) PeerKey() []byte             { return nil }
-func (f *fakePairConn) CloseRead() error            { return nil }
-func (f *fakePairConn) CloseWrite() error           { return nil }

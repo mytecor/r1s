@@ -110,6 +110,7 @@ type Client struct {
 	waiters       map[string][]chan *r1sv1.Envelope
 	stateChanged  chan struct{}
 	logMu         sync.Mutex
+	runTunnels    map[*RunTunnel]struct{}
 }
 
 // controllerEndpoint is the authenticated transport surface needed by the
@@ -156,7 +157,11 @@ func normalizeConfig(config *Config) error {
 }
 
 func newClientState() *Client {
-	return &Client{waiters: make(map[string][]chan *r1sv1.Envelope), stateChanged: make(chan struct{}, 1)}
+	return &Client{
+		waiters:      make(map[string][]chan *r1sv1.Envelope),
+		stateChanged: make(chan struct{}, 1),
+		runTunnels:   make(map[*RunTunnel]struct{}),
+	}
 }
 
 func (c *Client) installEndpoint(endpoint controllerEndpoint, identity string) error {
@@ -203,8 +208,9 @@ func (c *Client) Start(ctx context.Context) error {
 	return nil
 }
 
-// Close stops the endpoint. Any execution continues until its allocator-side
-// lease expires; transport connection state never determines its lifetime.
+// Close stops every run tunnel and the control endpoint. Any execution
+// continues until its allocator-side lease expires; transport connection state
+// never determines its lifetime.
 // The returned slice reports offer releases that could not be delivered before
 // shutdown and will therefore fall back to allocator-side offer expiry.
 func (c *Client) Close() []PendingRelease {
@@ -216,7 +222,15 @@ func (c *Client) Close() []PendingRelease {
 	c.closed = true
 	stopReleases := c.offerReleases
 	c.offerReleases = nil
+	tunnels := make([]*RunTunnel, 0, len(c.runTunnels))
+	for runTunnel := range c.runTunnels {
+		tunnels = append(tunnels, runTunnel)
+	}
+	c.runTunnels = nil
 	c.mu.Unlock()
+	for _, runTunnel := range tunnels {
+		_ = runTunnel.close(false)
+	}
 
 	var pending []PendingRelease
 	if stopReleases != nil {
@@ -229,6 +243,28 @@ func (c *Client) Close() []PendingRelease {
 	}
 	_ = c.endpoint.Close()
 	return pending
+}
+
+func (c *Client) registerRunTunnel(runTunnel *RunTunnel) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return ErrClosed
+	}
+	if len(c.runTunnels) != 0 {
+		return ErrRunTunnelActive
+	}
+	if c.runTunnels == nil {
+		c.runTunnels = make(map[*RunTunnel]struct{})
+	}
+	c.runTunnels[runTunnel] = struct{}{}
+	return nil
+}
+
+func (c *Client) unregisterRunTunnel(runTunnel *RunTunnel) {
+	c.mu.Lock()
+	delete(c.runTunnels, runTunnel)
+	c.mu.Unlock()
 }
 
 // PendingRelease describes an offer release that will instead be reclaimed by

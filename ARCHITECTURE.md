@@ -160,7 +160,10 @@ and keeps its own in-memory client engine; the broker owns no request, lease, re
 tunnel, or desired state. The controller owns discovery, deterministic offer selection, loser
 release, assignment,
 authenticated inspection, lease renewal, conclusive-loss rescheduling, and cancellation. CLI log
-tailing and local port binding adapt the controller's explicit `Logs` and `OpenTunnel` operations.
+tailing adapts the controller's explicit `Logs` operation. Local port binding is a TCP presentation
+adapter over the public run-owned `RunTunnel`; pair establishment, multiplexing, attempt rebinding,
+and the embedded Yggdrasil client edge remain reusable implementation details of the `client`
+package.
 Terminal-record retention on the allocator is an operator policy, not workload input.
 
 Build-time tools such as `protoc-gen-go` are not r1s commands and are not shipped as system
@@ -365,7 +368,9 @@ server. Explicit standalone transports remain confined to deterministic and live
 Execution-tunnel application bytes use the dedicated embedded Yggdrasil adapter. RNS authorizes
 and transports the bounded owner-authenticated open exchange; the resulting peer-key-pinned Ygg
 mesh pair carries the multiplexed TCP streams. Application bytes never move onto the RNS control
-plane.
+plane. Public callers use the transport-agnostic `RunTunnel.Dial` byte-stream API: one lazy pair is
+reused for concurrent streams to an active attempt, and changing the active execution closes the
+old pair and streams before a later dial establishes the replacement.
 
 Application data transfer outside the execution tunnel remains out of scope until separately
 designed.

@@ -3,7 +3,7 @@
 Corresponds to the
 [F23 milestone](../../ROADMAP.md#f23-public-run-controller-library-and-cluster-authority-context).
 
-**Status:** ✅ Complete
+**Status:** ✅ Complete — including F23-02 public run-owned tunnel data plane
 
 ## Outcome
 
@@ -19,12 +19,15 @@ copied from workload data is trusted.
 The controller owns discovery, request creation, deterministic offer selection, losing-offer
 release, assignment, lease renewal, authenticated inspection, and conclusive-loss rescheduling.
 Container stdout/stderr remains allocator-local and is read only through the explicit bounded
-`Logs` operation. `OpenTunnel` performs the authenticated control-plane authorization without
-moving application bytes onto RNS or coupling the core to the selected tunnel adapter.
+`Logs` operation. `RunTunnel` owns the logical-run tunnel data plane: it lazily creates the embedded
+client edge, performs the existing authenticated `OpenTunnel` control exchange, multiplexes streams
+over one pair for the current attempt, and closes that pair when `SetActive` selects a replacement.
+The public surface remains a transport-agnostic byte stream and application bytes never move onto
+RNS.
 
 The `r1s run` command is an adapter over the same API. It retains command parsing,
 foreground/detached process lifetime, terminal/file presentation, and local published-port
-listeners, but owns no separate request/lease/reschedule implementation.
+listeners, but owns no separate request/lease/reschedule or tunnel-pair implementation.
 
 ## Cluster authority context
 
@@ -67,6 +70,13 @@ listeners, but owns no separate request/lease/reschedule implementation.
 - `r1s run` uses `client.Run` for foreground and detached workloads.
 - Log transfer occurs only when `Logs` is called explicitly.
 - Tunnel control is owner-authenticated and the application-data adapter remains outside the
-  public run controller.
+  core; external Go code can open streams through `RunTunnel` without importing an internal
+  transport package.
+- The tunnel edge is lazy, concurrent dials reuse one pair, attempt replacement terminates old
+  streams without rerouting them, and undeclared target ports fail locally and at the allocator.
 - Separate clients use separate ephemeral identities; a client rejects a second run.
 - `make check` passes.
+
+## Tasks
+
+- [F23-02 — Public run-owned tunnel data plane](./f23-02-public-run-tunnel.md) — complete

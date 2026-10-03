@@ -287,9 +287,9 @@ retaining the embedded-Ygg adapter.
 > directly in RNS or use the local `cluster use` authority broker, which isolates the cluster key
 > and creates one transport endpoint per run without owning run state.
 
-- **Status:** ✅ complete
+- **Status:** ✅ complete — including F23-02 public run-owned tunnel data plane
 - **Done when:** `github.com/mytecor/r1s/client` owns discovery, selection, assignment, lease
-  renewal, conclusive-loss rescheduling, explicit log reads, and authenticated tunnel-open control;
+  renewal, conclusive-loss rescheduling, explicit log reads, and the run-owned tunnel data plane;
   `r1s run` is a presentation/process-lifecycle adapter over it; foreground `cluster use`, explicit
   `cluster use -d`, `status`, and `unset` manage a key-isolating authority context; and each
   controller has fresh per-run RNS authority with no durable client state.
@@ -416,7 +416,8 @@ retaining the embedded-Ygg adapter.
   foreground/detached process lifecycle, output routing, and local listener binding around that
   library instead of owning a private orchestration implementation. `cluster use` keeps the
   selected key in a local authority broker and gives every run its own broker-backed RNS endpoint;
-  the broker owns no run lifecycle.
+  the broker owns no run lifecycle. F23-02 moves the logical-run tunnel lifecycle and lazy embedded
+  Ygg edge behind `client.RunTunnel`; CLI `-p` now only binds loopback TCP and relays public streams.
 
 The remaining live Linux legs F8–F11 were completed on `mytecor-homelab` on 2026-09-15
 (containerd 2.3.4 / runc 1.4.3 / Go 1.26.7 / digest-pinned Alpine fixture) and the whole live

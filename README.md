@@ -109,10 +109,35 @@ result, err := controller.Run(ctx, &r1sv1.ExecutionRequest{
 
 `Run` owns discovery, offer selection and release, assignment, lease renewal, authenticated
 inspection, and conclusive-loss rescheduling. It never transfers container output implicitly;
-applications call `Logs` for an explicit authenticated bounded read. `OpenTunnel` performs the
-authenticated tunnel control request while leaving application-data transport ownership with the
-caller. One `Client` owns exactly one logical run; create another client to obtain fresh authority
-for another run.
+applications call `Logs` for an explicit authenticated bounded read. Applications that need byte
+streams into the current attempt create a lazy run-owned tunnel and switch it from the run event
+callback:
+
+```go
+runTunnel, err := controller.NewRunTunnel([]client.TunnelTarget{{Port: 9000}})
+if err != nil {
+    return err
+}
+defer runTunnel.Close()
+
+result, err := controller.Run(ctx, request, client.RunOptions{
+    OnEvent: func(event client.Event) {
+        if event.Kind == client.EventAttemptAssigned {
+            runTunnel.SetActive(event.Attempt.ExecutionID)
+        }
+    },
+})
+// A concurrent goroutine may call runTunnel.Dial(ctx, 9000).
+```
+
+`RunTunnel.Dial` lazily creates the private Yggdrasil edge and reuses one authenticated,
+multiplexed pair for the active execution. Switching attempts closes that pair and its existing
+streams; a later dial establishes a pair to the replacement, so application protocols reconnect
+explicitly rather than being silently rerouted. The target list is fixed at construction and is
+validated again by the allocator. The lower-level `OpenTunnel` control operation remains available,
+but consumers of `RunTunnel` do not import any internal transport package. One `Client` owns exactly
+one logical run and one live run tunnel; create another client to obtain fresh authority for another
+run.
 
 ## Quick start
 
