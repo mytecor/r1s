@@ -6,3 +6,7 @@ coverage.out
 
 # CocoIndex Code (ccc)
 /.cocoindex_code/
+
+# Python reference peer build artifacts
+__pycache__/
+*.pyc

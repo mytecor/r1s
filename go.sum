@@ -142,6 +142,8 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/mytecor/meshbus v0.3.0 h1:wiysWyxUkb2ST3CfHyhogE6qm3sn3ldKCDAyTMu13KQ=
 github.com/mytecor/meshbus v0.3.0/go.mod h1:m1qbhfDYwnOVX3rsUtNnehU6YaMv02g+TbRRJy263Po=
+github.com/mytecor/meshbus v0.4.0 h1:H3VH/YH2+CnPGhqbJFNceyzHQidsSIOKffI9zP/78vM=
+github.com/mytecor/meshbus v0.4.0/go.mod h1:m1qbhfDYwnOVX3rsUtNnehU6YaMv02g+TbRRJy263Po=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
