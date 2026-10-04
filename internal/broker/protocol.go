@@ -23,6 +23,7 @@ type frame struct {
 	NetworkWait int64           `json:"networkWait,omitempty"`
 	Target      string          `json:"target,omitempty"`
 	Destination string          `json:"destination,omitempty"`
+	Bootstrap   []string        `json:"bootstrap,omitempty"`
 	Envelope    []byte          `json:"envelope,omitempty"`
 	Service     json.RawMessage `json:"service,omitempty"`
 }

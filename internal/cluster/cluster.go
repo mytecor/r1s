@@ -19,10 +19,13 @@ import (
 )
 
 const (
-	KeySize        = realm.KeySize
-	tokenPrefix    = "r1s1:"
-	stateVersion   = 1
-	DefaultRelPath = ".config/r1s/realms"
+	KeySize                  = realm.KeySize
+	tokenPrefix              = "r1s1:"
+	tokenVersion             = 1
+	stateVersion             = 1
+	DestinationSize          = 16
+	MaxBootstrapDestinations = 32
+	DefaultRelPath           = ".config/r1s/realms"
 )
 
 var (
@@ -35,8 +38,23 @@ var (
 )
 
 type State struct {
-	Version int    `json:"version"`
-	Key     string `json:"key"`
+	Version               int      `json:"version"`
+	Key                   string   `json:"key"`
+	BootstrapDestinations []string `json:"bootstrapDestinations,omitempty"`
+}
+
+// Credential keeps the realm membership secret separate from public RNS
+// routing hints. Bootstrap destinations grant no authority; every connection
+// still has to prove possession of Key before an r1s envelope is delivered.
+type Credential struct {
+	Key                   []byte
+	BootstrapDestinations []string
+}
+
+type membershipToken struct {
+	Version               int      `json:"version"`
+	Key                   string   `json:"key"`
+	BootstrapDestinations []string `json:"bootstrapDestinations"`
 }
 
 func Generate() ([]byte, error) {
@@ -80,7 +98,73 @@ func Token(key []byte) (string, error) {
 }
 
 func ParseToken(value string) ([]byte, error) {
+	credential, err := ParseCredentialToken(value)
+	if err != nil {
+		return nil, err
+	}
+	return credential.Key, nil
+}
+
+// CredentialToken serializes a membership for transfer. Key-only credentials
+// encode directly; credentials with routing hints serialize a versioned
+// payload under the same r1s1 prefix. The hints remain public, non-authoritative data.
+func CredentialToken(credential Credential) (string, error) {
+	keyToken, err := Token(credential.Key)
+	if err != nil {
+		return "", err
+	}
+	destinations, err := NormalizeBootstrapDestinations(credential.BootstrapDestinations)
+	if err != nil {
+		return "", err
+	}
+	if len(destinations) == 0 {
+		return keyToken, nil
+	}
+	payload, err := json.Marshal(membershipToken{
+		Version: tokenVersion, Key: keyToken, BootstrapDestinations: destinations,
+	})
+	if err != nil {
+		return "", err
+	}
+	return tokenPrefix + base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+// ParseCredentialToken parses a membership token carrying a realm key and optional
+// bounded public allocator destinations.
+func ParseCredentialToken(value string) (Credential, error) {
 	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, tokenPrefix) {
+		return Credential{}, fmt.Errorf("%w: expected %q prefix", ErrInvalidToken, tokenPrefix)
+	}
+	raw := strings.TrimPrefix(value, tokenPrefix)
+	payload, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return Credential{}, fmt.Errorf("%w: invalid payload", ErrInvalidToken)
+	}
+	if len(payload) == KeySize {
+		return Credential{Key: payload}, nil
+	}
+	var token membershipToken
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&token); err != nil {
+		return Credential{}, fmt.Errorf("%w: invalid payload: %v", ErrInvalidToken, err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) || token.Version != tokenVersion {
+		return Credential{}, fmt.Errorf("%w: unsupported payload", ErrInvalidToken)
+	}
+	key, err := parseKeyToken(token.Key)
+	if err != nil {
+		return Credential{}, err
+	}
+	destinations, err := NormalizeBootstrapDestinations(token.BootstrapDestinations)
+	if err != nil || len(destinations) == 0 {
+		return Credential{}, fmt.Errorf("%w: invalid bootstrap destinations", ErrInvalidToken)
+	}
+	return Credential{Key: key, BootstrapDestinations: destinations}, nil
+}
+
+func parseKeyToken(value string) ([]byte, error) {
 	if !strings.HasPrefix(value, tokenPrefix) {
 		return nil, fmt.Errorf("%w: expected %q prefix", ErrInvalidToken, tokenPrefix)
 	}
@@ -91,28 +175,79 @@ func ParseToken(value string) ([]byte, error) {
 	return key, nil
 }
 
+// SaveMembership persists a transferred credential and merges its validated
+// public routing hints with any hints already learned locally.
+func SaveMembership(directory string, credential Credential) (string, error) {
+	id, err := SaveCredential(directory, credential.Key)
+	if err != nil {
+		return "", err
+	}
+	for _, destination := range credential.BootstrapDestinations {
+		if err := RecordBootstrapDestination(filepath.Join(directory, id), destination); err != nil {
+			return "", err
+		}
+	}
+	return id, nil
+}
+
 func Load(path string) ([]byte, error) {
+	credential, err := LoadCredential(path)
+	if err != nil {
+		return nil, err
+	}
+	return credential.Key, nil
+}
+
+// LoadCredential reads the cluster state and its bounded public bootstrap destinations.
+func LoadCredential(path string) (Credential, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read cluster state: %w", err)
+		return Credential{}, fmt.Errorf("read cluster state: %w", err)
 	}
 	var state State
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&state); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidState, err)
+		return Credential{}, fmt.Errorf("%w: %v", ErrInvalidState, err)
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("%w: trailing data", ErrInvalidState)
+		return Credential{}, fmt.Errorf("%w: trailing data", ErrInvalidState)
 	}
 	if state.Version != stateVersion {
-		return nil, fmt.Errorf("%w: unsupported version %d", ErrInvalidState, state.Version)
+		return Credential{}, fmt.Errorf("%w: unsupported version %d", ErrInvalidState, state.Version)
 	}
-	key, err := ParseToken(state.Key)
+	key, err := parseKeyToken(state.Key)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidState, err)
+		return Credential{}, fmt.Errorf("%w: %v", ErrInvalidState, err)
 	}
-	return key, nil
+	destinations, err := NormalizeBootstrapDestinations(state.BootstrapDestinations)
+	if err != nil {
+		return Credential{}, fmt.Errorf("%w: %v", ErrInvalidState, err)
+	}
+	return Credential{Key: key, BootstrapDestinations: destinations}, nil
+}
+
+// NormalizeBootstrapDestinations validates, lower-cases, deduplicates, sorts,
+// and bounds 16-byte RNS destination hashes.
+func NormalizeBootstrapDestinations(destinations []string) ([]string, error) {
+	unique := make(map[string]struct{}, len(destinations))
+	for _, destination := range destinations {
+		destination = strings.ToLower(strings.TrimSpace(destination))
+		decoded, err := hex.DecodeString(destination)
+		if err != nil || len(decoded) != DestinationSize {
+			return nil, fmt.Errorf("invalid bootstrap destination %q: expected a %d-byte hexadecimal hash", destination, DestinationSize)
+		}
+		unique[destination] = struct{}{}
+	}
+	if len(unique) > MaxBootstrapDestinations {
+		return nil, fmt.Errorf("too many bootstrap destinations: %d exceeds %d", len(unique), MaxBootstrapDestinations)
+	}
+	result := make([]string, 0, len(unique))
+	for destination := range unique {
+		result = append(result, destination)
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 // SaveCredential atomically stores key under its full derived public ID. An
@@ -227,39 +362,119 @@ func List(directory string) ([]string, error) {
 
 // Resolve loads the credential selected by a unique public-ID prefix.
 func Resolve(directory, selector string) ([]byte, string, error) {
+	credential, id, err := ResolveCredential(directory, selector)
+	if err != nil {
+		return nil, "", err
+	}
+	return credential.Key, id, nil
+}
+
+// ResolveCredential loads the selected membership and its durable public
+// bootstrap hints.
+func ResolveCredential(directory, selector string) (Credential, string, error) {
 	selector = strings.TrimSpace(strings.ToLower(selector))
 	if selector == "" {
-		return nil, "", fmt.Errorf("%w: empty cluster identifier", ErrNotFound)
+		return Credential{}, "", fmt.Errorf("%w: empty cluster identifier", ErrNotFound)
 	}
 	if len(selector) > sha256.Size*2 {
-		return nil, "", fmt.Errorf("%w: %q", ErrNotFound, selector)
+		return Credential{}, "", fmt.Errorf("%w: %q", ErrNotFound, selector)
 	}
 	for _, character := range selector {
 		if !strings.ContainsRune("0123456789abcdef", character) {
-			return nil, "", fmt.Errorf("%w: cluster identifier must be a hexadecimal prefix", ErrNotFound)
+			return Credential{}, "", fmt.Errorf("%w: cluster identifier must be a hexadecimal prefix", ErrNotFound)
 		}
 	}
 	ids, err := List(directory)
 	if err != nil {
-		return nil, "", err
+		return Credential{}, "", err
 	}
 	var match string
 	for _, id := range ids {
 		if strings.HasPrefix(id, selector) {
 			if match != "" {
-				return nil, "", fmt.Errorf("%w %q (matches %s and %s)", ErrAmbiguous, selector, match, id)
+				return Credential{}, "", fmt.Errorf("%w %q (matches %s and %s)", ErrAmbiguous, selector, match, id)
 			}
 			match = id
 		}
 	}
 	if match == "" {
-		return nil, "", fmt.Errorf("%w %q", ErrNotFound, selector)
+		return Credential{}, "", fmt.Errorf("%w %q", ErrNotFound, selector)
 	}
-	key, err := Load(filepath.Join(directory, match))
+	credential, err := LoadCredential(filepath.Join(directory, match))
 	if err != nil {
-		return nil, "", err
+		return Credential{}, "", err
 	}
-	return key, match, nil
+	return credential, match, nil
+}
+
+// RecordBootstrapDestination durably adds one public allocator destination to
+// an existing credential without changing its realm key.
+func RecordBootstrapDestination(path, destination string) error {
+	credential, err := LoadCredential(path)
+	if err != nil {
+		return err
+	}
+	validated, err := NormalizeBootstrapDestinations([]string{destination})
+	if err != nil {
+		return err
+	}
+	destination = validated[0]
+	for _, existing := range credential.BootstrapDestinations {
+		if existing == destination {
+			return nil
+		}
+	}
+	destinations := append([]string(nil), credential.BootstrapDestinations...)
+	if len(destinations) == MaxBootstrapDestinations {
+		destinations = destinations[1:]
+	}
+	destinations, err = NormalizeBootstrapDestinations(append(destinations, destination))
+	if err != nil {
+		return err
+	}
+	token, err := Token(credential.Key)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(State{Version: stateVersion, Key: token, BootstrapDestinations: destinations})
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	directory := filepath.Dir(path)
+	temporary, err := os.CreateTemp(directory, ".credential-update-*")
+	if err != nil {
+		return fmt.Errorf("create temporary cluster credential: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	committed := false
+	defer func() {
+		_ = temporary.Close()
+		if !committed {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if err := temporary.Chmod(0o600); err != nil {
+		return fmt.Errorf("protect temporary cluster credential: %w", err)
+	}
+	if _, err := temporary.Write(data); err != nil {
+		return fmt.Errorf("write cluster credential: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		return fmt.Errorf("sync cluster credential: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close cluster credential: %w", err)
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("replace cluster credential: %w", err)
+	}
+	committed = true
+	if directoryHandle, err := os.Open(directory); err == nil {
+		_ = directoryHandle.Sync()
+		_ = directoryHandle.Close()
+	}
+	return nil
 }
 
 // SaveNew creates state without replacing an existing membership. Rejoining the

@@ -50,7 +50,7 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 	if err != nil {
 		return nil, err
 	}
-	clusterKey, _, err := cluster.Resolve(clusterDirectory, options.clusterSelector)
+	credential, clusterID, err := cluster.ResolveCredential(clusterDirectory, options.clusterSelector)
 	if err != nil {
 		return nil, fmt.Errorf("select cluster (run 'r1sd cluster list'): %w", err)
 	}
@@ -81,12 +81,16 @@ func openDaemon(ctx context.Context, options commandLine, stdout, stderr io.Writ
 		}
 	}
 	result.endpoint, err = rns.New(rns.Config{
-		IdentitySource: options.identitySource, ClusterKey: clusterKey,
+		IdentitySource: options.identitySource, ClusterKey: credential.Key,
 		Capacity: options.capacity, AnnounceInterval: options.announceInterval, Node: node,
 	}, result.handleEnvelope)
 	if err != nil {
 		result.close()
 		return nil, err
+	}
+	if err := cluster.RecordBootstrapDestination(filepath.Join(clusterDirectory, clusterID), result.endpoint.Destination()); err != nil {
+		result.close()
+		return nil, fmt.Errorf("record allocator bootstrap destination: %w", err)
 	}
 	identityHash, err := hex.DecodeString(result.endpoint.Name())
 	if err != nil {

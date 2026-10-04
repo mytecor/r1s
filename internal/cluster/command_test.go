@@ -38,3 +38,32 @@ func TestInitJoinAndListCommands(t *testing.T) {
 		t.Fatalf("list output = %q", listed.String())
 	}
 }
+
+func TestTokenCommandTransfersRecordedBootstrapDestinations(t *testing.T) {
+	directory := t.TempDir()
+	key := bytes.Repeat([]byte{0x72}, KeySize)
+	id, err := SaveCredential(directory, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := strings.Repeat("4d", DestinationSize)
+	if err := RecordBootstrapDestination(filepath.Join(directory, id), destination); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := RunCommand([]string{"token", id[:12]}, directory, &output, &output); err != nil {
+		t.Fatal(err)
+	}
+	value := strings.TrimPrefix(strings.TrimSpace(output.String()), "Join token: ")
+	if !strings.HasPrefix(value, "r1s1:") {
+		t.Fatalf("token output = %q", output.String())
+	}
+	joinedDirectory := t.TempDir()
+	if err := RunCommand([]string{"join", value}, joinedDirectory, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	joined, _, err := ResolveCredential(joinedDirectory, id)
+	if err != nil || len(joined.BootstrapDestinations) != 1 || joined.BootstrapDestinations[0] != destination {
+		t.Fatalf("joined credential = %+v, %v", joined, err)
+	}
+}

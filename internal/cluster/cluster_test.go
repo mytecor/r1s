@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mytecor/meshbus/security/realm"
@@ -76,6 +77,38 @@ func TestTokenIDAndStateRoundTrip(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("state mode = %o, want 600", info.Mode().Perm())
 	}
+}
+
+func TestCredentialTokenCarriesPublicBootstrapHints(t *testing.T) {
+	key := bytes.Repeat([]byte{0x43}, KeySize)
+	destination := strings.Repeat("ab", DestinationSize)
+	token, err := CredentialToken(Credential{Key: key, BootstrapDestinations: []string{destination, destination}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(token, "r1s1:") || strings.Contains(token, destination) {
+		t.Fatalf("credential token = %q", token)
+	}
+	parsed, err := ParseCredentialToken(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(parsed.Key, key) || len(parsed.BootstrapDestinations) != 1 || parsed.BootstrapDestinations[0] != destination {
+		t.Fatalf("parsed credential = %+v", parsed)
+	}
+	keyOnly, err := ParseCredentialToken(mustToken(t, key))
+	if err != nil || !bytes.Equal(keyOnly.Key, key) || len(keyOnly.BootstrapDestinations) != 0 {
+		t.Fatalf("key-only credential = %+v, %v", keyOnly, err)
+	}
+}
+
+func mustToken(t *testing.T, key []byte) string {
+	t.Helper()
+	token, err := Token(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
 }
 
 func TestGenerateProducesKeySizedRandomMaterial(t *testing.T) {
@@ -187,7 +220,7 @@ func TestResolveRejectsAmbiguousPrefixAndIgnoresLegacyFile(t *testing.T) {
 }
 
 func TestRejectsInvalidTokensAndStates(t *testing.T) {
-	for _, value := range []string{"", "r1s1:", "r1s1:not-base64", "other:abcd"} {
+	for _, value := range []string{"", "r1s1:", "r1s1:not-base64", "r1s2:abcd", "other:abcd"} {
 		if _, err := ParseToken(value); !errors.Is(err, ErrInvalidToken) {
 			t.Errorf("ParseToken(%q) error = %v", value, err)
 		}
@@ -204,5 +237,63 @@ func TestRejectsInvalidTokensAndStates(t *testing.T) {
 	}
 	if _, err := Load(path); !errors.Is(err, ErrInvalidState) {
 		t.Fatalf("Load() trailing-data error = %v", err)
+	}
+}
+
+func TestRecordBootstrapDestinationPersistsDeduplicatedDestinations(t *testing.T) {
+	key := bytes.Repeat([]byte{0x6a}, KeySize)
+	token, err := Token(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "credential")
+	if err := os.WriteFile(path, []byte(fmt.Sprintf("{\"version\":1,\"key\":%q}\n", token)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := LoadCredential(path)
+	if err != nil || len(initial.BootstrapDestinations) != 0 {
+		t.Fatalf("LoadCredential() = %+v, %v", initial, err)
+	}
+	destination := "AABBCCDDEEFF00112233445566778899"
+	if err := RecordBootstrapDestination(path, destination); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordBootstrapDestination(path, strings.ToLower(destination)); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := LoadCredential(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(updated.Key, key) || len(updated.BootstrapDestinations) != 1 || updated.BootstrapDestinations[0] != strings.ToLower(destination) {
+		t.Fatalf("updated credential = %+v", updated)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"version":1`) || strings.Count(string(data), strings.ToLower(destination)) != 1 {
+		t.Fatalf("updated state = %s", data)
+	}
+}
+
+func TestBootstrapDestinationsAreValidatedDeduplicatedAndBounded(t *testing.T) {
+	first := strings.Repeat("01", DestinationSize)
+	second := strings.Repeat("02", DestinationSize)
+	got, err := NormalizeBootstrapDestinations([]string{second, strings.ToUpper(first), first})
+	if err != nil || len(got) != 2 || got[0] != first || got[1] != second {
+		t.Fatalf("NormalizeBootstrapDestinations() = %v, %v", got, err)
+	}
+	for _, invalid := range []string{"", "00", strings.Repeat("zz", DestinationSize), strings.Repeat("00", DestinationSize+1)} {
+		if _, err := NormalizeBootstrapDestinations([]string{invalid}); err == nil {
+			t.Errorf("destination %q unexpectedly accepted", invalid)
+		}
+	}
+	many := make([]string, MaxBootstrapDestinations+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("%032x", i)
+	}
+	if _, err := NormalizeBootstrapDestinations(many); err == nil {
+		t.Fatal("oversized bootstrap set unexpectedly accepted")
 	}
 }

@@ -28,12 +28,13 @@ func TestBrokerRetainsCredentialAndCreatesRunEndpoint(t *testing.T) {
 	}
 	clusterID := hex.EncodeToString(clusterHash)
 	identity := hex.EncodeToString(bytes.Repeat([]byte{0x22}, 16))
+	bootstrap := hex.EncodeToString(bytes.Repeat([]byte{0x33}, cluster.DestinationSize))
 	ready := make(chan struct{})
 	created := make(chan *fakeEndpoint, 1)
 	server := &Server{
-		ClusterID:  clusterID,
-		ClusterKey: key,
-		Ready:      func() { close(ready) },
+		ClusterID: clusterID, ClusterKey: key,
+		BootstrapDestinations: []string{bootstrap},
+		Ready:                 func() { close(ready) },
 		newEndpoint: func(received []byte, _ time.Duration, handler func(context.Context, *r1sv1.Envelope) error) (endpoint, error) {
 			if !bytes.Equal(received, key) {
 				t.Fatalf("broker endpoint key = %x", received)
@@ -67,6 +68,9 @@ func TestBrokerRetainsCredentialAndCreatesRunEndpoint(t *testing.T) {
 	defer clientEndpoint.Close()
 	if clientEndpoint.Name() != identity || clientEndpoint.ClusterID() != clusterID {
 		t.Fatalf("opened identity=%q cluster=%q", clientEndpoint.Name(), clientEndpoint.ClusterID())
+	}
+	if got := clientEndpoint.BootstrapDestinations(); len(got) != 1 || got[0] != bootstrap {
+		t.Fatalf("bootstrap destinations = %v", got)
 	}
 	fake := <-created
 	if err := clientEndpoint.Start(ctx); err != nil {

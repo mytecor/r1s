@@ -172,8 +172,26 @@ r1sd \
   <cluster-id-or-unique-prefix>
 ```
 
-Both binaries store credentials in `~/.config/r1s/realms/<cluster-id>`, with each secret indexed
-by its full derived public ID. List the available non-secret IDs with either binary:
+On startup, each allocator records its public 16-byte RNS destination in the selected credential.
+After the first allocator is running, export an updated membership bundle for other participants:
+
+```sh
+r1sd cluster token <cluster-id-or-unique-prefix>
+# Join token: r1s1:<secret-and-public-bootstrap-bundle>
+```
+
+An updated `r1s1:` token contains the same realm secret plus a bounded set of public allocator
+destination hints. Join or rejoin every client with this token before starting its broker; joining
+the same cluster again merges the hints without changing membership:
+
+```sh
+r1s cluster join 'r1s1:<secret-and-public-bootstrap-bundle>'
+r1s cluster use -d <cluster-id-or-unique-prefix>
+```
+
+Both binaries store credentials in `~/.config/r1s/realms/<cluster-id>`, with each secret
+indexed by its full derived public ID and public bootstrap hints kept in a separate field. List the
+available non-secret IDs with either binary:
 
 ```sh
 r1s cluster list

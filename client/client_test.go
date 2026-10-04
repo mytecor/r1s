@@ -3,8 +3,10 @@ package client
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -119,6 +121,144 @@ func TestRunControllerCompletesThroughTransportContract(t *testing.T) {
 	if result.State.GetPhase() != r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED {
 		t.Fatalf("phase = %s", result.State.GetPhase())
 	}
+}
+
+func TestRunUsesDeduplicatedBootstrapDestinationsWithoutAnnouncement(t *testing.T) {
+	c, endpoint := newBootstrapTestClient(t, []string{"known", "known"})
+	endpoint.live = "known"
+	runBootstrapTest(t, c)
+	if endpoint.count("known", "request") != 1 {
+		t.Fatalf("known destination request sends = %d, want 1", endpoint.count("known", "request"))
+	}
+	if endpoint.starts != 1 {
+		t.Fatalf("transport starts = %d, want 1", endpoint.starts)
+	}
+}
+
+func TestStaleBootstrapDoesNotSuppressLaterDiscovery(t *testing.T) {
+	c, endpoint := newBootstrapTestClient(t, []string{"stale", "stale"})
+	endpoint.live = "announced"
+	endpoint.announce = true
+	runBootstrapTest(t, c)
+	if endpoint.count("stale", "request") != 1 || endpoint.count("announced", "request") != 1 {
+		t.Fatalf("request sends = %+v, want one stale and one announced", endpoint.sends)
+	}
+}
+
+func newBootstrapTestClient(t *testing.T, bootstrap []string) (*Client, *bootstrapTestEndpoint) {
+	t.Helper()
+	core, err := coreclient.New(coreclient.Config{Identity: []byte("client")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Client{
+		core: core, identity: []byte("client"), bootstrapDestinations: bootstrap,
+		waiters: make(map[string][]chan *r1sv1.Envelope), stateChanged: make(chan struct{}, 1),
+		runTunnels: make(map[*RunTunnel]struct{}),
+	}
+	endpoint := &bootstrapTestEndpoint{client: c, discoveries: make(chan rns.Service, 1), sends: make(map[string]map[string]int)}
+	c.endpoint = endpoint
+	return c, endpoint
+}
+
+func runBootstrapTest(t *testing.T, c *Client) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := c.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	result, err := c.Run(ctx, &r1sv1.ExecutionRequest{
+		Workload: &r1sv1.Workload{Image: "example.test/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Policy:   &r1sv1.ExecutionPolicy{}, ResourceClass: "default",
+	}, RunOptions{OfferWait: 75 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State.GetPhase() != r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED {
+		t.Fatalf("phase = %s", result.State.GetPhase())
+	}
+}
+
+type bootstrapTestEndpoint struct {
+	mu          sync.Mutex
+	client      *Client
+	discoveries chan rns.Service
+	live        string
+	announce    bool
+	starts      int
+	sends       map[string]map[string]int
+}
+
+func (f *bootstrapTestEndpoint) Start(context.Context) error {
+	f.mu.Lock()
+	f.starts++
+	announce := f.announce
+	live := f.live
+	f.mu.Unlock()
+	if announce {
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			f.discoveries <- rns.Service{
+				Destination: live, Identity: hex.EncodeToString([]byte("allocator")),
+				Descriptor: rns.Descriptor{Capacity: map[string]uint32{"default": 1}},
+			}
+		}()
+	}
+	return nil
+}
+func (f *bootstrapTestEndpoint) Close() error                    { return nil }
+func (f *bootstrapTestEndpoint) Discoveries() <-chan rns.Service { return f.discoveries }
+func (f *bootstrapTestEndpoint) DestinationForIdentity(identity string) (string, bool) {
+	return f.live, identity == hex.EncodeToString([]byte("allocator"))
+}
+func (f *bootstrapTestEndpoint) Send(ctx context.Context, destination string, envelope *r1sv1.Envelope) error {
+	kind := "other"
+	switch envelope.GetPayload().(type) {
+	case *r1sv1.Envelope_ExecutionRequest:
+		kind = "request"
+	case *r1sv1.Envelope_ExecutionAssign:
+		kind = "assign"
+	}
+	f.mu.Lock()
+	if f.sends[destination] == nil {
+		f.sends[destination] = make(map[string]int)
+	}
+	f.sends[destination][kind]++
+	live := f.live
+	f.mu.Unlock()
+	if destination != live {
+		return errors.New("unreachable destination")
+	}
+	now := time.Now().UTC()
+	respond := func(response *r1sv1.Envelope, suffix string) error {
+		response.MessageId = "bootstrap-response-" + suffix
+		response.Sender = []byte("allocator")
+		response.CorrelationId = envelope.GetMessageId()
+		response.SentAt = timestamppb.New(now)
+		return f.client.handleEnvelope(ctx, response)
+	}
+	switch payload := envelope.GetPayload().(type) {
+	case *r1sv1.Envelope_ExecutionRequest:
+		return respond(&r1sv1.Envelope{Payload: &r1sv1.Envelope_ExecutionOffer{ExecutionOffer: &r1sv1.ExecutionOffer{
+			OfferId: "bootstrap-offer", RequestId: payload.ExecutionRequest.GetRequestId(),
+			ResourceClass: "default", ExpiresAt: timestamppb.New(now.Add(time.Minute)),
+		}}}, "offer")
+	case *r1sv1.Envelope_ExecutionAssign:
+		exitCode := int32(0)
+		return respond(&r1sv1.Envelope{Payload: &r1sv1.Envelope_ExecutionState{ExecutionState: &r1sv1.ExecutionState{
+			ExecutionId: payload.ExecutionAssign.GetExecutionId(), Phase: r1sv1.ExecutionPhase_EXECUTION_PHASE_COMPLETED,
+			OccurredAt: timestamppb.New(now), ExitCode: &exitCode, Revision: 1,
+		}}}, "state")
+	default:
+		return nil
+	}
+}
+func (f *bootstrapTestEndpoint) count(destination, kind string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.sends[destination][kind]
 }
 
 type fakeControllerEndpoint struct {

@@ -136,15 +136,31 @@ func (c *Client) requestAttempt(ctx context.Context, previous *r1sv1.ExecutionRe
 	}
 	waiter, cancel := c.registerWaiter(envelope.GetMessageId())
 	defer cancel()
+	attemptCtx, cancelAttempt := context.WithCancel(ctx)
+	defer cancelAttempt()
 	sent := make(map[string]bool)
+	timer := time.NewTimer(offerWait)
+	defer timer.Stop()
+	// Previously selected allocator routes retain their strict send semantics:
+	// failure is material during a conclusive-loss reschedule. Initial durable
+	// bootstrap hints are advisory, so stale routes are tried concurrently and
+	// cannot delay either the offer window or newly announced candidates.
 	for _, destination := range allocators {
 		if err := c.send(ctx, destination, envelope); err != nil {
 			return Attempt{}, err
 		}
 		sent[destination] = true
 	}
-	timer := time.NewTimer(offerWait)
-	defer timer.Stop()
+	if previous == nil {
+		for _, destination := range c.bootstrapDestinations {
+			if sent[destination] {
+				continue
+			}
+			sent[destination] = true
+			go func(destination string) { _ = c.send(attemptCtx, destination, envelope) }(destination)
+		}
+	}
+	var remoteErr error
 collect:
 	for {
 		select {
@@ -154,7 +170,7 @@ collect:
 			break collect
 		case response := <-waiter:
 			if err := coreclient.RemoteFailure(response); err != nil {
-				return Attempt{}, err
+				remoteErr = err
 			}
 		case service := <-c.endpoint.Discoveries():
 			if service.Descriptor.Capacity[request.GetResourceClass()] == 0 {
@@ -180,13 +196,15 @@ collect:
 			if !protocol.PlacementCompatible(request.GetConstraints(), node) || sent[service.Destination] {
 				continue
 			}
-			if err := c.send(ctx, service.Destination, envelope); err == nil {
-				sent[service.Destination] = true
-			}
+			sent[service.Destination] = true
+			go func(destination string) { _ = c.send(attemptCtx, destination, envelope) }(service.Destination)
 		}
 	}
 	destination, assignment, err := c.core.Select(requestID)
 	if err != nil {
+		if errors.Is(err, coreclient.ErrNoOffer) && remoteErr != nil {
+			return Attempt{}, remoteErr
+		}
 		return Attempt{}, err
 	}
 	executionID := assignment.GetExecutionAssign().GetExecutionId()

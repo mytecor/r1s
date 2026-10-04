@@ -41,9 +41,10 @@ func newRNSEndpoint(key []byte, networkWait time.Duration, handler func(context.
 // closes only that endpoint and does not make transport state an execution
 // lifetime signal.
 type Server struct {
-	ClusterID  string
-	ClusterKey []byte
-	Ready      func()
+	ClusterID             string
+	ClusterKey            []byte
+	BootstrapDestinations []string
+	Ready                 func()
 
 	newEndpoint endpointFactory
 	mu          sync.Mutex
@@ -57,6 +58,11 @@ func (s *Server) Serve(ctx context.Context, address string) error {
 	if err != nil || s.ClusterID != hex.EncodeToString(derived) {
 		return errors.New("broker: cluster identity does not match its key")
 	}
+	bootstrap, err := cluster.NormalizeBootstrapDestinations(s.BootstrapDestinations)
+	if err != nil {
+		return fmt.Errorf("broker: invalid bootstrap destinations: %w", err)
+	}
+	s.BootstrapDestinations = bootstrap
 	listener, err := listen(address)
 	if err != nil {
 		return fmt.Errorf("broker: listen: %w", err)
@@ -145,7 +151,10 @@ func (s *Server) serveEndpoint(ctx context.Context, connection net.Conn, first f
 	}
 	active = created
 	defer active.Close()
-	if err := writer.write(frame{Version: protocolVersion, Type: "opened", ClusterID: s.ClusterID, Identity: active.Name()}); err != nil {
+	if err := writer.write(frame{
+		Version: protocolVersion, Type: "opened", ClusterID: s.ClusterID,
+		Identity: active.Name(), Bootstrap: s.BootstrapDestinations,
+	}); err != nil {
 		return
 	}
 	sessionCtx, cancel := context.WithCancel(ctx)

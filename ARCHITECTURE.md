@@ -233,6 +233,16 @@ Allocator runtime selection and `r1s cluster use` require a full ID or unique he
 and never accept a join token.
 The legacy single credential file is not an implicit default or migration source.
 
+Credential state keeps the `r1s1:` realm key field separate from a bounded, validated set
+of public 16-byte allocator destination hashes. Each allocator atomically records its own destination on startup;
+`cluster token <cluster>` exports an `r1s1:` membership bundle so another participant can
+persist both the same secret and those non-authoritative routing hints. A fresh broker passes the
+durable set to every run endpoint. The run starts the offer timer and tries deduplicated hints
+concurrently, while authenticated announces remain additive candidates until the timer expires.
+An unreachable hint therefore cannot delay or suppress a later announce. A known destination only
+causes an RNS PathRequest and link attempt: realm proof, authenticated sender identity, allocator
+admission, capacity, placement revalidation, and deterministic offer selection remain unchanged.
+
 Allocators publish bounded `meshbus.v1` presence containing the public realm ID and compact r1s
 capacity/placement/tunnel metadata. The meshbus adapter rejects foreign realm presence before the
 r1s discovery projection runs. The key and join token are never announced or placed in protobuf

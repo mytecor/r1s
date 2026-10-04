@@ -29,7 +29,7 @@ func runClusterSession(ctx context.Context, arguments []string, stdout, stderr i
 		if err != nil {
 			return err
 		}
-		key, id, err := cluster.Resolve(directory, useOptions.selector)
+		credential, id, err := cluster.ResolveCredential(directory, useOptions.selector)
 		if err != nil {
 			return fmt.Errorf("cluster use: %w", err)
 		}
@@ -48,7 +48,7 @@ func runClusterSession(ctx context.Context, arguments []string, stdout, stderr i
 			}
 			return printCurrentCluster(stdout, id, address)
 		}
-		server := &broker.Server{ClusterID: id, ClusterKey: key, Ready: func() {
+		server := &broker.Server{ClusterID: id, ClusterKey: credential.Key, BootstrapDestinations: credential.BootstrapDestinations, Ready: func() {
 			_ = printCurrentCluster(stdout, id, address)
 		}}
 		if err := server.Serve(ctx, address); err != nil {
@@ -143,7 +143,7 @@ func runClusterBroker(ctx context.Context, arguments []string, stdout io.Writer)
 	if err != nil {
 		return err
 	}
-	key, id, err := cluster.Resolve(directory, arguments[0])
+	credential, id, err := cluster.ResolveCredential(directory, arguments[0])
 	if err != nil {
 		return err
 	}
@@ -154,7 +154,7 @@ func runClusterBroker(ctx context.Context, arguments []string, stdout io.Writer)
 	if err != nil {
 		return err
 	}
-	server := &broker.Server{ClusterID: id, ClusterKey: key, Ready: func() {
+	server := &broker.Server{ClusterID: id, ClusterKey: credential.Key, BootstrapDestinations: credential.BootstrapDestinations, Ready: func() {
 		fmt.Fprintln(stdout, id)
 	}}
 	return server.Serve(ctx, address)

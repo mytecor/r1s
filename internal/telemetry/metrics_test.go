@@ -102,6 +102,7 @@ func TestStructuredLoggerRedaction(t *testing.T) {
 		"cluster_key":    "someprivatekey",
 		"resource_class": "default",
 		"custom_note":    "connected via token r1s1:myjoinedtokendata to cluster",
+		"bootstrap_note": "updated membership r1s1:secretbootstrapbundle",
 		"env":            []string{"PATH=/usr/bin", "AUTH=r1s1:secretinenv"},
 		"public_key":     "0123456789abcdef",
 	})
@@ -131,6 +132,9 @@ func TestStructuredLoggerRedaction(t *testing.T) {
 	}
 	if note, ok := entry.Fields["custom_note"].(string); !ok || strings.Contains(note, "myjoinedtokendata") || !strings.Contains(note, "r1s1:[REDACTED]") {
 		t.Errorf("custom_note inline token was not redacted: %v", entry.Fields["custom_note"])
+	}
+	if note, ok := entry.Fields["bootstrap_note"].(string); !ok || strings.Contains(note, "secretbootstrapbundle") || !strings.Contains(note, "r1s1:[REDACTED]") {
+		t.Errorf("bootstrap_note inline token was not redacted: %v", entry.Fields["bootstrap_note"])
 	}
 
 	envSlice, ok := entry.Fields["env"].([]any)

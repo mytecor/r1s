@@ -324,8 +324,25 @@ retaining the embedded-Ygg adapter.
 - **Depends on:** [F2](#f2-rns-transport), [F12](#f12-shared-secret-cluster-membership),
   [F23](#f23-public-run-controller-library-and-cluster-authority-context).
 
+## [F25. Deterministic allocator bootstrap](./roadmap/f25-deterministic-allocator-bootstrap/README.md)
+
+> A fresh run receives known allocator destinations without depending on the timing of periodic
+> presence announces.
+
+- **Status:** ✅ complete — F25-01 defines bounded bootstrap destinations, seeds every new run before
+  its offer timer starts, and the live shared-daemon PathRequest plus complete request/offer/assign
+  flow passed on `mytecor-homelab` (2026-10-04).
+- **Done when:** foreground and detached runs reach an already-running allocator whose last announce
+  predates `offerWait`, without restarting it or waiting for another announce.
+- **Depends on:** [F22](#f22-shared-instance-rns-and-run-oriented-client),
+  [F24](#f24-brokerless-meshbus-extraction).
+
 ## Current implementation order
 
+- [F25](#f25-deterministic-allocator-bootstrap) is complete. Credentials and `r1s1:`
+  transfer bundles carry bounded public allocator destinations to fresh broker-created run endpoints
+  before `offerWait`, while periodic announces remain additive discovery rather than a startup
+  dependency; the live shared-daemon acceptance suite passed on `mytecor-homelab` (2026-10-04).
 - [F24](#f24-brokerless-meshbus-extraction) now has generic realm, authenticated direct-message,
   and bounded pub/sub boundaries. r1s keeps the `cluster` CLI, token format, and Protobuf control
   semantics while intentionally switching IDs, proofs, credentials, and presence to the standard

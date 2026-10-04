@@ -47,6 +47,9 @@ type Config struct {
 	// BrokerAddress overrides the local cluster-authority endpoint used by
 	// OpenCurrent. Empty uses the platform default (or R1S_SOCKET).
 	BrokerAddress string
+	// BootstrapDestinations are public 16-byte RNS destination hashes tried
+	// immediately for the first request. They grant no realm authority.
+	BootstrapDestinations []string
 }
 
 // Open resolves a locally joined cluster ID (or unique prefix) and constructs
@@ -56,11 +59,12 @@ func Open(selector string, config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	key, _, err := cluster.Resolve(directory, selector)
+	credential, _, err := cluster.ResolveCredential(directory, selector)
 	if err != nil {
 		return nil, fmt.Errorf("select cluster: %w", err)
 	}
-	config.ClusterKey = key
+	config.ClusterKey = credential.Key
+	config.BootstrapDestinations = credential.BootstrapDestinations
 	return New(config)
 }
 
@@ -88,6 +92,7 @@ func OpenCurrent(config Config) (*Client, error) {
 		_ = endpoint.Close()
 		return nil, err
 	}
+	c.bootstrapDestinations = endpoint.BootstrapDestinations()
 	return c, nil
 }
 
@@ -96,10 +101,11 @@ func OpenCurrent(config Config) (*Client, error) {
 // one Run call in its lifetime so one instance has the same authority boundary
 // as one r1s run process.
 type Client struct {
-	mu       sync.Mutex
-	endpoint controllerEndpoint
-	core     *coreclient.Client
-	identity []byte
+	mu                    sync.Mutex
+	endpoint              controllerEndpoint
+	core                  *coreclient.Client
+	identity              []byte
+	bootstrapDestinations []string
 
 	started       bool
 	closed        bool
@@ -143,6 +149,7 @@ func New(config Config) (*Client, error) {
 		_ = endpoint.Close()
 		return nil, err
 	}
+	c.bootstrapDestinations = append([]string(nil), config.BootstrapDestinations...)
 	return c, nil
 }
 
@@ -153,6 +160,11 @@ func normalizeConfig(config *Config) error {
 	if config.NetworkWait < 0 {
 		return errors.New("client: network wait must be positive")
 	}
+	destinations, err := cluster.NormalizeBootstrapDestinations(config.BootstrapDestinations)
+	if err != nil {
+		return fmt.Errorf("client: invalid bootstrap destinations: %w", err)
+	}
+	config.BootstrapDestinations = destinations
 	return nil
 }
 
@@ -327,8 +339,7 @@ func (c *Client) dispatchEnvelope(envelope *r1sv1.Envelope) {
 		return
 	}
 	c.waitMu.Lock()
-	channels := c.waiters[correlationID]
-	delete(c.waiters, correlationID)
+	channels := append([]chan *r1sv1.Envelope(nil), c.waiters[correlationID]...)
 	c.waitMu.Unlock()
 	for _, ch := range channels {
 		select {

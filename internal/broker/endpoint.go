@@ -11,6 +11,7 @@ import (
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
+	"github.com/mytecor/r1s/internal/cluster"
 	"github.com/mytecor/r1s/internal/transport/rns"
 	"google.golang.org/protobuf/proto"
 )
@@ -26,6 +27,7 @@ type Endpoint struct {
 	connection net.Conn
 	identity   string
 	clusterID  string
+	bootstrap  []string
 	handler    func(context.Context, *r1sv1.Envelope) error
 
 	writeMu     sync.Mutex
@@ -65,9 +67,15 @@ func OpenEndpoint(address string, networkWait time.Duration, handler func(contex
 		}
 		return nil, errors.New("broker: invalid open response")
 	}
+	bootstrap, err := cluster.NormalizeBootstrapDestinations(opened.Bootstrap)
+	if err != nil {
+		connection.Close()
+		return nil, fmt.Errorf("broker: invalid bootstrap destinations: %w", err)
+	}
 	_ = connection.SetDeadline(time.Time{})
 	endpoint := &Endpoint{
-		connection: connection, identity: opened.Identity, clusterID: opened.ClusterID, handler: handler,
+		connection: connection, identity: opened.Identity, clusterID: opened.ClusterID,
+		bootstrap: bootstrap, handler: handler,
 		pending: make(map[uint64]chan frame), routes: make(map[string]string),
 		discoveries: make(chan rns.Service, 32), done: make(chan struct{}),
 	}
@@ -78,6 +86,10 @@ func OpenEndpoint(address string, networkWait time.Duration, handler func(contex
 func (e *Endpoint) Name() string { return e.identity }
 
 func (e *Endpoint) ClusterID() string { return e.clusterID }
+
+func (e *Endpoint) BootstrapDestinations() []string {
+	return append([]string(nil), e.bootstrap...)
+}
 
 func (e *Endpoint) Discoveries() <-chan rns.Service { return e.discoveries }
 

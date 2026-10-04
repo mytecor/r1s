@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 )
 
-// RunCommand implements the shared `cluster init|join|list` command surface.
+// RunCommand implements the shared `cluster init|join|list|token` command surface.
 func RunCommand(arguments []string, directory string, stdout, stderr io.Writer) error {
 	if len(arguments) == 0 {
-		return errors.New("cluster command is required: init, join, or list")
+		return errors.New("cluster command is required: init, join, list, or token")
 	}
 	switch arguments[0] {
 	case "init":
@@ -30,7 +30,7 @@ func RunCommand(arguments []string, directory string, stdout, stderr io.Writer) 
 		if err != nil {
 			return fmt.Errorf("cluster init: %w", err)
 		}
-		return printMembership(stdout, directory, id, key, true)
+		return printMembership(stdout, directory, id, Credential{Key: key}, true)
 	case "join":
 		flags := clusterFlagSet("cluster join <join-token>", stderr)
 		if err := flags.Parse(arguments[1:]); err != nil {
@@ -39,15 +39,15 @@ func RunCommand(arguments []string, directory string, stdout, stderr io.Writer) 
 		if flags.NArg() != 1 {
 			return errors.New("cluster join: exactly one join token is required")
 		}
-		key, err := ParseToken(flags.Arg(0))
+		credential, err := ParseCredentialToken(flags.Arg(0))
 		if err != nil {
 			return err
 		}
-		id, err := SaveCredential(directory, key)
+		id, err := SaveMembership(directory, credential)
 		if err != nil {
 			return fmt.Errorf("cluster join: %w", err)
 		}
-		return printMembership(stdout, directory, id, key, false)
+		return printMembership(stdout, directory, id, credential, false)
 	case "list":
 		flags := clusterFlagSet("cluster list", stderr)
 		if err := flags.Parse(arguments[1:]); err != nil {
@@ -64,15 +64,33 @@ func RunCommand(arguments []string, directory string, stdout, stderr io.Writer) 
 			fmt.Fprintln(stdout, id)
 		}
 		return nil
+	case "token":
+		flags := clusterFlagSet("cluster token <cluster>", stderr)
+		if err := flags.Parse(arguments[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 1 {
+			return errors.New("cluster token: exactly one cluster ID or unique prefix is required")
+		}
+		credential, _, err := ResolveCredential(directory, flags.Arg(0))
+		if err != nil {
+			return fmt.Errorf("cluster token: %w", err)
+		}
+		token, err := CredentialToken(credential)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(stdout, "Join token: %s\n", token)
+		return err
 	default:
-		return fmt.Errorf("unknown cluster command %q: expected init, join, or list", arguments[0])
+		return fmt.Errorf("unknown cluster command %q: expected init, join, list, or token", arguments[0])
 	}
 }
 
-func printMembership(output io.Writer, directory, id string, key []byte, includeToken bool) error {
+func printMembership(output io.Writer, directory, id string, credential Credential, includeToken bool) error {
 	fmt.Fprintf(output, "Cluster ID: %s\n", id)
 	if includeToken {
-		token, err := Token(key)
+		token, err := CredentialToken(credential)
 		if err != nil {
 			return err
 		}
