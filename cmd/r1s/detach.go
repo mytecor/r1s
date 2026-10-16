@@ -64,7 +64,7 @@ func (a *application) launchDetached(workloadJSON string, offerWait time.Duratio
 	// the child cannot resolve until it knows the run ID and this must be
 	// decided before the handshake reports it). When no --log-file was given,
 	// the child resolves the default under the run state directory itself.
-	childArgs := []string{"run", workloadJSON, "--offer-wait", offerWait.String()}
+	childArgs := []string{"run", "--offer-wait", offerWait.String()}
 	if len(publishes) > 0 {
 		var bits []string
 		for _, m := range publishes {
@@ -78,7 +78,7 @@ func (a *application) launchDetached(workloadJSON string, offerWait time.Duratio
 		// and the parent can validate it after the handshake.
 		childArgs = append(childArgs, "--r1s-log-file", logFile)
 	}
-	childArgs = append(childArgs, "--r1s-child")
+	childArgs = append(childArgs, "--r1s-child", workloadJSON)
 	return launchDetachedRun(a.ctx, executable, childArgs, a.stdout)
 }
 

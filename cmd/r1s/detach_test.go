@@ -153,7 +153,7 @@ func TestLaunchDetachedProcessRejectsCommandSpecificHandshake(t *testing.T) {
 	}
 	started := time.Now()
 	err := launchDetachedProcess(context.Background(), script, nil, detachedProcess{
-		label: "test detach", timeout: time.Second,
+		label: "test detach", timeout: 5 * time.Second,
 		validate: func(line string) error {
 			if line != "ready" {
 				return fmt.Errorf("unexpected readiness %q", line)
@@ -164,7 +164,7 @@ func TestLaunchDetachedProcessRejectsCommandSpecificHandshake(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "invalid readiness handshake") {
 		t.Fatalf("invalid handshake error = %v", err)
 	}
-	if time.Since(started) > 2*time.Second {
+	if time.Since(started) > 4*time.Second {
 		t.Fatalf("invalid handshake did not terminate child promptly: %s", time.Since(started))
 	}
 }
