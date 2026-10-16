@@ -96,7 +96,7 @@ func TestParsePublishFlag(t *testing.T) {
 // route, so the allocator authorizes each container port exactly once.
 func TestPublisherTargetDedup(t *testing.T) {
 	mappings := []portMapping{{host: 18000, container: 80}, {host: 18080, container: 8080}, {host: 18001, container: 80}}
-	p, err := newRunPublisher(t.Context(), publisherTestApplication(), mappings)
+	p, err := newRunPublisher(t.Context(), publisherTestApplication(), mappings, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestPublisherTargetDedup(t *testing.T) {
 // forwarding starts.
 func TestPublisherDupBindFails(t *testing.T) {
 	mappings := []portMapping{{host: 18010, container: 80}, {host: 18010, container: 8080}}
-	if _, err := newRunPublisher(t.Context(), publisherTestApplication(), mappings); err == nil {
+	if _, err := newRunPublisher(t.Context(), publisherTestApplication(), mappings, nil); err == nil {
 		t.Fatal("duplicate host port bind succeeded")
 	}
 }
@@ -138,7 +138,7 @@ func TestPublisherDupBindFails(t *testing.T) {
 // TestPublisherSetActiveKeepsListener verifies the CLI adapter delegates
 // attempt selection to client.RunTunnel without rebinding its local listener.
 func TestPublisherSetActiveKeepsListener(t *testing.T) {
-	p, err := newRunPublisher(t.Context(), publisherTestApplication(), []portMapping{{host: 18020, container: 80}})
+	p, err := newRunPublisher(t.Context(), publisherTestApplication(), []portMapping{{host: 18020, container: 80}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

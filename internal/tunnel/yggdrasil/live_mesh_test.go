@@ -291,3 +291,124 @@ func waitForMesh(t *testing.T, client, allocator *Node) {
 	}
 	t.Fatal("mesh did not converge within 15s")
 }
+
+// TestLiveMeshRouted verifies mesh routing between two leaf nodes that both
+// peer to a central router node (as in production where r1sd and r1s both peer
+// to the host yggdrasil daemon). In Yggdrasil's tree routing, leaf nodes only
+// have their ancestors in GetTree(), so traffic to sibling nodes is routed
+// through the common ancestor.
+func TestLiveMeshRouted(t *testing.T) {
+	routerSeed := []byte("live-mesh-router-seed-0000000000000000000000")
+	clientSeed := []byte("live-mesh-client-seed-0000000000000000000000")
+	allocatorSeed := []byte("live-mesh-allocator-seed-000000000000000000")
+
+	routerNode, err := NewNode(routerSeed, "router-test", NodeOptions{Peers: []string{}})
+	if err != nil {
+		t.Fatalf("router node: %v", err)
+	}
+	defer routerNode.Close()
+	routerListener, err := routerNode.Core().Listen(&url.URL{Scheme: "tcp", Host: "localhost:0"}, "")
+	if err != nil {
+		t.Fatalf("router link listen: %v", err)
+	}
+	defer routerListener.Cancel()
+
+	clientNode, err := NewNode(clientSeed, ClientNodeKeyContext, NodeOptions{Peers: []string{}})
+	if err != nil {
+		t.Fatalf("client node: %v", err)
+	}
+	defer clientNode.Close()
+	allocatorNode, err := NewNode(allocatorSeed, AllocatorNodeKeyContext, NodeOptions{Peers: []string{}})
+	if err != nil {
+		t.Fatalf("allocator node: %v", err)
+	}
+	defer allocatorNode.Close()
+
+	if err := clientNode.Core().CallPeer(&url.URL{Scheme: "tcp", Host: routerListener.Addr().String()}, ""); err != nil {
+		t.Fatalf("client call peer: %v", err)
+	}
+	if err := allocatorNode.Core().CallPeer(&url.URL{Scheme: "tcp", Host: routerListener.Addr().String()}, ""); err != nil {
+		t.Fatalf("allocator call peer: %v", err)
+	}
+	waitForMesh(t, clientNode, allocatorNode)
+
+	allocatorListener, err := NewListener(allocatorNode)
+	if err != nil {
+		t.Fatalf("allocator listener: %v", err)
+	}
+	defer allocatorListener.Close()
+
+	advertisement := tunnel.Endpoint{
+		Address: allocatorNode.AddressBytes(),
+		PubKey:  append([]byte(nil), allocatorNode.PublicKey()...),
+	}
+
+	acceptDone := make(chan error, 1)
+	var allocatorPair *pairConn
+	go func() {
+		incoming, err := allocatorListener.Accept()
+		if err != nil {
+			acceptDone <- err
+			return
+		}
+		if incoming.Preamble() != (tunnel.Preamble{ExecutionID: "live-exec"}) {
+			acceptDone <- errors.New("preamble mismatch")
+			return
+		}
+		if err := incoming.Promote(liveSession(clientNode.PublicKey())); err != nil {
+			acceptDone <- err
+			return
+		}
+		allocatorPair = incoming.pair
+		acceptDone <- nil
+	}()
+
+	dialer, err := NewDialer(clientNode)
+	if err != nil {
+		t.Fatalf("dialer: %v", err)
+	}
+	conn, err := dialer.Dial(context.Background(), advertisement)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	preambleWriter, ok := conn.(tunnel.PreambleWriter)
+	if !ok {
+		t.Fatal("the yggdrasil conn must implement PreambleWriter")
+	}
+	if err := preambleWriter.WritePreamble(tunnel.Preamble{ExecutionID: "live-exec"}); err != nil {
+		t.Fatalf("write preamble: %v", err)
+	}
+	if err := <-acceptDone; err != nil {
+		t.Fatalf("accept side: %v", err)
+	}
+
+	streamConn, err := conn.(tunnel.StreamOpener).OpenStream(9000)
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+	stream, err := allocatorPair.AcceptStream()
+	if err != nil {
+		t.Fatalf("accept stream: %v", err)
+	}
+	if stream.Target.Port != 9000 {
+		t.Fatalf("stream target port = %d; want 9000", stream.Target.Port)
+	}
+
+	payload := bytes.Repeat([]byte("routed-mesh-payload|"), 500)
+	writeDone := make(chan error, 1)
+	go func() {
+		if _, err := streamConn.Write(payload); err != nil {
+			writeDone <- err
+			return
+		}
+		writeDone <- streamConn.CloseWrite()
+	}()
+
+	got := readAllLive(t, stream.Conn, len(payload))
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("payload mismatch: got %d bytes", len(got))
+	}
+	if err := <-writeDone; err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+}

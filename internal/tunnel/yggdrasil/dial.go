@@ -98,12 +98,14 @@ func (d *Dialer) awaitPath(ctx context.Context, remote []byte) error {
 // first packet, which is why the handshake retries the preamble instead of
 // waiting for the path table.
 func nodeKnowsPath(node *Node, remote []byte) bool {
-	for _, entry := range node.Core().GetTree() {
-		if bytes.Equal(entry.Key, remote) {
-			return true
-		}
+	if bytes.Equal(node.PublicKey(), remote) {
+		return true
 	}
-	return false
+	// In Yggdrasil's tree routing, a leaf node only sees itself and its
+	// ancestors towards the root; packets to other nodes in the mesh are routed
+	// up the tree through the common ancestor. A node can route session traffic
+	// as soon as it has joined the mesh spanning tree (len(tree) > 1).
+	return len(node.Core().GetTree()) > 1
 }
 
 // Close implements tunnel.Dialer: it stops the edge and the embedded node.

@@ -111,6 +111,7 @@ func parsePublishFlag(raw string) ([]portMapping, error) {
 // (opened against a previous execution's pair) end when that pair is closed.
 type runPublisher struct {
 	ctx       context.Context
+	stderr    io.Writer
 	tunnel    *r1sclient.RunTunnel
 	targets   []r1sclient.TunnelTarget // container ports to authorize (deduped)
 	listeners []*net.TCPListener
@@ -125,7 +126,7 @@ type runPublisher struct {
 // lazily on first establishment. targets is the deduped container-port list; a
 // bind failure (privileged port, port in use) is reported before any forwarding
 // starts so the whole run fails fast.
-func newRunPublisher(ctx context.Context, app *application, mappings []portMapping) (*runPublisher, error) {
+func newRunPublisher(ctx context.Context, app *application, mappings []portMapping, stderr io.Writer) (*runPublisher, error) {
 	targets := make([]r1sclient.TunnelTarget, 0, len(mappings))
 	seen := make(map[uint16]bool, len(mappings))
 	for _, m := range mappings {
@@ -138,7 +139,7 @@ func newRunPublisher(ctx context.Context, app *application, mappings []portMappi
 	if err != nil {
 		return nil, err
 	}
-	p := &runPublisher{ctx: ctx, tunnel: runTunnel, targets: targets}
+	p := &runPublisher{ctx: ctx, stderr: stderr, tunnel: runTunnel, targets: targets}
 	for _, m := range mappings {
 		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", m.host))
 		if err != nil {
@@ -195,6 +196,9 @@ func (p *runPublisher) serve(conn *net.TCPConn) {
 	defer cancel()
 	stream, err := p.tunnel.Dial(dialCtx, containerPort)
 	if err != nil {
+		if p.stderr != nil {
+			fmt.Fprintf(p.stderr, "publish: dial stream container port %d: %v\n", containerPort, err)
+		}
 		_ = conn.Close()
 		return
 	}

@@ -239,7 +239,7 @@ func (a *application) runDetachedChild(workloadJSON string, offerWait time.Durat
 				file, initErr = os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 			}
 			if initErr == nil && len(publishes) > 0 {
-				publisher, initErr = newRunPublisher(runCtx, a, publishes)
+				publisher, initErr = newRunPublisher(runCtx, a, publishes, file)
 				if initErr == nil {
 					publisher.SetActive(event.Attempt.ExecutionID)
 					publisher.start()

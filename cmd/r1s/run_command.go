@@ -102,7 +102,7 @@ func (a *application) runForeground(workloadJSON string, offerWait time.Duration
 
 	var publisher *runPublisher
 	if len(publishes) > 0 {
-		publisher, err = newRunPublisher(a.ctx, a, publishes)
+		publisher, err = newRunPublisher(a.ctx, a, publishes, stderr)
 		if err != nil {
 			return err
 		}
