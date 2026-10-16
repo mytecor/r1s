@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
+	"strings"
 
 	"github.com/gologme/log"
 	"github.com/yggdrasil-network/yggdrasil-go/src/config"
@@ -13,6 +15,32 @@ import (
 
 // Logger is the node diagnostic sink type yggdrasil-go's Core expects.
 type Logger = core.Logger
+
+// DefaultPeers is the bootstrap peer URI set joined when no custom peers are
+// configured.
+var DefaultPeers = []string{
+	"tcp://127.0.0.1:9002",
+	"tls://ygg5.mk16.de:1338",
+	"tls://supanadit.com:15021",
+	"tls://ins.8px.sk:4321",
+	"quic://asia.deinfra.org:15015",
+	"tls://ygg-msk-1.averyan.ru:8362",
+}
+
+func defaultPeers() []string {
+	if env := strings.TrimSpace(os.Getenv("R1S_TUNNEL_PEERS")); env != "" {
+		var peers []string
+		for _, p := range strings.Split(env, ",") {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				peers = append(peers, trimmed)
+			}
+		}
+		if len(peers) > 0 {
+			return peers
+		}
+	}
+	return append([]string(nil), DefaultPeers...)
+}
 
 // startCore starts the embedded yggdrasil node over the derived private key.
 // The TLS certificate is generated in memory from the same key (yggdrasil-go
@@ -36,7 +64,11 @@ func startCore(key ed25519.PrivateKey, options NodeOptions) (*core.Core, error) 
 	if err != nil {
 		return nil, fmt.Errorf("yggdrasil node: %w", err)
 	}
-	if err := applyPeers(nodeCore, options.Peers); err != nil {
+	peers := options.Peers
+	if peers == nil {
+		peers = defaultPeers()
+	}
+	if err := applyPeers(nodeCore, peers); err != nil {
 		nodeCore.Stop()
 		return nil, err
 	}

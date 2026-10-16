@@ -53,7 +53,7 @@ func runDirectory(runID string) (string, error) {
 // for the child's ownership handshake, and only then prints the run ID, PID,
 // and log path. A child that fails or exits before the handshake is reported
 // as a failed detach, never as a live run.
-func (a *application) launchDetached(workloadJSON string, offerWait time.Duration, logFile string, publishes []portMapping, stderr io.Writer) error {
+func (a *application) launchDetached(workloadJSON string, offerWait time.Duration, logFile string, publishes []portMapping, tunnelPeer string, stderr io.Writer) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("detach: resolve executable: %w", err)
@@ -71,6 +71,9 @@ func (a *application) launchDetached(workloadJSON string, offerWait time.Duratio
 			bits = append(bits, fmt.Sprintf("%d:%d", m.host, m.container))
 		}
 		childArgs = append(childArgs, "--r1s-publish", strings.Join(bits, ","))
+	}
+	if tunnelPeer != "" {
+		childArgs = append(childArgs, "--r1s-tunnel-peer", tunnelPeer)
 	}
 	if logFile != "" {
 		// The parent already knows an explicit --log-file; carry it to the child

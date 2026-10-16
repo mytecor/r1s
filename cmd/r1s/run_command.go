@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
@@ -35,11 +36,13 @@ func (a *application) runExecution(arguments []string, stderr io.Writer) error {
 	var publishes portListValue
 	flags.Var(&publishes, "p", "publish host:container to the run for its lifetime (repeatable)")
 	flags.Var(&publishes, "publish", "publish host:container to the run for its lifetime (repeatable)")
+	tunnelPeers := flags.String("tunnel-peer", "", "comma-separated bootstrap peer URIs for the tunnel edge")
 	// Internal child flags are set only when the detached parent re-executes
 	// this binary as the lease-holding child. They are invisible to users.
 	childFlag := flags.Bool("r1s-child", false, "internal: run as the detached lease-holding child")
 	childLogFile := flags.String("r1s-log-file", "", "internal: resolved detached output file")
 	childPublish := flags.String("r1s-publish", "", "internal: comma-separated host:container publish list")
+	childTunnelPeer := flags.String("r1s-tunnel-peer", "", "internal: comma-separated bootstrap peer URIs for the tunnel edge")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -51,6 +54,13 @@ func (a *application) runExecution(arguments []string, stderr io.Writer) error {
 	}
 	if *detach && *childFlag {
 		return errors.New("run: -d and --r1s-child are mutually exclusive")
+	}
+	activePeers := *tunnelPeers
+	if *childFlag && *childTunnelPeer != "" {
+		activePeers = *childTunnelPeer
+	}
+	if peers := parseTunnelPeers(activePeers); len(peers) > 0 {
+		a.controller.SetTunnelPeers(peers)
 	}
 	detached := *detach || *detachLong
 	if *childFlag {
@@ -65,9 +75,19 @@ func (a *application) runExecution(arguments []string, stderr io.Writer) error {
 		// The parent never owns the run: it spawns a child and waits for the
 		// ownership handshake so it reports a live run only after the child has
 		// safely taken over (and the state paths exist with owner-only perms).
-		return a.launchDetached(flags.Arg(0), *offerWait, *logFile, publishes.mappings, stderr)
+		return a.launchDetached(flags.Arg(0), *offerWait, *logFile, publishes.mappings, *tunnelPeers, stderr)
 	}
 	return a.runForeground(flags.Arg(0), *offerWait, publishes.mappings, stderr)
+}
+
+func parseTunnelPeers(value string) []string {
+	var peers []string
+	for _, peer := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(peer); trimmed != "" {
+			peers = append(peers, trimmed)
+		}
+	}
+	return peers
 }
 
 // foreground run: assign, announce to the terminal, then hold the run while a

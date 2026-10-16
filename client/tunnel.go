@@ -75,7 +75,10 @@ type RunTunnel struct {
 // allowed container ports. Transport resources are created lazily by the first
 // Dial. Close the current RunTunnel before creating another one.
 func (c *Client) NewRunTunnel(targets []TunnelTarget) (*RunTunnel, error) {
-	runTunnel, err := newRunTunnel(c, targets, newYggdrasilRunTunnelEdge, c.OpenTunnel)
+	newEdge := func(identity []byte) (tunnel.Dialer, []byte, error) {
+		return newYggdrasilRunTunnelEdgeWithPeers(identity, c.tunnelPeers())
+	}
+	runTunnel, err := newRunTunnel(c, targets, newEdge, c.OpenTunnel)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +116,8 @@ func newRunTunnel(c *Client, targets []TunnelTarget, newEdge runTunnelEdgeFactor
 	}, nil
 }
 
-func newYggdrasilRunTunnelEdge(identity []byte) (tunnel.Dialer, []byte, error) {
-	node, err := yggdrasil.NewNode(identity, yggdrasil.ClientNodeKeyContext, yggdrasil.NodeOptions{})
+func newYggdrasilRunTunnelEdgeWithPeers(identity []byte, peers []string) (tunnel.Dialer, []byte, error) {
+	node, err := yggdrasil.NewNode(identity, yggdrasil.ClientNodeKeyContext, yggdrasil.NodeOptions{Peers: peers})
 	if err != nil {
 		return nil, nil, fmt.Errorf("tunnel edge: %w", err)
 	}
@@ -124,6 +127,10 @@ func newYggdrasilRunTunnelEdge(identity []byte) (tunnel.Dialer, []byte, error) {
 		return nil, nil, fmt.Errorf("tunnel edge: %w", err)
 	}
 	return dialer, bytes.Clone(node.PublicKey()), nil
+}
+
+func newYggdrasilRunTunnelEdge(identity []byte) (tunnel.Dialer, []byte, error) {
+	return newYggdrasilRunTunnelEdgeWithPeers(identity, nil)
 }
 
 // SetActive switches future Dial calls to executionID. If it differs from the

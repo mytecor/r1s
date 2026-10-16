@@ -254,12 +254,12 @@ func newLiveMeshPair(t *testing.T) (*Node, *Node) {
 	clientSeed := []byte("live-mesh-client-seed-0000000000000000000000")
 	allocatorSeed := []byte("live-mesh-allocator-seed-000000000000000000")
 
-	clientNode, err := NewNode(clientSeed, ClientNodeKeyContext, NodeOptions{})
+	clientNode, err := NewNode(clientSeed, ClientNodeKeyContext, NodeOptions{Peers: []string{}})
 	if err != nil {
 		t.Fatalf("client node: %v", err)
 	}
 	t.Cleanup(func() { _ = clientNode.Close() })
-	allocatorNode, err := NewNode(allocatorSeed, AllocatorNodeKeyContext, NodeOptions{})
+	allocatorNode, err := NewNode(allocatorSeed, AllocatorNodeKeyContext, NodeOptions{Peers: []string{}})
 	if err != nil {
 		t.Fatalf("allocator node: %v", err)
 	}

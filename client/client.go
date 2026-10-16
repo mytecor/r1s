@@ -50,6 +50,9 @@ type Config struct {
 	// BootstrapDestinations are public 16-byte RNS destination hashes tried
 	// immediately for the first request. They grant no realm authority.
 	BootstrapDestinations []string
+	// TunnelPeers overrides bootstrap peer URIs for the run tunnel edge.
+	// Empty/nil joins default peers (R1S_TUNNEL_PEERS or default mesh peers).
+	TunnelPeers []string
 }
 
 // Open resolves a locally joined cluster ID (or unique prefix) and constructs
@@ -93,6 +96,7 @@ func OpenCurrent(config Config) (*Client, error) {
 		return nil, err
 	}
 	c.bootstrapDestinations = endpoint.BootstrapDestinations()
+	c.configuredTunnelPeers = append([]string(nil), config.TunnelPeers...)
 	return c, nil
 }
 
@@ -106,6 +110,7 @@ type Client struct {
 	core                  *coreclient.Client
 	identity              []byte
 	bootstrapDestinations []string
+	configuredTunnelPeers []string
 
 	started       bool
 	closed        bool
@@ -150,7 +155,27 @@ func New(config Config) (*Client, error) {
 		return nil, err
 	}
 	c.bootstrapDestinations = append([]string(nil), config.BootstrapDestinations...)
+	c.configuredTunnelPeers = append([]string(nil), config.TunnelPeers...)
 	return c, nil
+}
+
+// SetTunnelPeers updates the bootstrap peers used for run tunnels.
+func (c *Client) SetTunnelPeers(peers []string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.configuredTunnelPeers = append([]string(nil), peers...)
+}
+
+func (c *Client) tunnelPeers() []string {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.configuredTunnelPeers...)
 }
 
 func normalizeConfig(config *Config) error {
