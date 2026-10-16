@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"os"
 	"time"
 
 	"github.com/mytecor/r1s/internal/allocator"
@@ -125,6 +127,7 @@ func spliceToTarget(ctx context.Context, core *allocator.Allocator, session *tun
 	defer cancel()
 	targetConn, err := core.DialTunnelTarget(dialCtx, session, target.Port)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "tunnel edge: dial target %d for execution %s failed: %v\n", target.Port, session.ExecutionID, err)
 		_ = conn.(tunnel.ReasonCloser).CloseWithReason(tunnel.ReasonSessionFailed, "dial target: "+err.Error())
 		return
 	}

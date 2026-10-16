@@ -56,7 +56,7 @@ func (b *clientBackend) dialExecution(ctx context.Context, executionID, fingerpr
 	}
 	defer namespace.Close()
 	if err := unix.PidfdSendSignal(pidfd, 0, nil, 0); err != nil {
-		return nil, ErrExecutionMissing
+		return nil, fmt.Errorf("%w: pidfd signal: %v", ErrExecutionMissing, err)
 	}
 	// Recheck after opening the namespace, keeping the namespace FD pinned while
 	// dialing. A task that stopped during lookup must not authorize a connection.
