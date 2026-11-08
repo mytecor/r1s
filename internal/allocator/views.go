@@ -158,3 +158,23 @@ func randomID() string {
 	}
 	return hex.EncodeToString(value[:])
 }
+
+// AvailableCapacity snapshots currently unreserved slots across all classes.
+func (a *Allocator) AvailableCapacity() map[string]uint32 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.expireOffersLocked(a.now().UTC())
+	available := make(map[string]uint32, len(a.capacity.limits))
+	for class := range a.capacity.limits {
+		available[class] = a.capacity.available(class)
+	}
+	return available
+}
+
+// SetDraining stops new reservations without changing existing offers,
+// executions, or leases. It is process-local operator availability state.
+func (a *Allocator) SetDraining(draining bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.draining = draining
+}

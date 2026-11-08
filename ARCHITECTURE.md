@@ -29,6 +29,7 @@ flowchart LR
     Client[Public Run Controller API]
     Broker[Local cluster authority broker]
     Realm[meshbus realm membership]
+    Meshbus[meshbus Node<br/>peer directory, direct messages and advisory events]
     Fabric[RNS control plane<br/>announce + Link/Channel]
     Allocator[Allocator core]
     Runtime[OCI runtime]
@@ -37,10 +38,11 @@ flowchart LR
     Protocol -. defines messages .-> Client
     Protocol -. defines messages .-> Allocator
     Client <--> Broker
-    Broker <--> Fabric
-    Client <--> Fabric
+    Broker <--> Meshbus
+    Client <--> Meshbus
+    Meshbus <--> Fabric
     Fabric --> Realm
-    Fabric <--> Allocator
+    Meshbus <--> Allocator
     Allocator --> Runtime
     Runtime --> Containerd
 ```
@@ -102,6 +104,46 @@ persistence, replay, consumer groups, offsets, or exactly-once claim.
 Announces remain presence/discovery only. r1s request/offer/assign messages keep their protocol
 semantics and use generic direct messaging without becoming pub/sub events. The staged extraction
 is tracked in [F24](./roadmap/f24-meshbus-extraction/README.md).
+
+The r1s adapter composes `core.NewNode` over an RNS transport factory. The Node owns candidate
+and authenticated directories, interest synchronization, direct delivery, and pub/sub. The factory
+retains the concrete RNS endpoint only for known-destination bootstrap and session routing; the
+convenience RNS `NewNode` constructor does not expose that bootstrap surface.
+Ordinary request, offer, assignment, release, renewal, inspection, cancellation, logs, and tunnel
+control address an immutable `meshbus.PeerID`. RNS destinations stay inside the adapter and the
+explicit credential/bootstrap path. Public execution snapshots and pending release diagnostics
+expose `PeerID` rather than the former `Destination` field.
+
+Allocator discovery reads full snapshots of both Node candidate and authenticated peers. A
+capacity-one notification channel only wakes readers; a periodic refresh also recovers dropped
+notifications. Authentication promotes a candidate, so snapshots include both directories and
+retain r1s capacity, placement, tunnel hints, and offer ranking. The local authority broker sends
+complete replacement snapshots instead of maintaining a second identity-to-destination route map.
+Its local framing version is 2: restart an older running broker after upgrading. Independent,
+bounded concurrent sends keep a stale destination bootstrap from blocking a newly discovered peer.
+
+Allocators publish `r1s.allocator.ready` at startup, `r1s.allocator.capacity` after resource changes,
+and `r1s.allocator.draining` during graceful shutdown. Clients subscribe to `r1s.allocator.>`.
+Updates carry free slots, readiness, draining, and a process-local revision; identity comes only
+from the authenticated event sender. Capacity changes are sampled every 250 ms and coalesced,
+with a five-second refresh for subscribers whose interests arrive after startup. Hints expire
+locally after 15 seconds, falling back to presence; only newer revisions replace a live hint.
+After expiry a restarted allocator can begin a fresh revision sequence. The status cache is
+bounded and accepts updates only from known allocator descriptors. A draining allocator refuses
+new reservations locally while preserving existing offers, executions, and leases. Graceful drain
+publication is best-effort and bounded; abrupt shutdown relies on hint expiry and normal retries.
+
+These events are advisory: they cannot reserve slots or grant execution authority. Cold clients
+still send `ExecutionRequest` directly to discovered peers and known bootstrap destinations,
+without waiting for interests to synchronize. All execution control remains direct; state
+revision checks and periodic `Inspect` reconciliation, durable leases, explicit owner-only log
+retrieval, and the Yggdrasil tunnel data plane keep their existing contracts.
+
+The meshbus v0.4.0 RNS `SendMessage` implementation requires a destination mapping even for a
+passive peer with an existing authenticated inbound session. The adapter's Node transport resolves
+that case through the existing identity-keyed session, without exposing destination routing to
+the client core. Removing this workaround after an upstream fix is tracked in
+[the backlog](./roadmap/BACKLOG.md).
 
 The RNS session path performs Link identity and realm authentication, exchanges a bidirectional
 ready marker, and only then emits a meshbus `ReceivedMessage`. Payloads up to the negotiated Channel

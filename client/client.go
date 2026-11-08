@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/broker"
 	coreclient "github.com/mytecor/r1s/internal/client"
@@ -130,10 +131,11 @@ type Client struct {
 // details.
 type controllerEndpoint interface {
 	Start(context.Context) error
+	SendPeer(context.Context, meshbus.PeerID, *r1sv1.Envelope) error
 	Send(context.Context, string, *r1sv1.Envelope) error
 	Close() error
 	Discoveries() <-chan rns.Service
-	DestinationForIdentity(string) (string, bool)
+	Services() []rns.Service
 }
 
 // New constructs an ephemeral client without starting its RNS endpoint.
@@ -241,7 +243,7 @@ func (c *Client) Start(ctx context.Context) error {
 		return err
 	}
 	c.started = true
-	c.offerReleases = c.core.StartOfferReleases(ctx, c.endpoint.Send)
+	c.offerReleases = c.core.StartOfferReleases(ctx, c.endpoint.SendPeer)
 	return nil
 }
 
@@ -273,8 +275,8 @@ func (c *Client) Close() []PendingRelease {
 	if stopReleases != nil {
 		for _, release := range stopReleases() {
 			pending = append(pending, PendingRelease{
-				Destination: release.Destination,
-				OfferID:     release.Envelope.GetExecutionOfferRelease().GetOfferId(),
+				PeerID:  release.Peer.String(),
+				OfferID: release.Envelope.GetExecutionOfferRelease().GetOfferId(),
 			})
 		}
 	}
@@ -307,8 +309,8 @@ func (c *Client) unregisterRunTunnel(runTunnel *RunTunnel) {
 // PendingRelease describes an offer release that will instead be reclaimed by
 // allocator-side expiry after the client shuts down.
 type PendingRelease struct {
-	Destination string
-	OfferID     string
+	PeerID  string
+	OfferID string
 }
 
 func (c *Client) beginRun() error {
@@ -375,12 +377,10 @@ func (c *Client) dispatchEnvelope(envelope *r1sv1.Envelope) {
 }
 
 func (c *Client) handleEnvelope(ctx context.Context, envelope *r1sv1.Envelope) error {
-	identityKey := hex.EncodeToString(envelope.GetSender())
-	if destination, ok := c.endpoint.DestinationForIdentity(identityKey); ok {
-		if err := c.core.RegisterAllocator(coreclient.Allocator{Identity: envelope.GetSender(), Destination: destination}); err != nil {
-			return err
-		}
+	if err := c.core.RegisterAllocator(coreclient.Allocator{Identity: envelope.GetSender()}); err != nil {
+		return err
 	}
+
 	if err := c.core.Handle(ctx, envelope); err != nil {
 		return err
 	}
@@ -394,8 +394,8 @@ func (c *Client) handleEnvelope(ctx context.Context, envelope *r1sv1.Envelope) e
 	return nil
 }
 
-func (c *Client) send(ctx context.Context, destination string, envelope *r1sv1.Envelope) error {
+func (c *Client) send(ctx context.Context, peer meshbus.PeerID, envelope *r1sv1.Envelope) error {
 	sendCtx, cancel := context.WithTimeout(ctx, defaultNetworkWait)
 	defer cancel()
-	return c.endpoint.Send(sendCtx, destination, envelope)
+	return c.endpoint.SendPeer(sendCtx, peer, envelope)
 }

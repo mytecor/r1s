@@ -4,9 +4,10 @@ package rns
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
@@ -67,6 +68,9 @@ func (s Service) TunnelEndpoint() (host string, port int, destination string, ok
 // Endpoint is the thin r1s facade over a public meshbus RNS endpoint.
 type Endpoint struct {
 	transport  *meshrns.Endpoint
+	node       *meshbus.Node
+	advisoryMu sync.Mutex
+	advisory   map[meshbus.PeerID]AllocatorStatus
 	identity   []byte
 	discovered chan Service
 }
@@ -85,7 +89,7 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 		config.Aspect = defaultAspect
 	}
 
-	discovered := make(chan Service, 32)
+	discovered := make(chan Service, 1)
 	passive := len(config.Capacity) == 0
 	var presenceMetadata map[string]string
 	if !passive {
@@ -95,7 +99,7 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 		}
 		presenceMetadata = descriptor.metadata()
 	}
-	transport, err := meshrns.New(meshrns.Config{
+	transportConfig := meshrns.Config{
 		StackMode: func() meshrns.StackMode {
 			if config.Reticulum != nil {
 				return meshrns.StackStandalone
@@ -113,57 +117,115 @@ func New(config Config, handler coretransport.Handler) (*Endpoint, error) {
 		Interfaces:        config.Interfaces,
 		PresenceMetadata:  presenceMetadata,
 		Passive:           passive,
-		Handler:           envelopeHandler(handler),
+	}
+	e := &Endpoint{discovered: discovered, advisory: make(map[meshbus.PeerID]AllocatorStatus)}
+	node, err := meshbus.NewNode(meshbus.NodeConfig{
+		DirectHandler: envelopeHandler(handler),
+		Transport: func(handler meshbus.Handler) (meshbus.NodeTransport, error) {
+			transportConfig.Handler = handler
+			transport, err := meshrns.New(transportConfig)
+			e.transport = transport
+			if err != nil {
+				return nil, err
+			}
+			return &observedTransport{Endpoint: transport, notify: discovered}, nil
+		},
 	})
 	if err != nil {
 		return nil, err
 	}
-	if err := transport.SetPeerObserver(serviceObserver{
-		discovered: discovered,
-		resolve:    transport.DestinationForIdentity,
-	}); err != nil {
-		_ = transport.Close()
+	e.node = node
+	e.identity = node.Identity().Bytes()
+	if _, err := node.Subscribe("r1s.allocator.>", e.receiveStatus); err != nil {
+		_ = node.Close()
 		return nil, err
 	}
-	identityHash, err := hex.DecodeString(transport.Name())
-	if err != nil {
-		_ = transport.Close()
-		return nil, fmt.Errorf("decode local identity: %w", err)
-	}
-	return &Endpoint{transport: transport, identity: identityHash, discovered: discovered}, nil
+	return e, nil
 }
 
-type serviceObserver struct {
-	discovered chan<- Service
-	resolve    func(string) (string, bool)
+// observedTransport keeps only a coalesced wake-up. Discovery contents live in
+// the Node directories, so a burst never discards the newest peer state.
+type observedTransport struct {
+	*meshrns.Endpoint
+	notify chan Service
 }
 
-func (o serviceObserver) Discovered(peer meshbus.Peer) error {
-	descriptor, err := parseDescriptorMetadata(peer.Metadata)
-	if err != nil {
-		return err
+// meshbus v0.4.0 SendMessage requires a destination mapping, but an inbound
+// passive client has only an authenticated session keyed by identity. Keep
+// this session-resolution workaround below the Node's PeerID boundary.
+func (t *observedTransport) SendMessage(ctx context.Context, peer meshbus.PeerID, payload []byte) error {
+	err := t.Endpoint.SendMessage(ctx, peer, payload)
+	if errors.Is(err, meshbus.ErrUnknownPeer) {
+		return t.Endpoint.SendToDestination(ctx, peer.String(), payload)
 	}
-	destination, ok := o.resolve(peer.ID.String())
-	if !ok {
-		return fmt.Errorf("resolve RNS destination for discovered identity %s", peer.ID)
+	return err
+}
+
+func (t *observedTransport) SetPeerObserver(observer meshbus.PeerObserver) error {
+	return t.Endpoint.SetPeerObserver(peerObserver{observer, t.notify, t.DestinationForIdentity})
+}
+
+type peerObserver struct {
+	meshbus.PeerObserver
+	notify  chan Service
+	resolve func(string) (string, bool)
+}
+
+func (o peerObserver) Discovered(peer meshbus.Peer) error {
+	err := o.PeerObserver.Discovered(peer)
+	if descriptor, parseErr := parseDescriptorMetadata(peer.Metadata); parseErr == nil {
+		destination, _ := o.resolve(peer.ID.String())
+		select {
+		case o.notify <- Service{Destination: destination, Identity: peer.ID.String(), Descriptor: descriptor, Hops: peer.Hops}:
+		default:
+		}
 	}
-	service := Service{Destination: destination, Identity: peer.ID.String(), Descriptor: descriptor, Hops: peer.Hops}
+	return err
+}
+func (o peerObserver) Authenticated(peer meshbus.PeerID) error {
+	err := o.PeerObserver.Authenticated(peer)
 	select {
-	case o.discovered <- service:
+	case o.notify <- Service{}:
 	default:
 	}
-	return nil
+	return err
 }
 
-func (serviceObserver) Authenticated(meshbus.PeerID) error { return nil }
+func (e *Endpoint) Name() string        { return e.node.Identity().String() }
+func (e *Endpoint) Destination() string { return e.transport.Destination() }
 
-func (e *Endpoint) Name() string                { return e.transport.Name() }
-func (e *Endpoint) Destination() string         { return e.transport.Destination() }
+// Discoveries is a compatibility event stream; use Services for lossless snapshots.
 func (e *Endpoint) Discoveries() <-chan Service { return e.discovered }
-func (e *Endpoint) Start(ctx context.Context) error {
-	return e.transport.Start(ctx)
+func (e *Endpoint) Services() []Service {
+	peers := append(e.node.DiscoveredPeers(), e.node.Peers()...)
+	byIdentity := make(map[string]Service, len(peers))
+	for _, peer := range peers {
+		descriptor, err := parseDescriptorMetadata(peer.Metadata)
+		if err != nil {
+			continue
+		}
+		destination, _ := e.transport.DestinationForIdentity(peer.ID.String())
+		e.advisoryMu.Lock()
+		if status, ok := e.advisory[peer.ID]; ok && time.Since(status.receivedAt) < statusTTL {
+			descriptor.Capacity = make(map[string]uint32, len(status.Capacity))
+			for class, slots := range status.Capacity {
+				if status.Ready && !status.Draining {
+					descriptor.Capacity[class] = slots
+				}
+			}
+		}
+		e.advisoryMu.Unlock()
+		byIdentity[peer.ID.String()] = Service{Destination: destination, Identity: peer.ID.String(), Descriptor: descriptor, Hops: peer.Hops}
+	}
+	result := make([]Service, 0, len(byIdentity))
+	for _, service := range byIdentity {
+		result = append(result, service)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Identity < result[j].Identity })
+	return result
 }
-func (e *Endpoint) Close() error { return e.transport.Close() }
+func (e *Endpoint) Start(ctx context.Context) error { return e.node.Start(ctx) }
+func (e *Endpoint) Close() error                    { return e.node.Close() }
 func (e *Endpoint) DestinationForIdentity(identity string) (string, bool) {
 	return e.transport.DestinationForIdentity(identity)
 }

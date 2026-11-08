@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	coreclient "github.com/mytecor/r1s/internal/client"
 	"github.com/mytecor/r1s/internal/cluster"
@@ -97,9 +98,8 @@ func TestRunControllerCompletesThroughTransportContract(t *testing.T) {
 	endpoint := &fakeControllerEndpoint{client: c, discoveries: make(chan rns.Service, 1)}
 	c.endpoint = endpoint
 	endpoint.discoveries <- rns.Service{
-		Destination: "allocator-destination",
-		Identity:    "616c6c6f6361746f72",
-		Descriptor:  rns.Descriptor{Capacity: map[string]uint32{"default": 1}},
+		Identity:   "616c6c6f6361746f72",
+		Descriptor: rns.Descriptor{Capacity: map[string]uint32{"default": 1}},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -303,4 +303,22 @@ func (f *fakeControllerEndpoint) Send(ctx context.Context, _ string, envelope *r
 	default:
 		return fmt.Errorf("unexpected payload %T", payload)
 	}
+}
+
+func (f *fakeControllerEndpoint) SendPeer(ctx context.Context, _ meshbus.PeerID, envelope *r1sv1.Envelope) error {
+	return f.Send(ctx, "", envelope)
+}
+func (f *fakeControllerEndpoint) Services() []rns.Service {
+	return []rns.Service{{Identity: hex.EncodeToString([]byte("allocator")), Descriptor: rns.Descriptor{Capacity: map[string]uint32{"default": 1}}}}
+}
+func (f *bootstrapTestEndpoint) SendPeer(ctx context.Context, _ meshbus.PeerID, envelope *r1sv1.Envelope) error {
+	return f.Send(ctx, f.live, envelope)
+}
+func (f *bootstrapTestEndpoint) Services() []rns.Service {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.announce {
+		return nil
+	}
+	return []rns.Service{{Identity: hex.EncodeToString([]byte("allocator")), Descriptor: rns.Descriptor{Capacity: map[string]uint32{"default": 1}}}}
 }

@@ -29,6 +29,7 @@ type Allocator struct {
 
 	identity  []byte
 	capacity  *capacityLedger
+	draining  bool
 	offerTTL  time.Duration
 	leaseTTL  time.Duration
 	retention time.Duration

@@ -139,6 +139,13 @@ but consumers of `RunTunnel` do not import any internal transport package. One `
 one logical run and one live run tunnel; create another client to obtain fresh authority for another
 run.
 
+The run controller routes control messages by authenticated peer identity and reads complete
+allocator discovery snapshots. Ready, draining, and free-capacity updates use advisory meshbus
+events; execution requests and lease operations stay direct. After upgrading, restart an existing
+local authority broker (`r1s cluster unset`, then `r1s cluster use -d <cluster>`) to adopt broker
+protocol version 2. Public statistics and pending-release records now expose `PeerID` in place
+of `Destination`. See [the messaging boundary](./ARCHITECTURE.md#messaging-and-realm-boundary).
+
 ## Quick start
 
 Create the cluster once on the first participant. Either binary can create it; this example uses a

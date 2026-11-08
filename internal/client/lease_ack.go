@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
 )
@@ -48,9 +49,9 @@ func (o *Client) markRenewalFailureLocked(executionID, code string) {
 	}
 }
 
-func (o *Client) markLeaseLostLocked(record *executionRecord) (string, *r1sv1.Envelope, bool, error) {
+func (o *Client) markLeaseLostLocked(record *executionRecord) (meshbus.PeerID, *r1sv1.Envelope, bool, error) {
 	record.leaseLost = true
-	return record.destination, nil, true, nil
+	return record.peer, nil, true, nil
 }
 
 // isLostLeaseState reports whether an observed terminal state marks an

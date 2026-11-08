@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/cluster"
 	"github.com/mytecor/r1s/internal/transport/rns"
@@ -78,9 +79,9 @@ func TestBrokerRetainsCredentialAndCreatesRunEndpoint(t *testing.T) {
 	}
 	fake.discoveries <- rns.Service{Identity: "allocator", Destination: "destination", Descriptor: rns.Descriptor{Capacity: map[string]uint32{"default": 1}}}
 	select {
-	case discovery := <-clientEndpoint.Discoveries():
-		if discovery.Destination != "destination" {
-			t.Fatalf("discovery = %+v", discovery)
+	case <-clientEndpoint.Discoveries():
+		if services := clientEndpoint.Services(); len(services) != 1 || services[0].Destination != "destination" {
+			t.Fatalf("services = %+v", clientEndpoint.Services())
 		}
 	case <-time.After(time.Second):
 		t.Fatal("broker did not forward discovery")
@@ -175,4 +176,11 @@ func (f *fakeEndpoint) DestinationForIdentity(string) (string, bool) { return "d
 func (f *fakeEndpoint) Send(_ context.Context, _ string, envelope *r1sv1.Envelope) error {
 	f.sent = envelope
 	return nil
+}
+
+func (f *fakeEndpoint) SendPeer(ctx context.Context, _ meshbus.PeerID, envelope *r1sv1.Envelope) error {
+	return f.Send(ctx, "", envelope)
+}
+func (f *fakeEndpoint) Services() []rns.Service {
+	return []rns.Service{{Identity: "allocator", Destination: "destination", Descriptor: rns.Descriptor{Capacity: map[string]uint32{"default": 1}}}}
 }

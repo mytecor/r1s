@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	coreclient "github.com/mytecor/r1s/internal/client"
 	"github.com/mytecor/r1s/internal/protocol"
@@ -118,7 +119,7 @@ func emit(handler func(Event), event Event) {
 	}
 }
 
-func (c *Client) requestAttempt(ctx context.Context, previous *r1sv1.ExecutionRequest, initial *r1sv1.ExecutionRequest, offerWait time.Duration, allocators []string, leaseDuration time.Duration) (Attempt, error) {
+func (c *Client) requestAttempt(ctx context.Context, previous *r1sv1.ExecutionRequest, initial *r1sv1.ExecutionRequest, offerWait time.Duration, allocators []meshbus.PeerID, leaseDuration time.Duration) (Attempt, error) {
 	var (
 		requestID string
 		envelope  *r1sv1.Envelope
@@ -138,7 +139,7 @@ func (c *Client) requestAttempt(ctx context.Context, previous *r1sv1.ExecutionRe
 	defer cancel()
 	attemptCtx, cancelAttempt := context.WithCancel(ctx)
 	defer cancelAttempt()
-	sent := make(map[string]bool)
+	sent := make(map[meshbus.PeerID]bool)
 	timer := time.NewTimer(offerWait)
 	defer timer.Stop()
 	// Previously selected allocator routes retain their strict send semantics:
@@ -152,14 +153,50 @@ func (c *Client) requestAttempt(ctx context.Context, previous *r1sv1.ExecutionRe
 		sent[destination] = true
 	}
 	if previous == nil {
+		seen := make(map[string]bool)
 		for _, destination := range c.bootstrapDestinations {
-			if sent[destination] {
+			if seen[destination] {
 				continue
 			}
-			sent[destination] = true
-			go func(destination string) { _ = c.send(attemptCtx, destination, envelope) }(destination)
+			seen[destination] = true
+			go func(destination string) { _ = c.endpoint.Send(attemptCtx, destination, envelope) }(destination)
 		}
 	}
+	// Snapshots hold current advisory discovery state. Events accelerate refresh.
+	refresh := func() error {
+		for _, service := range c.endpoint.Services() {
+			identity, err := hex.DecodeString(service.Identity)
+			if err != nil {
+				continue
+			}
+			peer, err := meshbus.NewPeerID(identity)
+			if err != nil {
+				continue
+			}
+			node := summaryNode(service.Descriptor.OS, service.Descriptor.Arch, service.Descriptor.Runtime)
+			allocator := coreclient.Allocator{Identity: identity, Hops: service.Hops, Capacity: service.Descriptor.Capacity, Node: node}
+			if host, port, destination, ok := service.TunnelEndpoint(); ok {
+				allocator.TunnelHost = host
+				allocator.TunnelPort = port
+				allocator.TunnelDestination = destination
+			}
+			if err := c.core.RegisterAllocator(allocator); err != nil {
+				return err
+			}
+			if service.Descriptor.Capacity[request.GetResourceClass()] == 0 || !protocol.PlacementCompatible(request.GetConstraints(), node) || sent[peer] {
+				continue
+			}
+			sent[peer] = true
+			go func() { _ = c.send(attemptCtx, peer, envelope) }()
+		}
+		return nil
+	}
+	if err := refresh(); err != nil {
+		return Attempt{}, err
+	}
+	refreshTicker := time.NewTicker(100 * time.Millisecond)
+	defer refreshTicker.Stop()
+
 	var remoteErr error
 collect:
 	for {
@@ -172,32 +209,14 @@ collect:
 			if err := coreclient.RemoteFailure(response); err != nil {
 				remoteErr = err
 			}
-		case service := <-c.endpoint.Discoveries():
-			if service.Descriptor.Capacity[request.GetResourceClass()] == 0 {
-				continue
-			}
-			identity, decodeErr := hex.DecodeString(service.Identity)
-			if decodeErr != nil {
-				continue
-			}
-			node := summaryNode(service.Descriptor.OS, service.Descriptor.Arch, service.Descriptor.Runtime)
-			allocator := coreclient.Allocator{
-				Identity: identity, Destination: service.Destination, Hops: service.Hops,
-				Capacity: service.Descriptor.Capacity, Node: node,
-			}
-			if host, port, destination, ok := service.TunnelEndpoint(); ok {
-				allocator.TunnelHost = host
-				allocator.TunnelPort = port
-				allocator.TunnelDestination = destination
-			}
-			if err := c.core.RegisterAllocator(allocator); err != nil {
+		case <-c.endpoint.Discoveries():
+			if err := refresh(); err != nil {
 				return Attempt{}, err
 			}
-			if !protocol.PlacementCompatible(request.GetConstraints(), node) || sent[service.Destination] {
-				continue
+		case <-refreshTicker.C:
+			if err := refresh(); err != nil {
+				return Attempt{}, err
 			}
-			sent[service.Destination] = true
-			go func(destination string) { _ = c.send(attemptCtx, destination, envelope) }(service.Destination)
 		}
 	}
 	destination, assignment, err := c.core.Select(requestID)
@@ -328,7 +347,7 @@ func (c *Client) reRequestLost(ctx context.Context, executionID string, options 
 	if !ok {
 		return Attempt{}, fmt.Errorf("%w: execution %q has no recorded request", coreclient.ErrExecutionNotFound, executionID)
 	}
-	allocators := c.core.AllocatorDestinations(request.GetResourceClass(), request.GetConstraints())
+	allocators := c.core.AllocatorPeers(request.GetResourceClass(), request.GetConstraints())
 	replacement, err := c.requestAttempt(ctx, request, nil, options.OfferWait, allocators, options.LeaseDuration)
 	if err != nil {
 		return Attempt{}, fmt.Errorf("re-request after lease expiry: %w", err)

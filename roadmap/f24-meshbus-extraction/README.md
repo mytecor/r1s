@@ -2,7 +2,7 @@
 
 Corresponds to [F24 in the roadmap](../../ROADMAP.md#f24-brokerless-meshbus-extraction).
 
-**Status:** ✅ Complete
+**Status:** Core extraction complete; F24-13 consumer migration implemented, live regression pending.
 
 ## Outcome
 
@@ -69,6 +69,7 @@ delivery. Multi-hop gossip remains out of scope.
 - [F24-10 — Establish an independent Go module boundary](./f24-10-independent-module.md)
 - [F24-11 — Stabilize and harden the meshbus wire contracts](./f24-11-wire-contracts.md)
 - [F24-12 — Prove the external-consumer boundary](./f24-12-external-consumer.md)
+- [F24-13 — Adopt peer routing, discovery snapshots, and advisory events](./f24-13-r1s-node-adoption.md)
 
 ## Completion criteria
 

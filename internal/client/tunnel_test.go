@@ -57,7 +57,7 @@ func TestTunnelOpenDeclaresForOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TunnelOpen: %v", err)
 	}
-	if destination != "destination" {
+	if string(destination.Bytes()) != "allocator" {
 		t.Fatalf("destination = %q; want destination", destination)
 	}
 	open := envelope.GetExecutionTunnelOpen()

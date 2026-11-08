@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/hex"
 	"sort"
-	"strings"
+
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
 	"google.golang.org/protobuf/proto"
@@ -14,9 +15,14 @@ import (
 
 // RegisterAllocator records a verified discovery or authenticated session route.
 func (o *Client) RegisterAllocator(candidate Allocator) error {
-	if len(candidate.Identity) == 0 || strings.TrimSpace(candidate.Destination) == "" {
+	if len(candidate.Identity) == 0 {
 		return ErrInvalidAllocator
 	}
+	peer, err := meshbus.NewPeerID(candidate.Identity)
+	if err != nil {
+		return ErrInvalidAllocator
+	}
+	candidate.Peer = peer
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	previous, existed := o.allocators.lookup(candidate.Identity)
@@ -43,22 +49,22 @@ func (o *Client) RegisterAllocator(candidate Allocator) error {
 	return nil
 }
 
-// AllocatorDestinations returns every currently known allocator that may
+// AllocatorPeers returns every currently known allocator that may
 // satisfy the resource class and placement constraints. The sorted result is
 // discovery state, not pinning: a fresh attempt remains free to select any
 // allocator that offers, including later discoveries.
-func (o *Client) AllocatorDestinations(resourceClass string, constraints *r1sv1.PlacementConstraints) []string {
+func (o *Client) AllocatorPeers(resourceClass string, constraints *r1sv1.PlacementConstraints) []meshbus.PeerID {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	var destinations []string
+	var peers []meshbus.PeerID
 	for _, allocator := range o.allocators.all() {
 		if allocator.Capacity[resourceClass] == 0 || !protocol.PlacementCompatible(constraints, allocator.Node) {
 			continue
 		}
-		destinations = append(destinations, allocator.Destination)
+		peers = append(peers, allocator.Peer)
 	}
-	sort.Strings(destinations)
-	return destinations
+	sort.Slice(peers, func(i, j int) bool { return peers[i].String() < peers[j].String() })
+	return peers
 }
 
 // allocatorCatalog owns authenticated allocator routes and the deterministic
@@ -105,7 +111,7 @@ func (c *allocatorCatalog) chooseWithPreferences(offers map[string]*offerRecord,
 	candidates := make([]*offerRecord, 0, len(offers))
 	for _, offer := range offers {
 		allocator, ok := c.lookup(offer.allocatorID)
-		if !ok || strings.TrimSpace(allocator.Destination) == "" || !offer.offer.GetExpiresAt().AsTime().After(now) {
+		if !ok || allocator.Peer.IsZero() || !offer.offer.GetExpiresAt().AsTime().After(now) {
 			continue
 		}
 		// Advisory placement check: the offer's embedded node is the freshest
@@ -159,7 +165,7 @@ func nodeCaches(node *r1sv1.NodeCapabilities, image string) bool {
 }
 
 func cloneAllocator(value Allocator) Allocator {
-	result := Allocator{Identity: bytes.Clone(value.Identity), Destination: value.Destination, Hops: value.Hops}
+	result := Allocator{Identity: bytes.Clone(value.Identity), Peer: value.Peer, Hops: value.Hops}
 	if value.Capacity != nil {
 		result.Capacity = make(map[string]uint32, len(value.Capacity))
 		for class, slots := range value.Capacity {

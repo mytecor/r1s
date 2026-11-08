@@ -34,7 +34,7 @@ func TestReleaseIntentTracksLateOffersAndAcks(t *testing.T) {
 		t.Fatal(err)
 	}
 	pending := core.PendingReleases()
-	if len(pending) != 1 || pending[0].Destination != "loser" {
+	if len(pending) != 1 || string(pending[0].Peer.Bytes()) != "loser" {
 		t.Fatalf("pending=%v", pending)
 	}
 	// A late offer after selection is also enqueued for release, and the
@@ -50,7 +50,7 @@ func TestReleaseIntentTracksLateOffersAndAcks(t *testing.T) {
 		t.Fatal("late offer was lost or duplicated")
 	}
 	for _, release := range core.PendingReleases() {
-		ack := &r1sv1.Envelope{MessageId: "ack", Sender: []byte(release.Destination), CorrelationId: release.Envelope.GetMessageId(), SentAt: timestamppb.New(now),
+		ack := &r1sv1.Envelope{MessageId: "ack", Sender: []byte(string(release.Peer.Bytes())), CorrelationId: release.Envelope.GetMessageId(), SentAt: timestamppb.New(now),
 			Payload: &r1sv1.Envelope_ExecutionOfferReleaseAck{ExecutionOfferReleaseAck: &r1sv1.ExecutionOfferReleaseAck{RequestId: id, OfferId: release.Envelope.GetExecutionOfferRelease().GetOfferId(), Outcome: r1sv1.OfferReleaseOutcome_OFFER_RELEASE_OUTCOME_RELEASED}},
 		}
 		forged := proto.Clone(ack).(*r1sv1.Envelope)

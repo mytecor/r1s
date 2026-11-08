@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 )
 
@@ -28,13 +29,13 @@ type Config struct {
 // assignment, so a stale client-side copy never grants placement that local
 // policy denies.
 type Allocator struct {
-	Identity    []byte
-	Destination string
-	Hops        uint8
-	Capacity    map[string]uint32
-	Node        *r1sv1.NodeCapabilities
+	Identity []byte
+	Peer     meshbus.PeerID
+	Hops     uint8
+	Capacity map[string]uint32
+	Node     *r1sv1.NodeCapabilities
 	// Tunnel endpoint advertisement: the allocator's advertised tunnel edge
-	// (the F22-06 Yggdrasil edge host/port plus its destination hash) that a
+	// (the F22-06 Yggdrasil edge host/port plus its peer hash) that a
 	// client dials to open a tunnel. Populated from the authenticated announce
 	// descriptor; advisory, like Node, and re-discovered on the next announce.
 	// Holds empty values when the allocator runs no tunnel edge.
@@ -63,7 +64,7 @@ type executionRecord struct {
 	requestID           string
 	offerID             string
 	allocatorID         []byte
-	destination         string
+	peer                meshbus.PeerID
 	assignmentMessageID string
 	assignmentSentAt    time.Time
 	inspectMessageID    string
@@ -79,7 +80,7 @@ type executionRecord struct {
 	// leaseAllocators preserves the explicit allocator pinning recorded with
 	// the intent so a re-request reuses the original placement constraint.
 	leaseDuration       time.Duration
-	leaseAllocators     []string
+	leaseAllocators     []meshbus.PeerID
 	leaseLost           bool
 	leaseRenewedAt      time.Time
 	leaseRenewMessageID string
@@ -100,7 +101,7 @@ type ExecutionSnapshot struct {
 	RequestID   string
 	OfferID     string
 	Allocator   []byte
-	Destination string
+	Peer        meshbus.PeerID
 	State       *r1sv1.ExecutionState
 }
 

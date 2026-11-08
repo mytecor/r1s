@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
 	"google.golang.org/protobuf/proto"
@@ -76,12 +77,12 @@ func (o *Client) RequestEnvelope(requestID string) (*r1sv1.Envelope, bool) {
 }
 
 // Inspect creates a fresh query so allocator replay caching cannot return stale state.
-func (o *Client) Inspect(executionID string) (string, *r1sv1.Envelope, error) {
+func (o *Client) Inspect(executionID string) (meshbus.PeerID, *r1sv1.Envelope, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	record := o.executions[executionID]
 	if record == nil {
-		return "", nil, fmt.Errorf("%w: %q", ErrExecutionNotFound, executionID)
+		return meshbus.PeerID{}, nil, fmt.Errorf("%w: %q", ErrExecutionNotFound, executionID)
 	}
 	previous := record.inspectMessageID
 	previousSentAt := record.inspectSentAt
@@ -90,33 +91,33 @@ func (o *Client) Inspect(executionID string) (string, *r1sv1.Envelope, error) {
 	if record.inspectMessageID == "" {
 		record.inspectMessageID = previous
 		record.inspectSentAt = previousSentAt
-		return "", nil, fmt.Errorf("%w: ID generator returned an empty ID", ErrInvalidConfig)
+		return meshbus.PeerID{}, nil, fmt.Errorf("%w: ID generator returned an empty ID", ErrInvalidConfig)
 	}
-	return record.destination, &r1sv1.Envelope{
+	return record.peer, &r1sv1.Envelope{
 		MessageId: record.inspectMessageID, Sender: bytes.Clone(o.identity), SentAt: timestamppb.New(record.inspectSentAt),
 		Payload: &r1sv1.Envelope_ExecutionInspect{ExecutionInspect: &r1sv1.ExecutionInspect{ExecutionId: executionID}},
 	}, nil
 }
 
 // Cancel records a stable cancellation before it is sent.
-func (o *Client) Cancel(executionID, reason string) (string, *r1sv1.Envelope, error) {
+func (o *Client) Cancel(executionID, reason string) (meshbus.PeerID, *r1sv1.Envelope, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	record := o.executions[executionID]
 	if record == nil {
-		return "", nil, fmt.Errorf("%w: %q", ErrExecutionNotFound, executionID)
+		return meshbus.PeerID{}, nil, fmt.Errorf("%w: %q", ErrExecutionNotFound, executionID)
 	}
 	if record.cancelMessageID == "" {
 		record.cancelMessageID = o.newID()
 		record.cancelSentAt = o.now().UTC()
 		record.cancelReason = reason
 		if record.cancelMessageID == "" {
-			return "", nil, fmt.Errorf("%w: ID generator returned an empty ID", ErrInvalidConfig)
+			return meshbus.PeerID{}, nil, fmt.Errorf("%w: ID generator returned an empty ID", ErrInvalidConfig)
 		}
 	} else if record.cancelReason != reason {
-		return "", nil, ErrConflict
+		return meshbus.PeerID{}, nil, ErrConflict
 	}
-	return record.destination, &r1sv1.Envelope{
+	return record.peer, &r1sv1.Envelope{
 		MessageId: record.cancelMessageID, Sender: bytes.Clone(o.identity), SentAt: timestamppb.New(record.cancelSentAt),
 		Payload: &r1sv1.Envelope_ExecutionCancel{ExecutionCancel: &r1sv1.ExecutionCancel{ExecutionId: executionID, Reason: reason}},
 	}, nil

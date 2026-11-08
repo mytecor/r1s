@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -18,7 +19,7 @@ func releaseClient(t *testing.T) (*Client, *r1sv1.Envelope) {
 		t.Fatal(err)
 	}
 	for i, name := range []string{"winner", "loser", "late"} {
-		if err := core.RegisterAllocator(Allocator{Identity: []byte(name), Destination: name, Hops: uint8(i)}); err != nil {
+		if err := core.RegisterAllocator(Allocator{Identity: []byte(name), Hops: uint8(i)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -48,19 +49,19 @@ func TestOfferReleaseWorkerDrainsLateOffersAndRetriesStableCommands(t *testing.T
 	var mu sync.Mutex
 	seen := make(map[string]string)
 	counts := make(map[string]int)
-	send := func(ctx context.Context, destination string, envelope *r1sv1.Envelope) error {
+	send := func(ctx context.Context, destination meshbus.PeerID, envelope *r1sv1.Envelope) error {
 		mu.Lock()
 		defer mu.Unlock()
-		if previous := seen[destination]; previous != "" && previous != envelope.GetMessageId() {
+		if previous := seen[string(destination.Bytes())]; previous != "" && previous != envelope.GetMessageId() {
 			t.Error("retry changed message ID")
 		}
-		seen[destination] = envelope.GetMessageId()
-		counts[destination]++
-		if counts[destination] == 1 {
+		seen[string(destination.Bytes())] = envelope.GetMessageId()
+		counts[string(destination.Bytes())]++
+		if counts[string(destination.Bytes())] == 1 {
 			return nil
 		} // Simulate lost delivery or acknowledgement.
 		release := envelope.GetExecutionOfferRelease()
-		return core.Handle(ctx, &r1sv1.Envelope{MessageId: fmt.Sprint("ack-", destination), Sender: []byte(destination), SentAt: timestamppb.Now(), CorrelationId: envelope.GetMessageId(),
+		return core.Handle(ctx, &r1sv1.Envelope{MessageId: fmt.Sprint("ack-", destination), Sender: destination.Bytes(), SentAt: timestamppb.Now(), CorrelationId: envelope.GetMessageId(),
 			Payload: &r1sv1.Envelope_ExecutionOfferReleaseAck{ExecutionOfferReleaseAck: &r1sv1.ExecutionOfferReleaseAck{RequestId: release.GetRequestId(), OfferId: release.GetOfferId(), Outcome: r1sv1.OfferReleaseOutcome_OFFER_RELEASE_OUTCOME_RELEASED}},
 		})
 	}
@@ -89,7 +90,7 @@ func TestOfferReleaseWorkerStopsWithContextAndKeepsOutbox(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	started := make(chan struct{}, 1)
-	finish := core.StartOfferReleases(ctx, func(ctx context.Context, _ string, _ *r1sv1.Envelope) error {
+	finish := core.StartOfferReleases(ctx, func(ctx context.Context, _ meshbus.PeerID, _ *r1sv1.Envelope) error {
 		select {
 		case started <- struct{}{}:
 		default:

@@ -5,13 +5,14 @@ import (
 	"sync"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 )
 
 // StartOfferReleases retries in-memory offer cleanup without blocking assignment or state handling. The run controller retries
 // the stable pending set, including late offers. Shutdown gives ACKs a bounded window;
 // an unreachable allocator still has its original lease expiry.
-func (o *Client) StartOfferReleases(parent context.Context, send func(context.Context, string, *r1sv1.Envelope) error) func() []PendingRelease {
+func (o *Client) StartOfferReleases(parent context.Context, send func(context.Context, meshbus.PeerID, *r1sv1.Envelope) error) func() []PendingRelease {
 	ctx, cancel := context.WithCancel(parent)
 	drainRequest := make(chan struct{})
 	done := make(chan struct{})
@@ -40,7 +41,7 @@ func (o *Client) StartOfferReleases(parent context.Context, send func(context.Co
 					defer batch.Done()
 					sendContext, stop := context.WithTimeout(ctx, 500*time.Millisecond)
 					defer stop()
-					_ = send(sendContext, release.Destination, release.Envelope)
+					_ = send(sendContext, release.Peer, release.Envelope)
 				}()
 				launched++
 				if launched == 4 {

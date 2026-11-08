@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -32,7 +33,7 @@ func leasedExecution(t *testing.T, leaseDuration time.Duration) (*Client, string
 	}
 	executionID := assignment.GetExecutionAssign().GetExecutionId()
 	destination, _, lost, err := core.Maintain(executionID, leaseDuration)
-	if err != nil || lost || destination != "near" {
+	if err != nil || lost || string(destination.Bytes()) != "allocator" {
 		t.Fatalf("Maintain() = (%q, lost=%v, %v)", destination, lost, err)
 	}
 	return core, executionID
@@ -172,11 +173,11 @@ func TestRebindLeaseIntentMovesDutyToReplacement(t *testing.T) {
 
 	// Pin allocator destinations with the intent; a re-request must preserve
 	// the original placement constraint.
-	if err := core.RecordLeaseIntent(executionID, 5*time.Minute, []string{"pin-a", "pin-b", "pin-a"}); err != nil {
+	if err := core.RecordLeaseIntent(executionID, 5*time.Minute, []meshbus.PeerID{testPeer("pin-a"), testPeer("pin-b"), testPeer("pin-a")}); err != nil {
 		t.Fatal(err)
 	}
 	pinned := core.LeaseIntentAllocators(executionID)
-	if len(pinned) != 2 || pinned[0] != "pin-a" || pinned[1] != "pin-b" {
+	if len(pinned) != 2 || string(pinned[0].Bytes()) != "pin-a" || string(pinned[1].Bytes()) != "pin-b" {
 		t.Fatalf("LeaseIntentAllocators() = %v, want deduplicated [pin-a pin-b]", pinned)
 	}
 
@@ -211,11 +212,11 @@ func TestRebindLeaseIntentMovesDutyToReplacement(t *testing.T) {
 		t.Fatalf("DueLeaseRenewals() = %v, want [%s]", due, replacementID)
 	}
 	destination, envelope, lost, err := core.Maintain(replacementID, 0)
-	if err != nil || lost || destination != "near" || envelope.GetExecutionLeaseRenew().GetLeaseDuration().AsDuration() != 5*time.Minute {
+	if err != nil || lost || string(destination.Bytes()) != "allocator" || envelope.GetExecutionLeaseRenew().GetLeaseDuration().AsDuration() != 5*time.Minute {
 		t.Fatalf("rebound Maintain() = (%q, lost=%v, %v, %v)", destination, lost, envelope.GetExecutionLeaseRenew().GetLeaseDuration(), err)
 	}
 	// The pinning moves with the intent and leaves the lost execution.
-	if moved := core.LeaseIntentAllocators(replacementID); len(moved) != 2 || moved[0] != "pin-a" || moved[1] != "pin-b" {
+	if moved := core.LeaseIntentAllocators(replacementID); len(moved) != 2 || string(moved[0].Bytes()) != "pin-a" || string(moved[1].Bytes()) != "pin-b" {
 		t.Fatalf("rebound LeaseIntentAllocators() = %v, want [pin-a pin-b]", moved)
 	}
 	if left := core.LeaseIntentAllocators(executionID); left != nil {

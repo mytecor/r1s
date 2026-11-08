@@ -410,3 +410,15 @@ This file records unresolved choices so they do not remain implicit in implement
   per-session feed and pending-open off the shared pump (per-session read goroutines or a
   non-blocking pending queue) so one slow or abusive peer cannot throttle the allocator's whole
   tunnel edge.
+
+## Node adoption follow-up
+
+- Run the full shared-daemon, Python interoperability, and Linux containerd regression from
+  [F7-02](./f7-verification/f7-02-live-regression.md) for
+  [F24-13](./f24-meshbus-extraction/f24-13-r1s-node-adoption.md); local deterministic and loopback
+  RNS verification does not count as that deployment acceptance.
+- Upstream meshbus v0.4.0 `Endpoint.SendMessage` requires `DestinationForIdentity` even when an
+  authenticated inbound session already exists for a passive peer. r1s currently resolves that
+  case inside its Node transport adapter through the session keyed by identity. Once upstream
+  supports the same PeerID contract, upgrade the module and remove the workaround while retaining
+  the passive-client direct and pub/sub regression test.

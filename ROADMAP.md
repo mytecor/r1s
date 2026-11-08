@@ -314,8 +314,8 @@ retaining the embedded-Ygg adapter.
   requests and stranding client transports on a busy shared daemon). The prior v0.3.0 release
   reorganized the public API into
   `core`, `security/realm`, and `transport/rns`, added wildcard subscriptions and leased peer-interest
-  routing, and removed the redundant RNS session-wide send mutex. r1s uses only the realm and direct
-  transport surfaces, so its Protobuf control semantics remain unchanged. The upgrade to v0.4.0 was
+  routing, and removed the redundant RNS session-wide send mutex. F24-13 now composes Node peer
+  routing, discovery snapshots, and advisory status pub/sub while keeping Protobuf control direct. The upgrade to v0.4.0 was
   verified by the full live acceptance suite on `mytecor-homelab-ygg`.
 - **Done when:** r1s composes its control protocol over a reusable meshbus direct-message boundary;
   authenticated realm peers can publish best-effort, TTL-bounded, deduplicated events by fan-out;
@@ -338,6 +338,10 @@ retaining the embedded-Ygg adapter.
   [F24](#f24-brokerless-meshbus-extraction).
 
 ## Current implementation order
+
+- [F24-13](./roadmap/f24-meshbus-extraction/f24-13-r1s-node-adoption.md) adopts Node peer routing,
+  full discovery snapshots, and advisory allocator status. Implementation and deterministic checks
+  are complete; the full opt-in live regression is still pending.
 
 - [F25](#f25-deterministic-allocator-bootstrap) is complete. Credentials and `r1s1:`
   transfer bundles carry bounded public allocator destinations to fresh broker-created run endpoints

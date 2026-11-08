@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/cluster"
 	"github.com/mytecor/r1s/internal/transport/rns"
@@ -24,10 +25,11 @@ import (
 type endpoint interface {
 	Start(context.Context) error
 	Send(context.Context, string, *r1sv1.Envelope) error
+	SendPeer(context.Context, meshbus.PeerID, *r1sv1.Envelope) error
 	Close() error
 	Name() string
 	Discoveries() <-chan rns.Service
-	DestinationForIdentity(string) (string, bool)
+	Services() []rns.Service
 }
 
 type endpointFactory func([]byte, time.Duration, func(context.Context, *r1sv1.Envelope) error) (endpoint, error)
@@ -138,11 +140,7 @@ func (s *Server) serveEndpoint(ctx context.Context, connection net.Conn, first f
 		if err != nil {
 			return err
 		}
-		destination := ""
-		if active != nil {
-			destination, _ = active.DestinationForIdentity(hex.EncodeToString(envelope.GetSender()))
-		}
-		return writer.write(frame{Type: "envelope", Destination: destination, Envelope: data})
+		return writer.write(frame{Type: "envelope", Envelope: data})
 	}
 	created, err := factory(s.ClusterKey, time.Duration(first.NetworkWait), handler)
 	if err != nil {
@@ -159,6 +157,7 @@ func (s *Server) serveEndpoint(ctx context.Context, connection net.Conn, first f
 	}
 	sessionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	sends := make(chan struct{}, 64)
 	for {
 		request, err := readFrame(connection)
 		if err != nil {
@@ -168,21 +167,27 @@ func (s *Server) serveEndpoint(ctx context.Context, connection net.Conn, first f
 		case "start":
 			err = active.Start(sessionCtx)
 			if err == nil {
-				go forwardDiscoveries(sessionCtx, active.Discoveries(), writer)
+				go forwardDiscoveries(sessionCtx, active, writer)
 			}
-		case "send":
-			var envelope r1sv1.Envelope
-			if unmarshalErr := proto.Unmarshal(request.Envelope, &envelope); unmarshalErr != nil {
-				err = unmarshalErr
-			} else {
-				operationCtx := sessionCtx
-				operationCancel := func() {}
-				if first.NetworkWait > 0 {
-					operationCtx, operationCancel = context.WithTimeout(sessionCtx, time.Duration(first.NetworkWait))
-				}
-				err = active.Send(operationCtx, request.Target, &envelope)
-				operationCancel()
+		case "send", "send-peer":
+			select {
+			case sends <- struct{}{}:
+				go func(request frame) {
+					defer func() { <-sends }()
+					sendErr := sendEnvelope(sessionCtx, active, time.Duration(first.NetworkWait), request)
+					response := frame{Type: "response", ID: request.ID}
+					if sendErr != nil {
+						response.Error = sendErr.Error()
+					}
+					if writer.write(response) != nil {
+						_ = connection.Close()
+					}
+				}(request)
+				continue
+			default:
+				err = errors.New("broker: too many pending sends")
 			}
+
 		case "close":
 			_ = writer.write(frame{Type: "response", ID: request.ID})
 			return
@@ -199,19 +204,50 @@ func (s *Server) serveEndpoint(ctx context.Context, connection net.Conn, first f
 	}
 }
 
-func forwardDiscoveries(ctx context.Context, discoveries <-chan rns.Service, writer *lockedWriter) {
+func sendEnvelope(ctx context.Context, active endpoint, timeout time.Duration, request frame) error {
+	var envelope r1sv1.Envelope
+	if err := proto.Unmarshal(request.Envelope, &envelope); err != nil {
+		return err
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if request.Type == "send" {
+		return active.Send(ctx, request.Target, &envelope)
+	}
+	identity, err := hex.DecodeString(request.Target)
+	if err != nil {
+		return err
+	}
+	peer, err := meshbus.NewPeerID(identity)
+	if err != nil {
+		return err
+	}
+	return active.SendPeer(ctx, peer, &envelope)
+}
+
+func forwardDiscoveries(ctx context.Context, active endpoint, writer *lockedWriter) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	var previous string
 	for {
+		data, err := json.Marshal(active.Services())
+		if err != nil {
+			return
+		}
+		if string(data) != previous {
+			if writer.write(frame{Type: "services", Service: data}) != nil {
+				return
+			}
+			previous = string(data)
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case service, ok := <-discoveries:
-			if !ok {
-				return
-			}
-			data, err := json.Marshal(service)
-			if err != nil || writer.write(frame{Type: "discovery", Service: data}) != nil {
-				return
-			}
+		case <-ticker.C:
+		case <-active.Discoveries():
 		}
 	}
 }

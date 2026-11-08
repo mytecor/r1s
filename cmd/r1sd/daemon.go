@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -171,7 +172,9 @@ func (d *daemon) serve(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reconcile allocator state: %w", err)
 	}
-	if err := d.endpoint.Start(ctx); err != nil {
+	transportCtx, stopTransport := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopTransport()
+	if err := d.endpoint.Start(transportCtx); err != nil {
 		return err
 	}
 	fmt.Fprintf(d.stdout, "r1sd ready identity=%s destination=%s\n", d.endpoint.Name(), d.endpoint.Destination())
@@ -189,6 +192,8 @@ func (d *daemon) serve(ctx context.Context) error {
 		fmt.Fprintf(d.stdout, "r1sd tunnel edge ready address=%x pubkey=%x\n", d.tunnel.node.AddressBytes(), d.tunnel.node.PublicKey())
 		go d.tunnel.runAcceptLoop(ctx, d.core)
 	}
+	statusDone := make(chan struct{})
+	go func() { defer close(statusDone); d.publishStatus(ctx) }()
 	ticker := time.NewTicker(d.sweepInterval)
 	defer ticker.Stop()
 	for {
@@ -197,6 +202,11 @@ func (d *daemon) serve(ctx context.Context) error {
 		}
 		select {
 		case <-ctx.Done():
+			<-statusDone
+			d.core.SetDraining(true)
+			sendCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = d.endpoint.PublishStatus(sendCtx, "r1s.allocator.draining", rns.AllocatorStatus{Revision: ^uint64(0), Capacity: d.core.AvailableCapacity(), Draining: true})
+			cancel()
 			return ctx.Err()
 		case <-ticker.C:
 		}
@@ -218,5 +228,34 @@ func (d *daemon) close() {
 	}
 	if d.stateStore != nil {
 		_ = d.stateStore.Close()
+	}
+}
+
+// Aggregate capacity changes and periodically refresh for peers whose interests
+// arrived after startup. Advisory delivery never blocks the execution loop.
+func (d *daemon) publishStatus(ctx context.Context) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	var previous map[string]uint32
+	var revision uint64
+	var last time.Time
+	for {
+		capacity := d.core.AvailableCapacity()
+		if !maps.Equal(previous, capacity) || time.Since(last) >= 5*time.Second {
+			revision++
+			sendCtx, cancel := context.WithTimeout(ctx, time.Second)
+			topic := "r1s.allocator.capacity"
+			if revision == 1 {
+				topic = "r1s.allocator.ready"
+			}
+			_ = d.endpoint.PublishStatus(sendCtx, topic, rns.AllocatorStatus{Revision: revision, Capacity: capacity, Ready: true})
+			cancel()
+			previous, last = capacity, time.Now()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }

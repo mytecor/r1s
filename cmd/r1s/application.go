@@ -42,7 +42,7 @@ func (a *application) start() error {
 func (a *application) stop(diagnostics io.Writer) {
 	if a.controller != nil {
 		for _, release := range a.controller.Close() {
-			fmt.Fprintf(diagnostics, "offer release pending allocator=%s offer=%s; retained for retry, lease expiry remains the fallback\n", release.Destination, release.OfferID)
+			fmt.Fprintf(diagnostics, "offer release pending allocator=%s offer=%s; retained for retry, lease expiry remains the fallback\n", release.PeerID, release.OfferID)
 		}
 	}
 }

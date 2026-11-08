@@ -134,7 +134,7 @@ func TestLiveIdentityQuotaEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selectedDestination != daemon.destination {
+	if selectedDestination.String() != daemon.identity {
 		t.Fatalf("selected destination = %s, want %s", selectedDestination, daemon.destination)
 	}
 	liveClient.send(t, selectedDestination, assignment)

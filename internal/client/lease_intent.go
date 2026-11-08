@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
 	"google.golang.org/protobuf/proto"
@@ -30,21 +31,21 @@ const clientDefaultLease = protocol.DefaultLease
 // renewal (the execution was evicted or its metadata is gone): the recorded
 // workload must be re-requested with a fresh request, and the intent then
 // rebinds to the replacement execution via RebindLeaseIntent.
-func (o *Client) Maintain(executionID string, leaseDuration time.Duration) (destination string, envelope *r1sv1.Envelope, lost bool, err error) {
+func (o *Client) Maintain(executionID string, leaseDuration time.Duration) (peer meshbus.PeerID, envelope *r1sv1.Envelope, lost bool, err error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	record := o.executions[executionID]
 	if record == nil {
-		return "", nil, false, ErrExecutionNotFound
+		return meshbus.PeerID{}, nil, false, ErrExecutionNotFound
 	}
 	if record.leaseLost {
-		return record.destination, nil, true, nil
+		return record.peer, nil, true, nil
 	}
 	if record.state != nil && protocol.Terminal(record.state.GetPhase()) {
 		if isLostLeaseState(record.state) {
 			return o.markLeaseLostLocked(record)
 		}
-		return "", nil, false, ErrConflict
+		return meshbus.PeerID{}, nil, false, ErrConflict
 	}
 	if leaseDuration > 0 {
 		record.leaseDuration = leaseDuration
@@ -56,7 +57,7 @@ func (o *Client) Maintain(executionID string, leaseDuration time.Duration) (dest
 	// return a stale ack; replaying one renewal is still safe and idempotent.
 	messageID := o.newID()
 	if messageID == "" {
-		return "", nil, false, ErrInvalidConfig
+		return meshbus.PeerID{}, nil, false, ErrInvalidConfig
 	}
 	now := o.now().UTC()
 	record.leaseRenewMessageID = messageID
@@ -69,7 +70,7 @@ func (o *Client) Maintain(executionID string, leaseDuration time.Duration) (dest
 			ExecutionId: record.id, LeaseDuration: durationpb.New(record.leaseDuration),
 		}},
 	}
-	return record.destination, envelope, false, nil
+	return record.peer, envelope, false, nil
 }
 
 // DueLeaseRenewals returns execution IDs whose recorded lease intent is due
@@ -98,9 +99,9 @@ func (o *Client) DueLeaseRenewals() []string {
 // RecordLeaseIntent records the in-memory lease-holding intent for one execution
 // without sending anything. The public run controller replays it on every tick
 // and renews when due. Explicit
-// allocator destinations ride with the intent so a re-request after lease
+// allocator identities ride with the intent so a re-request after lease
 // loss preserves the original pinning.
-func (o *Client) RecordLeaseIntent(executionID string, leaseDuration time.Duration, allocators []string) error {
+func (o *Client) RecordLeaseIntent(executionID string, leaseDuration time.Duration, allocators []meshbus.PeerID) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	record := o.executions[executionID]
@@ -119,34 +120,34 @@ func (o *Client) RecordLeaseIntent(executionID string, leaseDuration time.Durati
 }
 
 // pinnedAllocators returns a deduplicated copy of the explicit allocator
-// destinations recorded with a lease-holding intent.
-func pinnedAllocators(destinations []string) []string {
-	if len(destinations) == 0 {
+// peers recorded with a lease-holding intent.
+func pinnedAllocators(peers []meshbus.PeerID) []meshbus.PeerID {
+	if len(peers) == 0 {
 		return nil
 	}
-	seen := make(map[string]bool, len(destinations))
-	var pinned []string
-	for _, destination := range destinations {
-		if destination == "" || seen[destination] {
+	seen := make(map[meshbus.PeerID]bool, len(peers))
+	var pinned []meshbus.PeerID
+	for _, peer := range peers {
+		if peer.IsZero() || seen[peer] {
 			continue
 		}
-		seen[destination] = true
-		pinned = append(pinned, destination)
+		seen[peer] = true
+		pinned = append(pinned, peer)
 	}
 	return pinned
 }
 
-// LeaseIntentAllocators returns the allocator destinations recorded with the
+// LeaseIntentAllocators returns the allocator peers recorded with the
 // lease-holding intent of one execution, so a re-request after lease loss can
 // preserve the original pinning.
-func (o *Client) LeaseIntentAllocators(executionID string) []string {
+func (o *Client) LeaseIntentAllocators(executionID string) []meshbus.PeerID {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	record := o.executions[executionID]
 	if record == nil {
 		return nil
 	}
-	return append([]string(nil), record.leaseAllocators...)
+	return append([]meshbus.PeerID(nil), record.leaseAllocators...)
 }
 
 // LeaseDue reports whether the recorded intent for one execution is due for

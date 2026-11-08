@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/tunnel"
 	"google.golang.org/protobuf/proto"
@@ -39,7 +40,8 @@ func (d *daemon) handleEnvelope(_ context.Context, envelope *r1sv1.Envelope) err
 	var responseErr error
 	for _, response := range responses {
 		sendContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		sendErr := d.endpoint.Send(sendContext, hex.EncodeToString(envelope.GetSender()), response)
+		peer, _ := meshbus.NewPeerID(envelope.GetSender())
+		sendErr := d.endpoint.SendPeer(sendContext, peer, response)
 		cancel()
 		if sendErr != nil {
 			responseErr = errors.Join(responseErr, fmt.Errorf("send response: %w", sendErr))

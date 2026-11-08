@@ -46,7 +46,7 @@ func (o *Client) Executions() []ExecutionSnapshot {
 func snapshotExecution(record *executionRecord) ExecutionSnapshot {
 	result := ExecutionSnapshot{
 		ExecutionID: record.id, RequestID: record.requestID, OfferID: record.offerID,
-		Allocator: bytes.Clone(record.allocatorID), Destination: record.destination,
+		Allocator: bytes.Clone(record.allocatorID), Peer: record.peer,
 	}
 	if record.state != nil {
 		result.State = proto.Clone(record.state).(*r1sv1.ExecutionState)

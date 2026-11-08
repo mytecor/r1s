@@ -56,6 +56,10 @@ func (a *Allocator) handleRequest(envelope *r1sv1.Envelope, request *r1sv1.Execu
 		}
 	}
 
+	if a.draining {
+		return nil, fmt.Errorf("%w: allocator is draining", ErrCapacityExhausted)
+	}
+
 	for _, dead := range a.tombstones {
 		if bytes.Equal(dead.Client, envelope.GetSender()) && dead.RequestID == request.GetRequestId() {
 			return nil, ErrResultExpired

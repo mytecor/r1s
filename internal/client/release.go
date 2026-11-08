@@ -6,33 +6,34 @@ import (
 	"sort"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type releaseIntent struct {
-	MessageID    string    `json:"message_id"`
-	SentAt       time.Time `json:"sent_at"`
-	Destination  string    `json:"destination"`
-	Acknowledged bool      `json:"acknowledged,omitempty"`
+	MessageID    string         `json:"message_id"`
+	SentAt       time.Time      `json:"sent_at"`
+	Peer         meshbus.PeerID `json:"peer"`
+	Acknowledged bool           `json:"acknowledged,omitempty"`
 }
 
 // PendingRelease is a stable in-memory command for one unselected allocator.
 type PendingRelease struct {
-	Destination string
-	Envelope    *r1sv1.Envelope
+	Peer     meshbus.PeerID
+	Envelope *r1sv1.Envelope
 }
 
 func (o *Client) newReleaseLocked(offer *offerRecord) (*releaseIntent, error) {
 	allocator, ok := o.allocators.lookup(offer.allocatorID)
-	if !ok || allocator.Destination == "" {
+	if !ok || allocator.Peer.IsZero() {
 		return nil, ErrInvalidAllocator
 	}
 	messageID := o.newID()
 	if messageID == "" {
 		return nil, fmt.Errorf("%w: empty release message ID", ErrInvalidConfig)
 	}
-	return &releaseIntent{MessageID: messageID, SentAt: o.now().UTC(), Destination: allocator.Destination}, nil
+	return &releaseIntent{MessageID: messageID, SentAt: o.now().UTC(), Peer: allocator.Peer}, nil
 }
 
 // PendingReleases returns independent envelopes until acknowledged or expired.
@@ -48,7 +49,7 @@ func (o *Client) PendingReleases() []PendingRelease {
 			if intent == nil || intent.Acknowledged || !offer.offer.GetExpiresAt().AsTime().After(now) {
 				continue
 			}
-			pending = append(pending, PendingRelease{Destination: intent.Destination, Envelope: &r1sv1.Envelope{
+			pending = append(pending, PendingRelease{Peer: intent.Peer, Envelope: &r1sv1.Envelope{
 				MessageId: intent.MessageID, Sender: bytes.Clone(o.identity), SentAt: timestamppb.New(intent.SentAt),
 				Payload: &r1sv1.Envelope_ExecutionOfferRelease{ExecutionOfferRelease: &r1sv1.ExecutionOfferRelease{
 					RequestId: request.request.GetRequestId(), OfferId: offer.offer.GetOfferId(),

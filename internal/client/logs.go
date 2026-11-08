@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/protocol"
 	"google.golang.org/protobuf/proto"
@@ -10,22 +11,22 @@ import (
 )
 
 // Logs creates one explicit request. Intent is transient; restart never resumes it.
-func (o *Client) Logs(id, stream string, offset uint64, limit uint32) (string, *r1sv1.Envelope, error) {
+func (o *Client) Logs(id, stream string, offset uint64, limit uint32) (meshbus.PeerID, *r1sv1.Envelope, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	record := o.executions[id]
 	if record == nil {
-		return "", nil, ErrExecutionNotFound
+		return meshbus.PeerID{}, nil, ErrExecutionNotFound
 	}
 	request := &r1sv1.ExecutionLogsRequest{ExecutionId: id, Stream: stream, Offset: offset, MaxBytes: limit}
 	e := &r1sv1.Envelope{MessageId: o.newID(), Sender: bytes.Clone(o.identity), SentAt: timestamppb.New(o.now().UTC()), Payload: &r1sv1.Envelope_ExecutionLogsRequest{ExecutionLogsRequest: request}}
 	if err := protocol.ValidateEnvelope(e); err != nil {
-		return "", nil, err
+		return meshbus.PeerID{}, nil, err
 	}
 	// A client has at most one outstanding explicit log read. No background log queue.
 	o.logMessageID = e.GetMessageId()
 	o.logRequest = proto.Clone(request).(*r1sv1.ExecutionLogsRequest)
-	return record.destination, e, nil
+	return record.peer, e, nil
 }
 
 func (o *Client) logAuthorityLocked(e *r1sv1.Envelope) bool {

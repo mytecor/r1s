@@ -20,6 +20,7 @@ import (
 	containerdclient "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/client"
 	"github.com/mytecor/r1s/internal/cluster"
@@ -127,7 +128,7 @@ func TestPartitionRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if replayedDestination != daemon.destination || !proto.Equal(replayedAssignment, assignment) {
+	if replayedDestination.String() != daemon.identity || !proto.Equal(replayedAssignment, assignment) {
 		t.Fatalf("durable assignment changed across restart:\nfirst=%v\nreplayed=%v", assignment, replayedAssignment)
 	}
 	liveClient.send(t, replayedDestination, replayedAssignment)
@@ -195,12 +196,10 @@ func (c *acceptanceClient) connect(t *testing.T) {
 	endpoint, err := rns.New(rns.Config{
 		IdentitySource: c.path, ClusterKey: acceptanceClusterKey, NetworkWait: 15 * time.Second,
 	}, func(handlerContext context.Context, envelope *r1sv1.Envelope) error {
-		identityKey := hex.EncodeToString(envelope.GetSender())
-		if destination, ok := c.endpoint.DestinationForIdentity(identityKey); ok {
-			if registerErr := c.core.RegisterAllocator(client.Allocator{Identity: envelope.GetSender(), Destination: destination}); registerErr != nil {
-				return registerErr
-			}
+		if registerErr := c.core.RegisterAllocator(client.Allocator{Identity: envelope.GetSender()}); registerErr != nil {
+			return registerErr
 		}
+
 		handleErr := c.core.Handle(handlerContext, envelope)
 		if c.observed != nil {
 			select {
@@ -285,7 +284,7 @@ func (c *acceptanceClient) waitForAllocator(t *testing.T, identity string) rns.S
 				t.Fatal(err)
 			}
 			if err := c.core.RegisterAllocator(client.Allocator{
-				Identity: decoded, Destination: service.Destination, Hops: service.Hops, Capacity: service.Descriptor.Capacity,
+				Identity: decoded, Hops: service.Hops, Capacity: service.Descriptor.Capacity,
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -296,20 +295,27 @@ func (c *acceptanceClient) waitForAllocator(t *testing.T, identity string) rns.S
 	}
 }
 
-func (c *acceptanceClient) send(t *testing.T, destination string, envelope *r1sv1.Envelope) {
+func (c *acceptanceClient) send(t *testing.T, target any, envelope *r1sv1.Envelope) {
 	t.Helper()
 	deadline := time.Now().Add(40 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
 		ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
-		lastErr = c.endpoint.Send(ctx, destination, envelope)
+		switch value := target.(type) {
+		case meshbus.PeerID:
+			lastErr = c.endpoint.SendPeer(ctx, value, envelope)
+		case string:
+			lastErr = c.endpoint.Send(ctx, value, envelope)
+		default:
+			t.Fatalf("unsupported send target %T", target)
+		}
 		cancel()
 		if lastErr == nil {
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatalf("send %s to %s after retry: %v", envelope.GetMessageId(), destination, lastErr)
+	t.Fatalf("send %s to %s after retry: %v", envelope.GetMessageId(), target, lastErr)
 }
 
 func startExecution(t *testing.T, c *acceptanceClient, destination, image, script string) (string, *r1sv1.Envelope) {
@@ -334,7 +340,7 @@ func startExecution(t *testing.T, c *acceptanceClient, destination, image, scrip
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selectedDestination != destination {
+	if route, _ := c.endpoint.DestinationForIdentity(selectedDestination.String()); route != destination {
 		t.Fatalf("selected destination = %s, want %s", selectedDestination, destination)
 	}
 	c.send(t, selectedDestination, assignment)

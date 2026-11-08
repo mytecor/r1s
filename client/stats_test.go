@@ -30,9 +30,8 @@ func TestClientStatsAfterRun(t *testing.T) {
 	endpoint := &fakeControllerEndpoint{client: c, discoveries: make(chan rns.Service, 1)}
 	c.endpoint = endpoint
 	endpoint.discoveries <- rns.Service{
-		Destination: "allocator-destination",
-		Identity:    "616c6c6f6361746f72",
-		Descriptor:  rns.Descriptor{Capacity: map[string]uint32{"default": 1}},
+		Identity:   "616c6c6f6361746f72",
+		Descriptor: rns.Descriptor{Capacity: map[string]uint32{"default": 1}},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

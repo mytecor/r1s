@@ -22,7 +22,7 @@ type ExecutionSnapshot struct {
 	RequestID   string
 	OfferID     string
 	Allocator   []byte
-	Destination string
+	PeerID      string
 	State       *r1sv1.ExecutionState
 }
 
@@ -61,7 +61,7 @@ func (c *Client) Stats() Statistics {
 			RequestID:   e.RequestID,
 			OfferID:     e.OfferID,
 			Allocator:   bytes.Clone(e.Allocator),
-			Destination: e.Destination,
+			PeerID:      e.Peer.String(),
 			State:       state,
 		}
 	}

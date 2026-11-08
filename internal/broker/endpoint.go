@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/cluster"
 	"github.com/mytecor/r1s/internal/transport/rns"
@@ -34,7 +34,7 @@ type Endpoint struct {
 	mu          sync.Mutex
 	nextID      uint64
 	pending     map[uint64]chan frame
-	routes      map[string]string
+	services    []rns.Service
 	discoveries chan rns.Service
 	done        chan struct{}
 	closeOnce   sync.Once
@@ -76,7 +76,7 @@ func OpenEndpoint(address string, networkWait time.Duration, handler func(contex
 	endpoint := &Endpoint{
 		connection: connection, identity: opened.Identity, clusterID: opened.ClusterID,
 		bootstrap: bootstrap, handler: handler,
-		pending: make(map[uint64]chan frame), routes: make(map[string]string),
+		pending:     make(map[uint64]chan frame),
 		discoveries: make(chan rns.Service, 32), done: make(chan struct{}),
 	}
 	go endpoint.readLoop()
@@ -93,11 +93,20 @@ func (e *Endpoint) BootstrapDestinations() []string {
 
 func (e *Endpoint) Discoveries() <-chan rns.Service { return e.discoveries }
 
-func (e *Endpoint) DestinationForIdentity(identity string) (string, bool) {
+func (e *Endpoint) Services() []rns.Service {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	destination, ok := e.routes[identity]
-	return destination, ok
+	data, _ := json.Marshal(e.services)
+	var result []rns.Service
+	_ = json.Unmarshal(data, &result)
+	return result
+}
+func (e *Endpoint) SendPeer(ctx context.Context, peer meshbus.PeerID, envelope *r1sv1.Envelope) error {
+	data, err := proto.Marshal(envelope)
+	if err != nil {
+		return err
+	}
+	return e.request(ctx, frame{Type: "send-peer", Target: peer.String(), Envelope: data})
 }
 
 func (e *Endpoint) Start(ctx context.Context) error {
@@ -166,28 +175,25 @@ func (e *Endpoint) readLoop() {
 			if response != nil {
 				response <- message
 			}
-		case "discovery":
-			var service rns.Service
-			if json.Unmarshal(message.Service, &service) != nil {
+		case "services":
+			var services []rns.Service
+			if json.Unmarshal(message.Service, &services) != nil {
 				continue
 			}
 			e.mu.Lock()
-			e.routes[service.Identity] = service.Destination
+			e.services = services
 			e.mu.Unlock()
 			select {
-			case e.discoveries <- service:
+			case e.discoveries <- rns.Service{}:
 			default:
 			}
+
 		case "envelope":
 			var envelope r1sv1.Envelope
 			if proto.Unmarshal(message.Envelope, &envelope) != nil {
 				continue
 			}
-			if message.Destination != "" {
-				e.mu.Lock()
-				e.routes[hex.EncodeToString(envelope.GetSender())] = message.Destination
-				e.mu.Unlock()
-			}
+
 			_ = e.handler(context.Background(), &envelope)
 		}
 	}

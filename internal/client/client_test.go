@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"github.com/mytecor/r1s/internal/allocator"
 	r1sruntime "github.com/mytecor/r1s/internal/runtime"
@@ -38,7 +39,7 @@ func TestSelectIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if destination != "near" || assignment.GetExecutionAssign().GetOfferId() != "offer-near" {
+	if string(destination.Bytes()) != "allocator-near" || assignment.GetExecutionAssign().GetOfferId() != "offer-near" {
 		t.Fatalf("selection destination=%q assignment=%v", destination, assignment)
 	}
 	// Re-selecting the same request returns the identical assignment without
@@ -86,7 +87,7 @@ func TestSelectIgnoresRandomizedAllocatorAndOfferOrder(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if destination != "destination-allocator-a" || assignment.GetExecutionAssign().GetOfferId() != "offer-allocator-a" {
+		if string(destination.Bytes()) != "allocator-a" || assignment.GetExecutionAssign().GetOfferId() != "offer-allocator-a" {
 			t.Fatalf("seed %d selected destination=%q offer=%q", seed, destination, assignment.GetExecutionAssign().GetOfferId())
 		}
 		if pending := core.PendingReleases(); len(pending) != len(identities)-1 {
@@ -229,32 +230,32 @@ func TestTwoAllocatorWorkflowAndRetainedTerminalState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if destination != "allocator-b" {
+	if string(destination.Bytes()) != "allocator-b" {
 		t.Fatalf("selected %q, want allocator-b", destination)
 	}
 	// Deliver loser cleanup before assignment to prove ordering cannot free the winner.
 	for _, release := range clientCore.PendingReleases() {
-		if err := clientEndpoint.Send(context.Background(), release.Destination, release.Envelope); err != nil {
+		if err := clientEndpoint.SendPeer(context.Background(), release.Peer, release.Envelope); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if cores["allocator-a"].Available("default") != 1 || cores["allocator-b"].Available("default") != 0 || len(clientCore.PendingReleases()) != 0 {
 		t.Fatal("release did not immediately return only losing capacity")
 	}
-	if err := clientEndpoint.Send(context.Background(), destination, assignment); err != nil {
+	if err := clientEndpoint.SendPeer(context.Background(), destination, assignment); err != nil {
 		t.Fatal(err)
 	}
 	executionID := assignment.GetExecutionAssign().GetExecutionId()
 	now = now.Add(time.Second)
 	exitCode := int32(7)
-	if err := runtimes[destination].complete(executionID, &exitCode); err != nil {
+	if err := runtimes[string(destination.Bytes())].complete(executionID, &exitCode); err != nil {
 		t.Fatal(err)
 	}
 	_, inspect, err := clientCore.Inspect(executionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := clientEndpoint.Send(context.Background(), destination, inspect); err != nil {
+	if err := clientEndpoint.SendPeer(context.Background(), destination, inspect); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, ok := clientCore.Execution(executionID)
@@ -265,7 +266,7 @@ func TestTwoAllocatorWorkflowAndRetainedTerminalState(t *testing.T) {
 
 func registerAllocator(t *testing.T, core *Client, identity, destination string, hops uint8) {
 	t.Helper()
-	if err := core.RegisterAllocator(Allocator{Identity: []byte(identity), Destination: destination, Hops: hops, Capacity: map[string]uint32{"default": 1}}); err != nil {
+	if err := core.RegisterAllocator(Allocator{Identity: []byte(identity), Hops: hops, Capacity: map[string]uint32{"default": 1}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -350,3 +351,5 @@ func (r *testRuntime) complete(executionID string, exitCode *int32) error {
 	}
 	return reporter(r1sruntime.Completion{ExecutionID: executionID, ExitCode: exitCode})
 }
+
+func testPeer(name string) meshbus.PeerID { peer, _ := meshbus.NewPeerID([]byte(name)); return peer }

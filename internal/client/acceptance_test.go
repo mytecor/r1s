@@ -72,7 +72,7 @@ func TestExplicitLogsRequestAndOwnerAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if destination != "allocator" {
+	if string(destination.Bytes()) != "allocator" {
 		t.Fatalf("destination = %q", destination)
 	}
 	if q := request.GetExecutionLogsRequest(); q.GetExecutionId() != executionID || q.GetStream() != "stderr" || q.GetOffset() != 7 || q.GetMaxBytes() != 16 {

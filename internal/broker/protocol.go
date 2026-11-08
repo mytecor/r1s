@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	protocolVersion = 1
+	protocolVersion = 2
 	maxFrameBytes   = 8 << 20
 )
 
@@ -22,7 +22,6 @@ type frame struct {
 	Identity    string          `json:"identity,omitempty"`
 	NetworkWait int64           `json:"networkWait,omitempty"`
 	Target      string          `json:"target,omitempty"`
-	Destination string          `json:"destination,omitempty"`
 	Bootstrap   []string        `json:"bootstrap,omitempty"`
 	Envelope    []byte          `json:"envelope,omitempty"`
 	Service     json.RawMessage `json:"service,omitempty"`

@@ -32,6 +32,15 @@ func envelopeHandler(handler coretransport.Handler) meshbus.Handler {
 // messaging. The local identity is written for wire compatibility; receivers
 // still replace it with their session-authenticated sender.
 func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Envelope) error {
+	return e.sendEnvelope(ctx, envelope, func(data []byte) error { return e.transport.SendToDestination(ctx, target, data) })
+}
+
+// SendPeer delivers ordinary control traffic by authenticated peer identity.
+func (e *Endpoint) SendPeer(ctx context.Context, peer meshbus.PeerID, envelope *r1sv1.Envelope) error {
+	return e.sendEnvelope(ctx, envelope, func(data []byte) error { return e.node.Send(ctx, peer, data) })
+}
+
+func (e *Endpoint) sendEnvelope(ctx context.Context, envelope *r1sv1.Envelope, send func([]byte) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -44,7 +53,7 @@ func (e *Endpoint) Send(ctx context.Context, target string, envelope *r1sv1.Enve
 	if err != nil {
 		return fmt.Errorf("marshal envelope: %w", err)
 	}
-	if err := e.transport.SendToDestination(ctx, target, data); err != nil {
+	if err := send(data); err != nil {
 		return translateSendError(err)
 	}
 	return nil

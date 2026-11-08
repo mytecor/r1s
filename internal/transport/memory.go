@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	meshbus "github.com/mytecor/meshbus/core"
 	r1sv1 "github.com/mytecor/r1s/api/gen/r1s/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -108,4 +109,8 @@ func (e *MemoryEndpoint) Close() error {
 	defer e.network.mu.Unlock()
 	e.closed = true
 	return nil
+}
+
+func (e *MemoryEndpoint) SendPeer(ctx context.Context, peer meshbus.PeerID, envelope *r1sv1.Envelope) error {
+	return e.Send(ctx, string(peer.Bytes()), envelope)
 }
