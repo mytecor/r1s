@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/debug"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
 	meshbus "github.com/mytecor/meshbus/core"
 	meshrns "github.com/mytecor/meshbus/transport/rns"
@@ -29,6 +30,12 @@ var (
 	ErrInvalidDestination    = meshrns.ErrInvalidDestination
 	ErrClusterAuthentication = meshrns.ErrRealmAuthentication
 )
+
+func init() {
+	// Silence third-party mesh announce signature warnings and noisy path
+	// requests on shared instances; keep errors and critical failures.
+	debug.SetDebugLevel(debug.DebugError)
+}
 
 // Config defines the r1s-specific projection onto a reusable meshbus RNS
 // endpoint. Reticulum and Interfaces are test-harness overrides; production
